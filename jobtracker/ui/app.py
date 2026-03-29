@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self._graph_hour_start: int = int(db.get_setting("graph_hour_start", "6"))
         self._graph_hour_end: int = int(db.get_setting("graph_hour_end", "23"))
 
+        self._showing_archived: bool = False
+
         self.app_instance.aboutToQuit.connect(self._on_close)
 
         self._build_ui()
@@ -172,12 +174,18 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
 
-        add_btn = QPushButton("+ Subject")
-        add_btn.setObjectName("primaryBtn")
-        add_btn.setMinimumHeight(34)
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self._new_subject)
-        header.addWidget(add_btn)
+        self._add_subject_btn = QPushButton("+ Subject")
+        self._add_subject_btn.setObjectName("primaryBtn")
+        self._add_subject_btn.setMinimumHeight(34)
+        self._add_subject_btn.setCursor(Qt.PointingHandCursor)
+        self._add_subject_btn.clicked.connect(self._new_subject)
+        header.addWidget(self._add_subject_btn)
+
+        self._archive_toggle_btn = QPushButton("Archived")
+        self._archive_toggle_btn.setMinimumHeight(34)
+        self._archive_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._archive_toggle_btn.clicked.connect(self._toggle_archived_view)
+        header.addWidget(self._archive_toggle_btn)
 
         gear_btn = QPushButton("⚙")
         gear_btn.setObjectName("gearBtn")
@@ -385,7 +393,7 @@ class MainWindow(QMainWindow):
         else:
             self._timer.clear()
 
-        subjects = self.service.get_all_subjects()
+        subjects = self.service.get_all_subjects(archived=self._showing_archived)
         if not subjects:
             self._subjects_empty.show()
             self._subjects_list.hide()
@@ -411,11 +419,14 @@ class MainWindow(QMainWindow):
                 total_seconds=total,
                 is_dimmed=dimmed,
                 is_active=is_active,
+                is_archived=bool(subject.is_archived),
             )
             card.start_requested.connect(self._start_tracking)
             card.edit_requested.connect(self._edit_subject)
             card.delete_requested.connect(self._delete_subject)
             card.manage_sessions_requested.connect(self._manage_sessions)
+            card.archive_requested.connect(self._archive_subject)
+            card.unarchive_requested.connect(self._unarchive_subject)
             self._subjects_list.add_card(subject.id, card)
 
     def _reload_tasks(self) -> None:
@@ -454,7 +465,8 @@ class MainWindow(QMainWindow):
     def _reload_bar_chart(self) -> None:
         self._graph_stack.setCurrentIndex(0)
         data = self.service.get_daily_subject_breakdown(self._graph_range_days)
-        self._graph_view.set_data(data)
+        fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
+        self._graph_view.set_data(data, fit_width)
 
         total_seconds = sum(day["total_seconds"] for day in data)
         range_label = f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
@@ -497,15 +509,46 @@ class MainWindow(QMainWindow):
         ]
 
         sessions = self.service.get_sessions_in_range(start_day, today)
+
+        # Handle auto-fit hours
+        hour_start = self._graph_hour_start
+        hour_end = self._graph_hour_end
+        
+        if db.get_setting("graph_autofit_hours", "0") == "1" and sessions:
+            try:
+                # Find min start hour and max end hour across all sessions
+                from datetime import datetime
+                min_h = 24
+                max_h = 0
+                for s in sessions:
+                    if not s.get("start_time"): continue
+                    st = datetime.fromisoformat(s["start_time"])
+                    min_h = min(min_h, st.hour)
+                    
+                    if s.get("end_time"):
+                        et = datetime.fromisoformat(s["end_time"])
+                        # If it ends exactly on the hour, use that hour. Otherwise round up.
+                        eh = et.hour if et.minute == 0 and et.second == 0 else et.hour + 1
+                        if et.date() > st.date():
+                            eh = 24 # Spilled to next day
+                        max_h = max(max_h, eh)
+                
+                if min_h < 24 and max_h > 0 and min_h < max_h:
+                    hour_start = min_h
+                    hour_end = max_h
+            except Exception:
+                pass # fallback to user settings
+
+        fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
         self._agenda_view.set_data(
-            sessions, day_keys, self._graph_hour_start, self._graph_hour_end
+            sessions, day_keys, hour_start, hour_end, fit_width
         )
 
         total_seconds = sum(s.get("duration_seconds", 0) for s in sessions)
         range_label = f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
         self._graph_subtitle.setText(
             f"Agenda · {range_label} · {total_seconds / 3600:.1f}h · "
-            f"{self._graph_hour_start:02d}:00–{self._graph_hour_end:02d}:00"
+            f"{hour_start:02d}:00–{hour_end:02d}:00"
         )
 
         seen: dict[str, str] = {}
@@ -563,6 +606,35 @@ class MainWindow(QMainWindow):
                 return
             self._reload_subjects()
             self._reload_graphs()
+
+    def _toggle_archived_view(self) -> None:
+        self._showing_archived = not self._showing_archived
+        if self._showing_archived:
+            self._archive_toggle_btn.setText("Back to Active")
+            self._archive_toggle_btn.setObjectName("primaryBtn")
+            self._add_subject_btn.hide()
+            self._timer.hide()
+        else:
+            self._archive_toggle_btn.setText("Archived")
+            self._archive_toggle_btn.setObjectName("")
+            self._add_subject_btn.show()
+            self._timer.show()
+        
+        # Re-apply styles if object name changed
+        self._archive_toggle_btn.style().unpolish(self._archive_toggle_btn)
+        self._archive_toggle_btn.style().polish(self._archive_toggle_btn)
+        
+        self._reload_subjects()
+
+    def _archive_subject(self, subject_id: int) -> None:
+        self.service.archive_subject(subject_id)
+        self._reload_subjects()
+        self._reload_graphs()
+
+    def _unarchive_subject(self, subject_id: int) -> None:
+        self.service.unarchive_subject(subject_id)
+        self._reload_subjects()
+        self._reload_graphs()
 
     def _edit_subject(self, subject_id: int) -> None:
         subject = next((s for s in self.service.get_all_subjects() if s.id == subject_id), None)

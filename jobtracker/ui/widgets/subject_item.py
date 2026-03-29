@@ -70,6 +70,8 @@ class SubjectItemWidget(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
     manage_sessions_requested = Signal(int)
+    archive_requested = Signal(int)
+    unarchive_requested = Signal(int)
 
     def __init__(
         self,
@@ -78,12 +80,14 @@ class SubjectItemWidget(QFrame):
         total_seconds: int = 0,
         is_dimmed: bool = False,
         is_active: bool = False,
+        is_archived: bool = False,
     ) -> None:
         super().__init__()
         self.subject = subject
         self.total_seconds = total_seconds
         self.is_dimmed = False
         self.is_active = False
+        self._is_archived = is_archived
         self._t = tokens
         self._press_pos = QPoint()
         self._suppress_click_once = False
@@ -276,19 +280,36 @@ class SubjectItemWidget(QFrame):
             return
         menu = QMenu(self)
 
-        edit = QAction("Edit Subject", self)
-        edit.triggered.connect(lambda: self.edit_requested.emit(self.subject.id))
-        menu.addAction(edit)
+        if self._is_archived:
+            # Archived subject: allow unarchive, manage sessions, delete
+            unarchive = QAction("Unarchive Subject", self)
+            unarchive.triggered.connect(lambda: self.unarchive_requested.emit(self.subject.id))
+            menu.addAction(unarchive)
 
-        sessions = QAction("Manage Sessions", self)
-        sessions.triggered.connect(lambda: self.manage_sessions_requested.emit(self.subject.id))
-        menu.addAction(sessions)
+            sessions = QAction("Manage Sessions", self)
+            sessions.triggered.connect(lambda: self.manage_sessions_requested.emit(self.subject.id))
+            menu.addAction(sessions)
 
-        menu.addSeparator()
+            menu.addSeparator()
 
-        delete = QAction("Delete Subject", self)
-        delete.triggered.connect(lambda: self.delete_requested.emit(self.subject.id))
-        menu.addAction(delete)
+            delete = QAction("Delete Subject", self)
+            delete.triggered.connect(lambda: self.delete_requested.emit(self.subject.id))
+            menu.addAction(delete)
+        else:
+            # Active subject: allow edit, manage sessions, archive (no delete)
+            edit = QAction("Edit Subject", self)
+            edit.triggered.connect(lambda: self.edit_requested.emit(self.subject.id))
+            menu.addAction(edit)
+
+            sessions = QAction("Manage Sessions", self)
+            sessions.triggered.connect(lambda: self.manage_sessions_requested.emit(self.subject.id))
+            menu.addAction(sessions)
+
+            menu.addSeparator()
+
+            archive = QAction("Archive Subject", self)
+            archive.triggered.connect(lambda: self.archive_requested.emit(self.subject.id))
+            menu.addAction(archive)
 
         menu.exec_(self.mapToGlobal(pos))
 

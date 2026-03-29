@@ -32,6 +32,7 @@ class _AgendaCanvas(QWidget):
         self._tokens: dict = {}
         self._hour_start: int = 6
         self._hour_end: int = 23
+        self._fit_width: bool = True
         self.setMinimumHeight(360)
 
     # ── public API ────────────────────────────────────────────────────────
@@ -45,51 +46,25 @@ class _AgendaCanvas(QWidget):
         day_keys: list[str],
         hour_start: int = 6,
         hour_end: int = 23,
+        fit_width: bool = True,
     ) -> None:
         self._sessions = sessions
         self._day_keys = day_keys
         self._hour_start = max(0, min(23, hour_start))
         self._hour_end = max(self._hour_start + 1, min(24, hour_end))
-        # Compute width so each day column gets at least 70px
-        min_width = max(400, 60 + len(day_keys) * 80)
-        self.setMinimumWidth(min_width)
+        self._fit_width = fit_width
+        
+        if not self._fit_width and self._day_keys:
+            # Compute width so each day column gets at least 70px
+            min_width = max(400, 60 + len(day_keys) * 80)
+            self.setMinimumWidth(min_width)
+        else:
+            self.setMinimumWidth(100)
+            
         self.update()
 
     # ── layout helpers ────────────────────────────────────────────────────
-    def _assign_lanes(self, rects: list[dict]) -> list[dict]:
-        """Assign horizontal sub-lane indices to overlapping session rects.
-
-        Each rect has ``top_frac`` and ``bot_frac`` (0.0–1.0 of the visible
-        hour range).  Returns the same list with ``lane`` and ``total_lanes``
-        added.
-        """
-        if not rects:
-            return rects
-
-        # Sort by start fraction then by end fraction
-        rects.sort(key=lambda r: (r["top_frac"], r["bot_frac"]))
-
-        # Sweep-line: maintain a list of active lane end-fractions
-        lanes: list[float] = []  # end frac of the session occupying each lane
-
-        for r in rects:
-            placed = False
-            for i, lane_end in enumerate(lanes):
-                if r["top_frac"] >= lane_end:
-                    # Lane is free
-                    lanes[i] = r["bot_frac"]
-                    r["lane"] = i
-                    placed = True
-                    break
-            if not placed:
-                r["lane"] = len(lanes)
-                lanes.append(r["bot_frac"])
-
-        total = len(lanes)
-        for r in rects:
-            r["total_lanes"] = total
-
-        return rects
+    # (Replaced horizontal layout with vertical stacking algorithm in paintEvent)
 
     # ── painting ──────────────────────────────────────────────────────────
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -212,18 +187,22 @@ class _AgendaCanvas(QWidget):
                     }
                 )
 
-            sess_rects = self._assign_lanes(sess_rects)
+            # Sort chronologically and apply vertical push for overlaps
+            sess_rects.sort(key=lambda x: x["top_frac"])
+            current_bottom = 0.0
+            for sr in sess_rects:
+                if sr["top_frac"] < current_bottom:
+                    dur = sr["bot_frac"] - sr["top_frac"]
+                    sr["top_frac"] = current_bottom
+                    sr["bot_frac"] = current_bottom + dur
+                current_bottom = sr["bot_frac"]
 
             # Paint sessions
             for sr in sess_rects:
-                total_lanes = sr.get("total_lanes", 1)
-                lane = sr.get("lane", 0)
-                lane_width = col_width / total_lanes
-                sx = col_x + lane * lane_width
                 sy = chart.top() + sr["top_frac"] * chart.height()
                 sh = max(2, (sr["bot_frac"] - sr["top_frac"]) * chart.height())
 
-                rect = QRectF(sx + 1, sy, lane_width - 2, sh)
+                rect = QRectF(col_x + 1, sy, col_width - 2, sh)
                 clip = QPainterPath()
                 clip.addRoundedRect(rect, 3, 3)
 
@@ -236,7 +215,7 @@ class _AgendaCanvas(QWidget):
                 p.drawRect(rect)
 
                 # Label if tall enough
-                if sh > 16 and lane_width > 24:
+                if sh > 16 and col_width > 24:
                     p.setPen(QColor("#FFFFFF"))
                     p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
                     text_rect = rect.adjusted(2, 1, -2, -1)
@@ -258,7 +237,7 @@ class AgendaViewWidget(QWidget):
         self._canvas = _AgendaCanvas()
         self._scroll = QScrollArea()
         self._scroll.setWidget(self._canvas)
-        self._scroll.setWidgetResizable(False)
+        self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -277,8 +256,10 @@ class AgendaViewWidget(QWidget):
         day_keys: list[str],
         hour_start: int = 6,
         hour_end: int = 23,
+        fit_width: bool = True,
     ) -> None:
-        self._canvas.set_data(sessions, day_keys, hour_start, hour_end)
+        self._scroll.setWidgetResizable(fit_width)
+        self._canvas.set_data(sessions, day_keys, hour_start, hour_end, fit_width)
         # Resize canvas height to match parent
         self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))
 

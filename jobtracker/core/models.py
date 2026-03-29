@@ -10,6 +10,7 @@ class Subject:
     notes: str
     created_at: str
     sort_order: int = 0
+    is_archived: int = 0
 
 
 @dataclass

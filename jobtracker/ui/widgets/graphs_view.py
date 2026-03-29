@@ -9,7 +9,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 
 def _with_alpha(hex_color: str, alpha: int) -> QColor:
@@ -18,19 +18,30 @@ def _with_alpha(hex_color: str, alpha: int) -> QColor:
     return c
 
 
-class WorkGraphWidget(QWidget):
+class _GraphCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._data: list[dict] = []
         self._tokens: dict = {}
+        self._fit_width: bool = True
         self.setMinimumHeight(360)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
         self.update()
 
-    def set_data(self, data: list[dict]) -> None:
+    def set_data(self, data: list[dict], fit_width: bool) -> None:
         self._data = data
+        self._fit_width = fit_width
+        
+        # If not fitting to width, ensure each bar gets decent space
+        if not self._fit_width and self._data:
+            # Approx 50px per bar minimum + margins
+            min_canvas_width = 80 + len(self._data) * 50
+            self.setMinimumWidth(max(400, min_canvas_width))
+        else:
+            self.setMinimumWidth(100)
+            
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -110,13 +121,14 @@ class WorkGraphWidget(QWidget):
             p.drawRoundedRect(bar_rect, 7, 7)
 
             # Total hours label
-            p.setPen(QColor(t["TEXT_SECONDARY"]))
-            p.setFont(QFont("SF Pro Text", 8, QFont.Medium))
-            p.drawText(
-                QRectF(x - 14, chart.top() - 20, bar_width + 28, 16),
-                Qt.AlignCenter,
-                f"{total_seconds / 3600:.1f}h" if total_seconds else "",
-            )
+            if bar_width > 20: 
+                p.setPen(QColor(t["TEXT_SECONDARY"]))
+                p.setFont(QFont("SF Pro Text", 8, QFont.Medium))
+                p.drawText(
+                    QRectF(x - 14, chart.top() - 20, bar_width + 28, 16),
+                    Qt.AlignCenter,
+                    f"{total_seconds / 3600:.1f}h" if total_seconds else "",
+                )
 
             # Day label
             day_text = day_data.get("date", "")
@@ -126,8 +138,44 @@ class WorkGraphWidget(QWidget):
                 pass
             p.setPen(QColor(t["TEXT_DIMMED"]))
             p.setFont(QFont("SF Pro Text", 9))
-            p.drawText(
-                QRectF(x - 12, chart.bottom() + 6, bar_width + 24, 18),
-                Qt.AlignCenter,
-                day_text,
-            )
+            # Hide text if width is too small on fit_width mode and bar_count is high
+            if bar_width < 16 and self._fit_width and bar_count > 14 and idx % 2 != 0:
+                pass # skip drawing every other label if too tight
+            else:
+                p.drawText(
+                    QRectF(x - 12, chart.bottom() + 6, bar_width + 24, 18),
+                    Qt.AlignCenter,
+                    day_text,
+                )
+
+
+class WorkGraphWidget(QWidget):
+    """Scrollable bar chart widget."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._canvas = _GraphCanvas()
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._canvas)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._scroll, 1)
+        self.setMinimumHeight(360)
+
+    def set_tokens(self, tokens: dict) -> None:
+        self._canvas.set_tokens(tokens)
+
+    def set_data(self, data: list[dict], fit_width: bool = True) -> None:
+        self._scroll.setWidgetResizable(fit_width)
+        self._canvas.set_data(data, fit_width)
+        # Force height constraint
+        self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))

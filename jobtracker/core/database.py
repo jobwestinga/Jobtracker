@@ -87,6 +87,10 @@ class Database:
         if not self._column_exists("tasks", "sort_order"):
             cur.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0")
 
+        # Migration for tasks.is_archived
+        if not self._column_exists("tasks", "is_archived"):
+            cur.execute("ALTER TABLE tasks ADD COLUMN is_archived INTEGER DEFAULT 0")
+
         # Ensure task rows have a deterministic manual order.
         cur.execute(
             "UPDATE tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"
@@ -212,10 +216,29 @@ class Database:
         row = cur.fetchone()
         return Subject(**dict(row)) if row else None
 
-    def get_all_subjects(self) -> List[Subject]:
+    def get_all_subjects(self, archived: bool = False) -> List[Subject]:
+        cur = self.connection.cursor()
+        cur.execute(
+            "SELECT * FROM tasks WHERE is_archived = ? ORDER BY sort_order ASC, created_at DESC",
+            (1 if archived else 0,),
+        )
+        return [Subject(**dict(row)) for row in cur.fetchall()]
+
+    def get_all_subjects_including_archived(self) -> List[Subject]:
+        """Return every subject regardless of archive status (for graphs)."""
         cur = self.connection.cursor()
         cur.execute("SELECT * FROM tasks ORDER BY sort_order ASC, created_at DESC")
         return [Subject(**dict(row)) for row in cur.fetchall()]
+
+    def archive_subject(self, subject_id: int) -> None:
+        cur = self.connection.cursor()
+        cur.execute("UPDATE tasks SET is_archived = 1 WHERE id = ?", (subject_id,))
+        self.connection.commit()
+
+    def unarchive_subject(self, subject_id: int) -> None:
+        cur = self.connection.cursor()
+        cur.execute("UPDATE tasks SET is_archived = 0 WHERE id = ?", (subject_id,))
+        self.connection.commit()
 
     def move_subject(self, subject_id: int, direction: int) -> None:
         subjects = self.get_all_subjects()

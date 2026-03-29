@@ -52,8 +52,11 @@ class TrackerService:
         self.active_subject = subject
 
     # ── Subjects (timed) ────────────────────────────────────────────────
-    def get_all_subjects(self) -> List[Subject]:
-        return db.get_all_subjects()
+    def get_all_subjects(self, archived: bool = False) -> List[Subject]:
+        return db.get_all_subjects(archived=archived)
+
+    def get_all_subjects_including_archived(self) -> List[Subject]:
+        return db.get_all_subjects_including_archived()
 
     def add_subject(self, name: str, color: str, notes: str) -> Optional[Subject]:
         normalized_name = (name or "").strip()
@@ -87,6 +90,14 @@ class TrackerService:
 
     def set_subject_order(self, ordered_ids: list[int]) -> None:
         db.set_subject_order(ordered_ids)
+
+    def archive_subject(self, subject_id: int) -> None:
+        if self.active_subject and self.active_subject.id == subject_id:
+            self.stop_active_subject()
+        db.archive_subject(subject_id)
+
+    def unarchive_subject(self, subject_id: int) -> None:
+        db.unarchive_subject(subject_id)
 
     # ── Timer (subjects) ────────────────────────────────────────────────
     def start_subject(self, subject_id: int) -> bool:
@@ -163,7 +174,7 @@ class TrackerService:
             for i in range(num_days)
         ]
 
-        subjects = {s.id: s for s in self.get_all_subjects() if s.id is not None}
+        subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
 
         # Collect sessions ordered chronologically per day.
         buckets: dict[str, list[dict]] = {day: [] for day in day_keys}
@@ -226,7 +237,7 @@ class TrackerService:
 
         Used by the agenda timeline view.
         """
-        subjects = {s.id: s for s in self.get_all_subjects() if s.id is not None}
+        subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
         since_iso = f"{since_date.isoformat()}T00:00:00"
         until_iso = f"{(until_date + timedelta(days=1)).isoformat()}T00:00:00"
         sessions = db.get_all_closed_sessions_in_range(since_iso, until_iso)

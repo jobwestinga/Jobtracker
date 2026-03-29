@@ -7,7 +7,7 @@ Graph Settings dialog — lets the user configure the Graphs tab:
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QSpinBox,
+    QPushButton, QComboBox, QSpinBox, QCheckBox,
 )
 from PySide6.QtCore import Qt
 
@@ -31,7 +31,7 @@ class GraphSettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Graph Settings")
-        self.setFixedSize(360, 340)
+        self.setFixedSize(360, 420)
         self._build_ui()
         self._load_current()
 
@@ -65,6 +65,13 @@ class GraphSettingsDialog(QDialog):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         layout.addWidget(self.mode_combo)
 
+        # ── Fit Width Toggle ─────────────────────────────────────────────
+        self.fit_width_check = QCheckBox("Fit Width to Screen (No horizontal scrolling)")
+        self.fit_width_check.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(self.fit_width_check)
+
+        layout.addSpacing(6)
+
         # ── Agenda Hours ─────────────────────────────────────────────────
         self._hours_label = QLabel("Visible Hour Range (Agenda)")
         self._hours_label.setStyleSheet("font-weight: 600; font-size: 13px;")
@@ -95,9 +102,13 @@ class GraphSettingsDialog(QDialog):
         self.hour_end_spin.setMinimumHeight(32)
         hours_row.addWidget(self.hour_end_spin)
 
-        self._hours_row_widget = QHBoxLayout()
-        layout.addLayout(hours_row)
         self._hours_row = hours_row
+        layout.addLayout(hours_row)
+
+        self.autofit_hours_check = QCheckBox("Auto-fit time bounds to actual work")
+        self.autofit_hours_check.setCursor(Qt.PointingHandCursor)
+        self.autofit_hours_check.toggled.connect(self._on_autofit_toggled)
+        layout.addWidget(self.autofit_hours_check)
 
         layout.addStretch()
 
@@ -127,11 +138,16 @@ class GraphSettingsDialog(QDialog):
         self._hours_label.setVisible(is_agenda)
         self.hour_start_spin.setVisible(is_agenda)
         self.hour_end_spin.setVisible(is_agenda)
+        self.autofit_hours_check.setVisible(is_agenda)
         # Also hide the labels in the hours row
         for i in range(self._hours_row.count()):
             widget = self._hours_row.itemAt(i).widget()
             if widget:
                 widget.setVisible(is_agenda)
+
+    def _on_autofit_toggled(self, checked: bool) -> None:
+        self.hour_start_spin.setEnabled(not checked)
+        self.hour_end_spin.setEnabled(not checked)
 
     def _load_current(self) -> None:
         # Time range
@@ -149,6 +165,13 @@ class GraphSettingsDialog(QDialog):
                 self.mode_combo.setCurrentIndex(idx)
                 break
 
+        # Fit options
+        saved_fit = db.get_setting("graph_fit_horizontal", "1")
+        self.fit_width_check.setChecked(saved_fit == "1")
+
+        saved_auto = db.get_setting("graph_autofit_hours", "0")
+        self.autofit_hours_check.setChecked(saved_auto == "1")
+
         # Hour range
         try:
             self.hour_start_spin.setValue(int(db.get_setting("graph_hour_start", "6")))
@@ -159,6 +182,7 @@ class GraphSettingsDialog(QDialog):
         except ValueError:
             pass
 
+        self._on_autofit_toggled(self.autofit_hours_check.isChecked())
         self._on_mode_changed()
 
     def _save_and_accept(self) -> None:
@@ -171,6 +195,8 @@ class GraphSettingsDialog(QDialog):
         db.set_setting("graph_view_mode", settings["view_mode"])
         db.set_setting("graph_hour_start", str(settings["hour_start"]))
         db.set_setting("graph_hour_end", str(settings["hour_end"]))
+        db.set_setting("graph_fit_horizontal", "1" if settings["fit_horizontal"] else "0")
+        db.set_setting("graph_autofit_hours", "1" if settings["autofit_hours"] else "0")
         self.accept()
 
     def get_settings(self) -> dict:
@@ -187,4 +213,6 @@ class GraphSettingsDialog(QDialog):
             "view_mode": mode_val,
             "hour_start": self.hour_start_spin.value(),
             "hour_end": self.hour_end_spin.value(),
+            "fit_horizontal": self.fit_width_check.isChecked(),
+            "autofit_hours": self.autofit_hours_check.isChecked(),
         }
