@@ -120,15 +120,45 @@ class _GraphCanvas(QWidget):
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(bar_rect, 7, 7)
 
-            # Total hours label
-            if bar_width > 20: 
-                p.setPen(QColor(t["TEXT_SECONDARY"]))
-                p.setFont(QFont("SF Pro Text", 8, QFont.Medium))
-                p.drawText(
-                    QRectF(x - 14, chart.top() - 20, bar_width + 28, 16),
-                    Qt.AlignCenter,
-                    f"{total_seconds / 3600:.1f}h" if total_seconds else "",
-                )
+            # Total hours label with dynamic shiny contour
+            if bar_width > 20 and total_seconds > 0:
+                total_h = total_seconds / 3600.0
+                
+                # Determine contour color and font scale
+                if total_h <= 1.0:
+                    c_hex = "#737373" # grey
+                    s = 0.8
+                elif total_h <= 2.5:
+                    c_hex = "#86EFAC" # green (light)
+                    s = 0.95
+                elif total_h <= 4.5:
+                    c_hex = "#60A5FA" # blue
+                    s = 1.0
+                elif total_h <= 7.0:
+                    c_hex = "#A855F7" # purple
+                    s = 1.05
+                elif total_h <= 10.0:
+                    c_hex = "#FB923C" # orange
+                    s = 1.15
+                else:
+                    c_hex = "#EF4444" # fiery red
+                    s = 1.25
+
+                text = f"{total_h:.1f}h"
+                base_font_size = 9
+                scaled_size = max(7, int(base_font_size * s))
+                p.setFont(QFont("SF Pro Text", scaled_size, QFont.Bold))
+                
+                text_rect = QRectF(x - 24, chart.top() - 25, bar_width + 48, 20)
+                
+                # Draw the shiny contour (multi-offset outer stroke)
+                p.setPen(QPen(_with_alpha(c_hex, 220), 1))
+                for ox, oy in [(-1, -1), (1, -1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
+                
+                # Draw the main text overtop
+                p.setPen(QColor(t["TEXT_PRIMARY"]))
+                p.drawText(text_rect, Qt.AlignCenter, text)
 
             # Day label
             day_text = day_data.get("date", "")

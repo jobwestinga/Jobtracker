@@ -50,7 +50,7 @@ class ManageSessionsDialog(QDialog):
         quick_row = QHBoxLayout()
         quick_row.setSpacing(8)
 
-        for label, minutes in [("15 min", 15), ("30 min", 30), ("1 hour", 60), ("2 hours", 120)]:
+        for label, minutes in [("15 min", 15), ("30 min", 30), ("1 hour", 60), ("1h 15m", 75), ("2 hours", 120)]:
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
