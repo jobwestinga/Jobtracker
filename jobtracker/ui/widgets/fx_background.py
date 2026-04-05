@@ -57,10 +57,10 @@ class FxBackgroundWidget(QWidget):
 
         if self._fx == "Clean":
             self._paint_clean(p, w, h, t)
-        elif self._fx == "Glassmorphism":
-            self._paint_glass(p, w, h, t)
-        elif self._fx == "Neon":
-            self._paint_neon(p, w, h, t)
+        elif self._fx == "Space":
+            self._paint_space(p, w, h, t)
+        elif self._fx == "Checkerboard":
+            self._paint_checkerboard(p, w, h, t)
         else:
             self._paint_glow(p, w, h, t)
 
@@ -101,83 +101,45 @@ class FxBackgroundWidget(QWidget):
         g2.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.fillRect(self.rect(), g2)
 
-    def _paint_glass(self, p: QPainter, w: int, h: int, t: dict) -> None:
-        # Frosted prism texture: global patterned overlays + subtle moving light bands.
-        base = QLinearGradient(0, 0, w, h)
-        base.setColorAt(0.0, QColor(t["BG_PRIMARY"]))
-        base.setColorAt(0.45, QColor(t["BG_SECONDARY"]))
-        base.setColorAt(1.0, QColor(t["BG_TERTIARY"]))
-        p.fillRect(self.rect(), base)
-
-        # Full-screen frosted patterns make the entire texture feel distinct.
-        p.fillRect(self.rect(), QBrush(_with_alpha(t["TEXT_PRIMARY"], 11), Qt.Dense6Pattern))
-        p.fillRect(self.rect(), QBrush(_with_alpha(t["ACCENT"], 7), Qt.DiagCrossPattern))
-
-        # Subtle animated vertical light bands.
-        for i in range(4):
-            center = w * (0.14 + i * 0.24) + 34 * math.sin(self._phase * (0.8 + i * 0.12))
-            band = QLinearGradient(center - 90, 0, center + 90, 0)
-            band.setColorAt(0.0, QColor(0, 0, 0, 0))
-            band.setColorAt(0.5, _with_alpha(t["TEXT_PRIMARY"], 30 - i * 3))
-            band.setColorAt(1.0, QColor(0, 0, 0, 0))
-            p.fillRect(self.rect(), band)
-
-        # Brushed haze from top and bottom.
-        haze_top = QLinearGradient(0, 0, 0, h * 0.35)
-        haze_top.setColorAt(0.0, _with_alpha(t["TEXT_PRIMARY"], 36))
-        haze_top.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(0, 0, w, int(h * 0.42), haze_top)
-
-        haze_bottom = QLinearGradient(0, h, 0, h * 0.62)
-        haze_bottom.setColorAt(0.0, _with_alpha(t["ACCENT"], 26))
-        haze_bottom.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(0, int(h * 0.56), w, h, haze_bottom)
-
-    def _paint_neon(self, p: QPainter, w: int, h: int, t: dict) -> None:
-        # Luminous grid: darker base + animated lanes + sweeping beams.
-        dark = QColor(t["BG_PRIMARY"])
-        dark = dark.darker(185)
+    def _paint_space(self, p: QPainter, w: int, h: int, t: dict) -> None:
+        # Deep space background.
         base = QLinearGradient(0, 0, 0, h)
-        base.setColorAt(0.0, dark)
-        base.setColorAt(0.7, QColor(t["BG_PRIMARY"]))
-        base.setColorAt(1.0, QColor(t["BG_SECONDARY"]))
+        base.setColorAt(0.0, QColor(t["BG_PRIMARY"]).darker(150))
+        base.setColorAt(1.0, QColor(t["BG_SECONDARY"]).darker(120))
         p.fillRect(self.rect(), base)
 
-        p.setPen(QPen(_with_alpha(t["ACCENT"], 30), 1))
-        step = 28
-        for x in range(0, w + step, step):
-            p.drawLine(x, 0, x, h)
-        for y in range(0, h + step, step):
-            p.drawLine(0, y, w, y)
+        # Pseudo-random stars
+        p.setPen(Qt.NoPen)
+        for i in range(150):
+            x_hash = (i * 12345) % w
+            y_hash = (i * 54321) % h
+            size = (i * 13) % 3 + 1
+            
+            twinkle = (math.sin(self._phase * 2.0 + i) + 1.0) / 2.0
+            alpha = int(40 + 160 * twinkle)
+            p.setBrush(_with_alpha(t["TEXT_PRIMARY"], alpha))
+            p.drawEllipse(int(x_hash), int(y_hash), size, size)
 
-        # Vertical beam lane.
-        lane = QLinearGradient(0, 0, w, 0)
-        center = 0.5 + 0.20 * math.sin(self._phase * 1.15)
-        lane.setColorAt(max(0.0, center - 0.16), QColor(0, 0, 0, 0))
-        lane.setColorAt(center, _with_alpha(t["ACCENT"], 96))
-        lane.setColorAt(min(1.0, center + 0.16), QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), lane)
+        # Cool light/nebula effects
+        cx = w * (0.5 + 0.3 * math.sin(self._phase * 0.5))
+        cy = h * (0.5 + 0.3 * math.cos(self._phase * 0.4))
+        g1 = QRadialGradient(cx, cy, max(w, h) * 0.7)
+        g1.setColorAt(0.0, _with_alpha(t["ACCENT"], 40))
+        g1.setColorAt(0.5, _with_alpha(t["ACCENT_GREEN"], 15))
+        g1.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(self.rect(), g1)
 
-        # Diagonal pulse wave.
-        wave = QPainterPath()
-        slide = 160 * math.cos(self._phase * 0.75)
-        wave.moveTo(w * -0.15 + slide, h * 1.05)
-        wave.cubicTo(w * 0.18 + slide, h * 0.70, w * 0.35 + slide, h * 0.35, w * 0.62 + slide, -30)
-        wave.lineTo(w * 0.72 + slide, -30)
-        wave.cubicTo(w * 0.44 + slide, h * 0.34, w * 0.29 + slide, h * 0.68, w * -0.03 + slide, h * 1.05)
-        wave.closeSubpath()
-        p.fillPath(wave, _with_alpha(t["ACCENT"], 34))
-
-        # Horizontal scanline shimmer.
-        scan = QLinearGradient(0, 0, 0, h)
-        y_center = 0.22 + 0.6 * (0.5 + 0.5 * math.sin(self._phase * 1.6))
-        scan.setColorAt(max(0.0, y_center - 0.06), QColor(0, 0, 0, 0))
-        scan.setColorAt(y_center, _with_alpha(t["ACCENT"], 70))
-        scan.setColorAt(min(1.0, y_center + 0.06), QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), scan)
-
-        # Vignette edges
-        vignette = QRadialGradient(w * 0.5, h * 0.5, max(w, h) * 0.75)
-        vignette.setColorAt(0.62, QColor(0, 0, 0, 0))
-        vignette.setColorAt(1.0, QColor(0, 0, 0, 130))
-        p.fillRect(self.rect(), vignette)
+    def _paint_checkerboard(self, p: QPainter, w: int, h: int, t: dict) -> None:
+        p.fillRect(self.rect(), QColor(t["BG_PRIMARY"]))
+        
+        square_size = 24
+        p.setPen(Qt.NoPen)
+        p.setBrush(_with_alpha(t["BORDER_COLOR"], 60))
+        
+        cols = w // square_size + 2
+        rows = h // square_size + 2
+        
+        for row in range(rows):
+            for col in range(cols):
+                if (row + col) % 2 == 0:
+                    p.drawRect(col * square_size, row * square_size, square_size, square_size)

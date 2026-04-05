@@ -44,8 +44,8 @@ class SettingsDialog(QDialog):
         fx_labels = {
             "Clean": "Clean",
             "Glow": "Aura",
-            "Glassmorphism": "Prism",
-            "Neon": "Neon",
+            "Space": "Space",
+            "Checkerboard": "Minimal",
         }
         for name in FX_NAMES:
             btn = QPushButton(fx_labels.get(name, name))

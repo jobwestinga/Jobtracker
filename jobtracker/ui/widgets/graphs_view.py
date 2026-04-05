@@ -21,6 +21,8 @@ def _with_alpha(hex_color: str, alpha: int) -> QColor:
 class _GraphCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
         self._data: list[dict] = []
         self._tokens: dict = {}
         self._fit_width: bool = True
@@ -34,13 +36,20 @@ class _GraphCanvas(QWidget):
         self._data = data
         self._fit_width = fit_width
         
+        bar_count = max(1, len(self._data))
+        gap = 10
+        min_bar_width = 12
+        left_margin = 44
+        right_margin = 22
+        required_width = left_margin + right_margin + bar_count * min_bar_width + (bar_count - 1) * gap
+        
         # If not fitting to width, ensure each bar gets decent space
         if not self._fit_width and self._data:
             # Approx 50px per bar minimum + margins
             min_canvas_width = 80 + len(self._data) * 50
-            self.setMinimumWidth(max(400, min_canvas_width))
+            self.setMinimumWidth(max(max(400, min_canvas_width), required_width))
         else:
-            self.setMinimumWidth(100)
+            self.setMinimumWidth(required_width)
             
         self.update()
 

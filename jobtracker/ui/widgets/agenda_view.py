@@ -27,6 +27,8 @@ class _AgendaCanvas(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
         self._sessions: list[dict] = []
         self._day_keys: list[str] = []
         self._tokens: dict = {}
@@ -54,12 +56,19 @@ class _AgendaCanvas(QWidget):
         self._hour_end = max(self._hour_start + 1, min(24, hour_end))
         self._fit_width = fit_width
         
+        left_margin = 48
+        right_margin = 14
+        gap = 6
+        min_col_width = 40
+        day_count = max(1, len(day_keys))
+        required_width = left_margin + right_margin + day_count * min_col_width + (day_count - 1) * gap
+        
         if not self._fit_width and self._day_keys:
             # Compute width so each day column gets at least 70px
             min_width = max(400, 60 + len(day_keys) * 80)
-            self.setMinimumWidth(min_width)
+            self.setMinimumWidth(max(min_width, required_width))
         else:
-            self.setMinimumWidth(100)
+            self.setMinimumWidth(required_width)
             
         self.update()
 
