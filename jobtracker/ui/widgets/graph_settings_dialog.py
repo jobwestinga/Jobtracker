@@ -7,7 +7,7 @@ Graph Settings dialog — lets the user configure the Graphs tab:
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QSpinBox, QCheckBox,
+    QPushButton, QSpinBox, QCheckBox,
 )
 from PySide6.QtCore import Qt
 
@@ -31,7 +31,9 @@ class GraphSettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Graph Settings")
-        self.setFixedSize(360, 420)
+        self.setFixedSize(360, 480)
+        self._selected_range = 0
+        self._selected_mode = 0
         self._build_ui()
         self._load_current()
 
@@ -45,25 +47,34 @@ class GraphSettingsDialog(QDialog):
         lbl_range.setStyleSheet("font-weight: 600; font-size: 13px;")
         layout.addWidget(lbl_range)
 
-        self.range_combo = QComboBox()
-        self.range_combo.setCursor(Qt.PointingHandCursor)
-        for label, _ in RANGE_OPTIONS:
-            self.range_combo.addItem(label)
-        self.range_combo.setMinimumHeight(34)
-        layout.addWidget(self.range_combo)
+        self.range_btns = []
+        range_row = QHBoxLayout()
+        range_row.setSpacing(6)
+        for idx, (label, _) in enumerate(RANGE_OPTIONS):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(32)
+            btn.clicked.connect(lambda checked, i=idx: self._select_range(i))
+            range_row.addWidget(btn)
+            self.range_btns.append(btn)
+        layout.addLayout(range_row)
 
         # ── View Mode ────────────────────────────────────────────────────
         lbl_mode = QLabel("View Mode")
         lbl_mode.setStyleSheet("font-weight: 600; font-size: 13px;")
         layout.addWidget(lbl_mode)
 
-        self.mode_combo = QComboBox()
-        self.mode_combo.setCursor(Qt.PointingHandCursor)
-        for label, _ in VIEW_OPTIONS:
-            self.mode_combo.addItem(label)
-        self.mode_combo.setMinimumHeight(34)
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        layout.addWidget(self.mode_combo)
+        self.mode_btns = []
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        for idx, (label, _) in enumerate(VIEW_OPTIONS):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(32)
+            btn.clicked.connect(lambda checked, i=idx: self._select_mode(i))
+            mode_row.addWidget(btn)
+            self.mode_btns.append(btn)
+        layout.addLayout(mode_row)
 
         # ── Fit Width Toggle ─────────────────────────────────────────────
         self.fit_width_check = QCheckBox("Fit Width to Screen (No horizontal scrolling)")
@@ -73,6 +84,11 @@ class GraphSettingsDialog(QDialog):
         layout.addSpacing(6)
 
         # ── Agenda Hours ─────────────────────────────────────────────────
+        self.autofit_hours_check = QCheckBox("Auto-fit time bounds to actual work")
+        self.autofit_hours_check.setCursor(Qt.PointingHandCursor)
+        self.autofit_hours_check.toggled.connect(self._on_autofit_toggled)
+        layout.addWidget(self.autofit_hours_check)
+        
         self._hours_label = QLabel("Visible Hour Range (Agenda)")
         self._hours_label.setStyleSheet("font-weight: 600; font-size: 13px;")
         layout.addWidget(self._hours_label)
@@ -105,11 +121,6 @@ class GraphSettingsDialog(QDialog):
         self._hours_row = hours_row
         layout.addLayout(hours_row)
 
-        self.autofit_hours_check = QCheckBox("Auto-fit time bounds to actual work")
-        self.autofit_hours_check.setCursor(Qt.PointingHandCursor)
-        self.autofit_hours_check.toggled.connect(self._on_autofit_toggled)
-        layout.addWidget(self.autofit_hours_check)
-
         layout.addStretch()
 
         # ── Buttons ──────────────────────────────────────────────────────
@@ -131,39 +142,61 @@ class GraphSettingsDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+    def _select_range(self, idx: int) -> None:
+        self._selected_range = idx
+        for i, btn in enumerate(self.range_btns):
+            if i == idx:
+                btn.setObjectName("primaryBtn")
+            else:
+                btn.setObjectName("")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _select_mode(self, idx: int) -> None:
+        self._selected_mode = idx
+        for i, btn in enumerate(self.mode_btns):
+            if i == idx:
+                btn.setObjectName("primaryBtn")
+            else:
+                btn.setObjectName("")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        
         self._on_mode_changed()
 
     def _on_mode_changed(self) -> None:
-        is_agenda = self.mode_combo.currentIndex() == 1
-        self._hours_label.setVisible(is_agenda)
-        self.hour_start_spin.setVisible(is_agenda)
-        self.hour_end_spin.setVisible(is_agenda)
+        is_agenda = self._selected_mode == 1
         self.autofit_hours_check.setVisible(is_agenda)
-        # Also hide the labels in the hours row
+        self._on_autofit_toggled(self.autofit_hours_check.isChecked())
+
+    def _on_autofit_toggled(self, checked: bool) -> None:
+        is_agenda = self._selected_mode == 1
+        show_hours = is_agenda and not checked
+        self._hours_label.setVisible(show_hours)
         for i in range(self._hours_row.count()):
             widget = self._hours_row.itemAt(i).widget()
             if widget:
-                widget.setVisible(is_agenda)
-
-    def _on_autofit_toggled(self, checked: bool) -> None:
-        self.hour_start_spin.setEnabled(not checked)
-        self.hour_end_spin.setEnabled(not checked)
+                widget.setVisible(show_hours)
 
     def _load_current(self) -> None:
         # Time range
         saved_range = db.get_setting("graph_range", "7")
+        idx_to_select = 0
         for idx, (_, value) in enumerate(RANGE_OPTIONS):
             str_val = str(value) if value is not None else "all"
             if saved_range == str_val:
-                self.range_combo.setCurrentIndex(idx)
+                idx_to_select = idx
                 break
+        self._select_range(idx_to_select)
 
         # View mode
         saved_mode = db.get_setting("graph_view_mode", "bar")
+        mode_idx = 0
         for idx, (_, value) in enumerate(VIEW_OPTIONS):
             if saved_mode == value:
-                self.mode_combo.setCurrentIndex(idx)
+                mode_idx = idx
                 break
+        self._select_mode(mode_idx)
 
         # Fit options
         saved_fit = db.get_setting("graph_fit_horizontal", "1")
@@ -183,7 +216,6 @@ class GraphSettingsDialog(QDialog):
             pass
 
         self._on_autofit_toggled(self.autofit_hours_check.isChecked())
-        self._on_mode_changed()
 
     def _save_and_accept(self) -> None:
         # Ensure hour start < hour end
@@ -200,12 +232,9 @@ class GraphSettingsDialog(QDialog):
         self.accept()
 
     def get_settings(self) -> dict:
-        range_idx = self.range_combo.currentIndex()
-        _, range_val = RANGE_OPTIONS[range_idx]
+        _, range_val = RANGE_OPTIONS[self._selected_range]
         range_str = str(range_val) if range_val is not None else "all"
-
-        mode_idx = self.mode_combo.currentIndex()
-        _, mode_val = VIEW_OPTIONS[mode_idx]
+        _, mode_val = VIEW_OPTIONS[self._selected_mode]
 
         return {
             "range_days": range_val,

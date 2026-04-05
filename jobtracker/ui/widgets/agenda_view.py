@@ -27,7 +27,6 @@ class _AgendaCanvas(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         self._sessions: list[dict] = []
         self._day_keys: list[str] = []
@@ -68,7 +67,7 @@ class _AgendaCanvas(QWidget):
             min_width = max(400, 60 + len(day_keys) * 80)
             self.setMinimumWidth(max(min_width, required_width))
         else:
-            self.setMinimumWidth(required_width)
+            self.setMinimumWidth(100)
             
         self.update()
 
@@ -249,6 +248,8 @@ class AgendaViewWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.viewport().setAutoFillBackground(False)
+        self._scroll.viewport().setStyleSheet("background: transparent;")
         self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         layout = QVBoxLayout(self)

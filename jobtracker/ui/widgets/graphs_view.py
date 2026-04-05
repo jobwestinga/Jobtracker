@@ -21,7 +21,6 @@ def _with_alpha(hex_color: str, alpha: int) -> QColor:
 class _GraphCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         self._data: list[dict] = []
         self._tokens: dict = {}
@@ -49,7 +48,7 @@ class _GraphCanvas(QWidget):
             min_canvas_width = 80 + len(self._data) * 50
             self.setMinimumWidth(max(max(400, min_canvas_width), required_width))
         else:
-            self.setMinimumWidth(required_width)
+            self.setMinimumWidth(100)
             
         self.update()
 
@@ -199,6 +198,8 @@ class WorkGraphWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.viewport().setAutoFillBackground(False)
+        self._scroll.viewport().setStyleSheet("background: transparent;")
         self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         layout = QVBoxLayout(self)
