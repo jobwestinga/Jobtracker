@@ -95,8 +95,14 @@ class _GraphCanvas(QWidget):
 
         bar_count = max(1, len(self._data))
         gap = 10
+        if self._fit_width and bar_count > 15:
+            gap = 4
         total_gap = gap * (bar_count - 1)
-        bar_width = max(12, (chart.width() - total_gap) / bar_count)
+        bar_width = (chart.width() - total_gap) / bar_count
+        if not self._fit_width:
+            bar_width = max(12, bar_width)
+        else:
+            bar_width = max(2, bar_width)
 
         for idx, day_data in enumerate(self._data):
             x = chart.left() + idx * (bar_width + gap)

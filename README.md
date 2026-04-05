@@ -1,241 +1,85 @@
 # JobTracker
 
-A polished personal desktop time-tracking app for macOS.  
-Track how long you spend on recurring tasks — fully local, fully offline.
+JobTracker is a native macOS desktop application designed to capture and visualize how you spend your time. It provides a distraction-free, fully local environment to track recurring workflow or study sessions without relying on cloud services or electron constraints. Built with Python and PySide6, the application prioritizes speed, data ownership, and aesthetic polish.
 
----
+## Features
 
-## What the App Does
-
-- **Subjects (timed)** — create colour-tagged subjects and track them by clicking anywhere on the subject card.
-- **Live timer display** — prominent "Currently Tracking" card with a running clock.
-- **Automatic stop on quit** — if you close the app while a timer is running, the session is saved.
-- **Full session history** — view, add, edit, or delete past sessions per subject.
-- **Subject statistics** — see cumulative time per subject filtered by Total / Last 7 days / Last 30 days.
-- **Tasks (completable)** — separate from subjects, with optional deadlines, completion toggles, and manual ordering.
-- **Graphs window** — last 10 days as stacked daily bars, colour-segmented by subject time.
-- **Bottom navigation bar** — switch between Subjects / Tasks / Graphs environments.
-- **Settings gear** — open Theme FX + Colour Palette controls.
-- **Export / Import** — available in **Settings** to back up all data to JSON and restore it later.
-- **Distinct FX themes** — animated subtle background treatments for Clean / Glow / Glassmorphism / Neon.
-
----
+- **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. A live persistent dashboard tracks your active sessions.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly. Gain insights through custom-built stacked bar charts and daily agenda timelines that illustrate exactly where your day went.
+- **Integrated To-Do Lists:** Separate from your timed subjects, standard tasks allow you to set deadlines and manage direct task completion workflows.
+- **Offline & Fully Local:** Your data never leaves your computer. Backed by a local SQLite engine, all your tracking history is private and portable.
+- **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
 
 ## Project Structure
 
-```
-Jobtracker/
-├── main.py                   ← Entry point
-├── requirements.txt          ← PySide6 + PyInstaller
-├── JobTracker.spec           ← PyInstaller config
-├── build_macos.sh            ← One-command build script
-├── build.py                  ← Legacy build helper
-├── README.md
-├── .gitignore
-├── assets/                   ← Icons (bundled into .app)
-│   └── icon.icns             ← Replace with your app icon
-├── data/                     ← Dev-mode SQLite database (gitignored)
-└── jobtracker/
-    ├── __init__.py
-    ├── core/
-    │   ├── __init__.py
-    │   ├── config.py          ← Paths, design tokens, frozen/dev detection
-    │   ├── database.py        ← SQLite schema + CRUD
-    │   └── models.py          ← Subject / TodoTask / Session dataclasses
-    ├── services/
-    │   ├── __init__.py
-    │   └── tracker_service.py ← Business logic layer
-    └── ui/
-        ├── __init__.py
-        ├── app.py             ← Main window
-        ├── styles.py          ← Global stylesheet
-        └── widgets/
-            ├── __init__.py
-            ├── active_timer.py
-            ├── fx_background.py
-            ├── graphs_view.py
-            ├── subject_item.py
-            ├── subject_dialog.py
-            ├── todo_task_item.py
-            ├── todo_task_dialog.py
-            ├── session_dialog.py
-            ├── manage_sessions_dialog.py
-            └── settings_dialog.py
+An overview of the codebase to help you navigate:
+
+```text
+JobTracker/
+├── main.py                   # Main application entry point
+├── build_macos.sh            # Automated PyInstaller build script
+├── JobTracker.spec           # PyInstaller packaging configuration
+├── assets/                   # App icons and related assets
+└── jobtracker/               # Core application package
+    ├── core/                 # SQLite database, models, and global configs
+    ├── services/             # Business logic and tracker state
+    └── ui/                   # PySide6 UI views, widgets, and styles
 ```
 
----
+## Local Setup
 
-## Setup
+**Requirements:**
+- macOS 12+ (Monterey or later)
+- Python 3.12+ 
 
-### Prerequisites
-
-- **macOS 12+** (Monterey or later)
-- **Python 3.12+** — check with `python3 --version`
-
-### Install
+Clone the repository and set up your local environment:
 
 ```bash
-cd ~/Desktop/Jobtracker
+git clone https://github.com/your_username_here/JobTracker.git
+cd JobTracker
 
-# Create virtual environment
+# Create and activate a virtual environment
 python3 -m venv venv
-
-# Activate it
 source venv/bin/activate
 
-# Install dependencies
+# Install requirements
 pip install -r requirements.txt
 ```
 
----
-
-## Running Locally
+To run the application in development mode:
 
 ```bash
-cd ~/Desktop/Jobtracker
-source venv/bin/activate
 python main.py
 ```
+*(In development mode, your database is safely isolated at `./data/jobtracker.db`)*
 
-In development mode the database is stored at `./data/jobtracker.db`.
+## Building the macOS App
 
----
+You can package JobTracker into a standalone macOS `.app` bundle. This encapsulates the Python environment and creates a clean executable you can move to your `/Applications` folder.
 
-## Building the macOS `.app`
-
-### One-command build (recommended)
-
+Run the included build script:
 ```bash
-cd ~/Desktop/Jobtracker
 ./build_macos.sh
 ```
 
-This script will:
-1. Create a virtual environment if one doesn't exist
-2. Install/update all dependencies
-3. Clean previous build artifacts
-4. Run PyInstaller with the `.spec` configuration
-5. Replace `/Applications/JobTracker.app` (default)
-6. Print run/install locations when done
+By default, the script places the finished application directly into `/Applications/JobTracker.app` and cleans up temporary build artifacts to keep your workspace tidy.
 
-### Manual build
+> **Note on Gatekeeper:** Because this application is not distributed through the Mac App Store and isn't inherently code-signed, macOS Gatekeeper will block it on the first launch. You can bypass this by right-clicking the app and selecting **Open**, or by clearing the quarantine flag via your terminal: `xattr -cr /Applications/JobTracker.app`
 
-```bash
-cd ~/Desktop/Jobtracker
-source venv/bin/activate
-pyinstaller JobTracker.spec --noconfirm
-```
+## Data Storage & Backups
 
-### Output
+When packaged as an `.app`, JobTracker writes all user data to `~/Library/Application Support/JobTracker/jobtracker.db`. This ensures your tracking history persists securely and isn't lost if you rebuild or upgrade the `.app` bundle in the future.
 
-- Installed app (default): `/Applications/JobTracker.app`
-- Local `dist/` and `build/` artifacts are removed by default for a cleaner workspace.
+If you ever need to migrate data between machines, or between your code environment and your packaged app, use the **Export/Import Backup** functionality securely tucked away in the in-app Settings panel. It packages everything into easily portable JSON files.
 
-To keep the generated `dist/JobTracker.app` (and build artifacts), run:
+## Customizing the Icon
 
-```bash
-KEEP_DIST_APP=1 ./build_macos.sh
-```
+To inject your own custom branding, simply drop a new PNG image into the `assets/` directory named `icon.png` (overwriting the existing one) and rebuild the application. The build script will automatically bundle it and purge the macOS icon caches for you.
 
----
+## Contributing
 
-## Where Data Is Stored
+Contributions, issues, and feature requests are welcome! Feel free to check the issues page if you want to contribute.
 
-| Mode | Database location |
-|------|-------------------|
-| Development (`python main.py`) | `./data/jobtracker.db` |
-| Packaged (`.app` bundle) | `~/Library/Application Support/JobTracker/jobtracker.db` |
+## License
 
-The `.app` bundle itself is read-only. All user data is written to the
-Application Support directory so upgrades or re-installs don't lose your data.
-
----
-
-## Export / Import Backups
-
-### Export
-
-1. Click the **⚙ Settings** button in the app header.
-2. Click **Export Backup**.
-3. Choose a save location — the file is standard JSON.
-
-### Import
-
-1. Click the **⚙ Settings** button in the app header.
-2. Click **Import Backup**.
-3. Select a previously exported `.json` file.
-4. Confirm the merge — existing subjects are matched by name, sessions are de-duplicated.
-
-Backups are fully portable. You can export on one machine and import on another.
-
----
-
-## Replacing the App Icon
-
-If your file is named `JobTracker.png`, move it to:
-
-```bash
-mv JobTracker.png assets/icon.png
-```
-
-Then rebuild with `./build_macos.sh`.
-
-The build script auto-generates `assets/icon.icns` from `assets/icon.png`
-and strips stale macOS metadata from the bundle, so icon updates refresh
-more reliably in Applications and Launchpad.
-
----
-
-## Troubleshooting
-
-### "App is damaged" / Gatekeeper blocks the app
-
-The `.app` is not code-signed. macOS Gatekeeper will block it on first launch.
-
-**Fix:**
-
-```bash
-xattr -cr /Applications/JobTracker.app
-```
-
-Then double-click to open, or right-click → **Open** → confirm.
-
-### App opens but window is blank or crashes
-
-Make sure you built with the **same Python version** as your venv.  
-Clean build and retry:
-
-```bash
-rm -rf build dist
-./build_macos.sh
-```
-
-### "No module named PySide6"
-
-Your venv is not activated. Run:
-
-```bash
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Database is empty after packaging
-
-This is expected. The packaged app uses a different data directory
-(`~/Library/Application Support/JobTracker/`) than development mode (`./data/`).
-
-To migrate your data: **Export** from the dev version, then **Import** into the packaged version.
-
-### Bundle size is ~300–400 MB
-
-Normal for PySide6/Qt apps. Qt libraries are large. The app excludes unused
-Qt modules (3D, WebEngine, Multimedia, etc.) to reduce size where possible.
-
----
-
-## Known Limitations
-
-- **Not code-signed** — Gatekeeper will warn on first launch (see troubleshooting above).
-- **No auto-update** — to upgrade, rebuild and replace the `.app`.
-- **Subject name uniqueness** is case-insensitive. Renaming "Work" to "WORK" is treated as the same name.
-- **Single-user** — no multi-user or sync features.
+This project is open-source and available under the MIT License.

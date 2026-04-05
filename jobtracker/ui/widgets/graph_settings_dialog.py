@@ -31,7 +31,7 @@ class GraphSettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Graph Settings")
-        self.setFixedSize(360, 480)
+        self.setFixedSize(420, 480)
         self._selected_range = 0
         self._selected_mode = 0
         self._build_ui()
@@ -54,6 +54,8 @@ class GraphSettingsDialog(QDialog):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
+            btn.setStyleSheet("padding: 0 4px;")
+            btn.setSizePolicy(btn.sizePolicy().Policy.MinimumExpanding, btn.sizePolicy().Policy.Fixed)
             btn.clicked.connect(lambda checked, i=idx: self._select_range(i))
             range_row.addWidget(btn)
             self.range_btns.append(btn)
@@ -71,6 +73,8 @@ class GraphSettingsDialog(QDialog):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
+            btn.setStyleSheet("padding: 0 4px;")
+            btn.setSizePolicy(btn.sizePolicy().Policy.MinimumExpanding, btn.sizePolicy().Policy.Fixed)
             btn.clicked.connect(lambda checked, i=idx: self._select_mode(i))
             mode_row.addWidget(btn)
             self.mode_btns.append(btn)

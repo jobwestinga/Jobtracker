@@ -127,8 +127,14 @@ class _AgendaCanvas(QWidget):
         # Day columns
         day_count = max(1, len(self._day_keys))
         gap = 6
+        if self._fit_width and day_count > 15:
+            gap = 2
         total_gap = gap * (day_count - 1)
-        col_width = max(40, (chart.width() - total_gap) / day_count)
+        col_width = (chart.width() - total_gap) / day_count
+        if not self._fit_width:
+            col_width = max(40, col_width)
+        else:
+            col_width = max(2, col_width)
 
         # Group sessions by day
         day_sessions: dict[str, list[dict]] = {d: [] for d in self._day_keys}
