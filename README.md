@@ -35,7 +35,7 @@ JobTracker/
 Clone the repository and set up your local environment:
 
 ```bash
-git clone https://github.com/your_username_here/JobTracker.git
+git clone https://github.com/jobwestinga/JobTracker.git
 cd JobTracker
 
 # Create and activate a virtual environment
