@@ -274,10 +274,13 @@ class Database:
         self, session_id: int, end_time: datetime, duration_seconds: int, note: Optional[str] = None
     ) -> None:
         cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE sessions SET end_time = ?, duration_seconds = ?, note = ? WHERE id = ?",
-            (end_time.isoformat(), duration_seconds, note, session_id),
-        )
+        if duration_seconds < 30:
+            cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        else:
+            cur.execute(
+                "UPDATE sessions SET end_time = ?, duration_seconds = ?, note = ? WHERE id = ?",
+                (end_time.isoformat(), duration_seconds, note, session_id),
+            )
         self.connection.commit()
 
     def add_session(
@@ -287,7 +290,9 @@ class Database:
         end_time: datetime,
         duration_seconds: int,
         note: Optional[str] = None,
-    ) -> Session:
+    ) -> Optional[Session]:
+        if duration_seconds < 30:
+            return None
         cur = self.connection.cursor()
         cur.execute(
             "INSERT INTO sessions (task_id, start_time, end_time, duration_seconds, note) "
@@ -307,6 +312,10 @@ class Database:
         note: Optional[str] = None,
     ) -> Optional[Session]:
         cur = self.connection.cursor()
+        if duration_seconds < 30:
+            cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            self.connection.commit()
+            return None
         cur.execute(
             "UPDATE sessions SET task_id = ?, start_time = ?, end_time = ?, "
             "duration_seconds = ?, note = ? WHERE id = ?",
@@ -476,11 +485,15 @@ class Database:
     def get_all_todo_tasks(self) -> List[TodoTask]:
         cur = self.connection.cursor()
         if self._todo_order_mode() == "manual":
-            cur.execute("SELECT * FROM todo_tasks ORDER BY sort_order ASC, created_at ASC")
+            cur.execute(
+                "SELECT * FROM todo_tasks WHERE is_completed = 0 "
+                "ORDER BY sort_order ASC, created_at ASC"
+            )
         else:
             cur.execute(
                 """
                 SELECT * FROM todo_tasks
+                WHERE is_completed = 0
                 ORDER BY
                     CASE WHEN deadline IS NULL OR deadline = '' THEN 1 ELSE 0 END ASC,
                     deadline ASC,
@@ -489,6 +502,13 @@ class Database:
                 """
             )
         return [TodoTask(**dict(row)) for row in cur.fetchall()]
+
+    def complete_todo_task(self, todo_task_id: int) -> None:
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE todo_tasks SET is_completed = 1 WHERE id = ?", (todo_task_id,)
+        )
+        self.connection.commit()
 
     def move_todo_task(self, todo_task_id: int, direction: int) -> None:
         self._ensure_manual_todo_order()

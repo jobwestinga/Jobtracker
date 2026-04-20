@@ -335,6 +335,9 @@ class TrackerService:
     def delete_todo_task(self, todo_task_id: int) -> None:
         db.delete_todo_task(todo_task_id)
 
+    def complete_todo_task(self, todo_task_id: int) -> None:
+        db.complete_todo_task(todo_task_id)
+
     def move_todo_task(self, todo_task_id: int, direction: int) -> None:
         db.move_todo_task(todo_task_id, direction)
 

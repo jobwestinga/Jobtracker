@@ -445,6 +445,7 @@ class MainWindow(QMainWindow):
             card = TodoTaskItemWidget(todo_task, self._tokens)
             card.edit_requested.connect(self._edit_todo_task)
             card.delete_requested.connect(self._delete_todo_task)
+            card.complete_requested.connect(self._complete_todo_task)
             if todo_task.id is not None:
                 self._todo_list.add_card(todo_task.id, card)
 
@@ -715,6 +716,13 @@ class MainWindow(QMainWindow):
         ) == QMessageBox.Yes:
             self.service.delete_todo_task(todo_task_id)
             self._reload_tasks()
+
+    def _complete_todo_task(self, todo_task_id: int) -> None:
+        def after_anim() -> None:
+            self.service.complete_todo_task(todo_task_id)
+            self._reload_tasks()
+
+        self._todo_list.animate_remove(todo_task_id, on_finished=after_anim)
 
     def _on_todo_order_changed(self, ordered_ids: list[int]) -> None:
         self.service.set_todo_task_order(ordered_ids)

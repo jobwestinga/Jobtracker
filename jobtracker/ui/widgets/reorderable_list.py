@@ -7,7 +7,16 @@ fully custom QWidget cards as list items.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QPropertyAnimation,
+    QSize,
+    QVariantAnimation,
+    Qt,
+    Signal,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -149,6 +158,73 @@ class ReorderableCardList(QListWidget):
         anim.finished.connect(_finish)
         self._overlay_anim = anim
         self._overlay_label = overlay
+        anim.start()
+
+    def animate_remove(
+        self,
+        item_id: int,
+        on_finished=None,
+        duration_ms: int = 320,
+    ) -> None:
+        """Fade + shrink the card, then remove it. Other rows reflow via sizeHint updates."""
+        row = self._row_for_id(item_id)
+        if row < 0:
+            if on_finished:
+                on_finished()
+            return
+
+        item = self.item(row)
+        widget = self.itemWidget(item)
+        if item is None or widget is None:
+            self.takeItem(row)
+            if on_finished:
+                on_finished()
+            return
+
+        if not self.isVisible() or not self.viewport().isVisible():
+            self.takeItem(row)
+            if on_finished:
+                on_finished()
+            return
+
+        original_height = widget.height()
+        original_hint = item.sizeHint()
+
+        anim = QVariantAnimation(self)
+        anim.setDuration(max(120, int(duration_ms)))
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
+
+        def on_value(v) -> None:
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return
+            try:
+                widget.setWindowOpacity(f)
+            except Exception:
+                pass
+            # opacity via stylesheet fallback — many widgets ignore setWindowOpacity when not top-level
+            try:
+                widget.setStyleSheet(widget.styleSheet())
+            except Exception:
+                pass
+            new_h = max(0, int(original_height * f))
+            widget.setFixedHeight(new_h) if f < 1.0 else None
+            item.setSizeHint(QSize(original_hint.width(), new_h))
+
+        def on_done() -> None:
+            # Remove row; list will relayout remaining items.
+            cur_row = self._row_for_id(item_id)
+            if cur_row >= 0:
+                taken = self.takeItem(cur_row)
+                del taken
+            if on_finished:
+                on_finished()
+
+        anim.valueChanged.connect(on_value)
+        anim.finished.connect(on_done)
         anim.start()
 
     def _move_item_rows(self, source_row: int, target_row: int) -> None:

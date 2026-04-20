@@ -4,17 +4,28 @@ Completable task card widget.
 
 from __future__ import annotations
 
+import math
+import random
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    QPropertyAnimation,
+    Qt,
+    Signal,
+)
+from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPolygonF
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from ...core.models import TodoTask
@@ -30,14 +41,128 @@ def _format_deadline(deadline: str | None) -> str:
         return f"Due {deadline}"
 
 
+class _StarBurstOverlay(QWidget):
+    """Transparent overlay that paints outward-flying stars from origin."""
+
+    def __init__(self, parent: QWidget, origin: QPoint, count: int = 14) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setGeometry(parent.rect())
+        self._origin = QPointF(origin)
+        self._progress = 0.0
+
+        self._particles: list[dict] = []
+        rng = random.Random()
+        for _ in range(count):
+            angle = rng.uniform(0, 2 * math.pi)
+            distance = rng.uniform(22, 52)
+            self._particles.append(
+                {
+                    "dx": math.cos(angle) * distance,
+                    "dy": math.sin(angle) * distance,
+                    "size": rng.uniform(2.0, 4.5),
+                    "rot": rng.uniform(0, 360),
+                    "color": rng.choice(
+                        [
+                            QColor("#FACC15"),
+                            QColor("#22C55E"),
+                            QColor("#FDE68A"),
+                            QColor("#FFFFFF"),
+                        ]
+                    ),
+                }
+            )
+
+        self._anim = QPropertyAnimation(self, b"progress", self)
+        self._anim.setDuration(520)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.finished.connect(self.deleteLater)
+
+    def start(self) -> None:
+        self.show()
+        self.raise_()
+        self._anim.start()
+
+    def _get_progress(self) -> float:
+        return self._progress
+
+    def _set_progress(self, v: float) -> None:
+        self._progress = v
+        self.update()
+
+    progress = Property(float, _get_progress, _set_progress)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        t = self._progress
+        alpha = 1.0 - t
+        for part in self._particles:
+            cx = self._origin.x() + part["dx"] * t
+            cy = self._origin.y() + part["dy"] * t - (10 * t * t)  # slight gravity arc
+            size = part["size"] * (1.0 - 0.35 * t)
+            color = QColor(part["color"])
+            color.setAlphaF(max(0.0, alpha))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(color))
+            p.save()
+            p.translate(cx, cy)
+            p.rotate(part["rot"] + 180 * t)
+            p.drawPolygon(_star_polygon(size))
+            p.restore()
+        p.end()
+
+
+def _star_polygon(radius: float, points: int = 5) -> QPolygonF:
+    inner = radius * 0.45
+    poly = QPolygonF()
+    for i in range(points * 2):
+        r = radius if i % 2 == 0 else inner
+        angle = (i * math.pi / points) - math.pi / 2
+        poly.append(QPointF(math.cos(angle) * r, math.sin(angle) * r))
+    return poly
+
+
+class _CheckButton(QPushButton):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Complete task")
+        self.setProperty("no_drag", True)
+        self.setFlat(True)
+        self.setStyleSheet(
+            """
+            QPushButton {
+                background-color: transparent;
+                border: 1.5px solid #22C55E;
+                border-radius: 14px;
+                color: #22C55E;
+                font-weight: 900;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #22C55E;
+                color: white;
+            }
+            """
+        )
+        self.setText("✓")
+
+
 class TodoTaskItemWidget(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
+    complete_requested = Signal(int)
 
     def __init__(self, todo_task: TodoTask, tokens: dict) -> None:
         super().__init__()
         self.todo_task = todo_task
         self._t = tokens
+        self._completing = False
 
         self._build_ui()
         self._apply_style()
@@ -81,6 +206,10 @@ class TodoTaskItemWidget(QFrame):
         layout.addLayout(info)
         layout.addStretch()
 
+        self.check_btn = _CheckButton(self)
+        self.check_btn.clicked.connect(self._on_check_clicked)
+        layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
+
     def _apply_style(self) -> None:
         t = self._t
         radius = t.get("TASK_RADIUS", "6px")
@@ -96,6 +225,20 @@ class TodoTaskItemWidget(QFrame):
             }}
             """
         )
+
+    def _on_check_clicked(self) -> None:
+        if self._completing or self.todo_task.id is None:
+            return
+        self._completing = True
+        self.check_btn.setEnabled(False)
+
+        # Spawn star burst centered on the button
+        btn_center = self.check_btn.geometry().center()
+        overlay = _StarBurstOverlay(self, btn_center, count=16)
+        overlay.start()
+
+        # Emit after short delay so parent can coordinate list reflow
+        self.complete_requested.emit(self.todo_task.id)
 
     def _show_context_menu(self, pos) -> None:
         if self.todo_task.id is None:
