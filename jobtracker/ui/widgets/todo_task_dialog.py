@@ -95,6 +95,12 @@ class TodoTaskDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        save_btn.setAutoDefault(True)
+        save_btn.setDefault(True)
+
     def _toggle_deadline(self, enabled: bool) -> None:
         self.deadline_edit.setEnabled(enabled)
 

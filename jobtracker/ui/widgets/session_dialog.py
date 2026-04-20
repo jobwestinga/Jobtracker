@@ -90,6 +90,12 @@ class SessionDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        save.setAutoDefault(True)
+        save.setDefault(True)
+
     def _validate_and_accept(self) -> None:
         start = self.start_edit.dateTime()
         end = self.end_edit.dateTime()

@@ -146,6 +146,12 @@ class GraphSettingsDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        save.setAutoDefault(True)
+        save.setDefault(True)
+
     def _select_range(self, idx: int) -> None:
         self._selected_range = idx
         for i, btn in enumerate(self.range_btns):

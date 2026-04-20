@@ -118,6 +118,12 @@ class SubjectDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        save_btn.setAutoDefault(True)
+        save_btn.setDefault(True)
+
     # ── Colour helpers ───────────────────────────────────────────────────
     def _select_color(self, hex_color: str) -> None:
         self.selected_color = hex_color

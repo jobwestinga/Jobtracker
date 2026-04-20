@@ -139,6 +139,12 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        save_btn.setAutoDefault(True)
+        save_btn.setDefault(True)
+
     # ── Selection ────────────────────────────────────────────────────────
     def _select_fx(self, name: str) -> None:
         self._fx = name

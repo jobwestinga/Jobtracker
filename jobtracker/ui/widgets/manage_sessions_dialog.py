@@ -89,6 +89,12 @@ class ManageSessionsDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
+        close_btn.setAutoDefault(True)
+        close_btn.setDefault(True)
+
     # ── Data ─────────────────────────────────────────────────────────────
     def _load(self) -> None:
         self._list.clear()
