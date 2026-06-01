@@ -4,8 +4,8 @@ JobTracker is a native macOS desktop application designed to capture and visuali
 
 ## Features
 
-- **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. A live persistent dashboard tracks your active sessions.
-- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly. Gain insights through custom-built stacked bar charts and daily agenda timelines that illustrate exactly where your day went.
+- **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—including duration and fixed time-slot quick-adds for fast backfilling. Gain insights through custom-built stacked bar charts and daily agenda timelines that illustrate exactly where your day went.
 - **Integrated To-Do Lists:** Separate from your timed subjects, standard tasks allow you to set deadlines and manage direct task completion workflows.
 - **Offline & Fully Local:** Your data never leaves your computer. Backed by a local SQLite engine, all your tracking history is private and portable.
 - **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
