@@ -60,19 +60,19 @@ class ManageSessionsDialog(QDialog):
         layout.addWidget(quick_label)
 
         quick_row = QHBoxLayout()
-        quick_row.setSpacing(6)
+        quick_row.setSpacing(4)
 
         durations = [
-            ("15", 15), ("30", 30), ("45", 45),
-            ("1h", 60), ("1h15", 75), ("1h30", 90),
-            ("2h", 120), ("2h30", 150),
+            ("15m", 15), ("30m", 30), ("45m", 45),
+            ("1h", 60), ("1h 15m", 75), ("1h 30m", 90),
+            ("2h", 120), ("2h 30m", 150),
         ]
         for label, minutes in durations:
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
             btn.setObjectName("primaryBtn")
-            btn.setStyleSheet("font-size: 12px; padding: 6px 8px;")
+            btn.setStyleSheet("font-size: 12px; padding: 6px 6px;")
             btn.clicked.connect(lambda checked, m=minutes: self._quick_add(m))
             quick_row.addWidget(btn)
 

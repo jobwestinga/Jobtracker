@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -276,16 +277,26 @@ class SubjectItemWidget(QFrame):
     # ── Dimming ──────────────────────────────────────────────────────────
     def set_dimmed(self, dimmed: bool) -> None:
         self.is_dimmed = dimmed
-        # Hide inline actions while another subject is being tracked.
-        for btn in getattr(self, "_action_buttons", []):
-            btn.setVisible(not dimmed)
         self._apply_state_style()
+
+    def _update_action_opacity(self) -> None:
+        # While any subject is tracking, half-dim the inline actions (both on
+        # the active card and the dimmed ones) so the tracked topic stays the
+        # most prominent element, yet the buttons remain usable.
+        half = self.is_dimmed or self.is_active
+        for btn in getattr(self, "_action_buttons", []):
+            eff = btn.graphicsEffect()
+            if not isinstance(eff, QGraphicsOpacityEffect):
+                eff = QGraphicsOpacityEffect(btn)
+                btn.setGraphicsEffect(eff)
+            eff.setOpacity(0.5 if half else 1.0)
 
     def set_active(self, active: bool) -> None:
         self.is_active = active
         self._apply_state_style()
 
     def _apply_state_style(self) -> None:
+        self._update_action_opacity()
         if self.is_dimmed:
             self._apply_dimmed_style()
             return
