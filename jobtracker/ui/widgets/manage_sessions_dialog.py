@@ -3,7 +3,7 @@ Manage Sessions dialog — lists all closed sessions for a given subject
 and allows add / edit / delete, plus quick-add buttons.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -23,7 +23,9 @@ class ManageSessionsDialog(QDialog):
         subject = next((s for s in service.get_all_subjects() if s.id == subject_id), None)
         title = f"Sessions — {subject.name}" if subject else "Sessions"
         self.setWindowTitle(title)
-        self.setMinimumSize(440, 560)
+        self.setMinimumSize(560, 560)
+        parent_tokens = getattr(parent, "_tokens", None)
+        self._accent = (parent_tokens or {}).get("ACCENT", "#3B82F6")
         self._build_ui()
         self._load()
 
@@ -40,26 +42,62 @@ class ManageSessionsDialog(QDialog):
         layout.addWidget(self._empty_lbl)
 
         self._list = QListWidget()
+        # Condensed single-line rows + clear selection outline.
+        self._list.setStyleSheet(
+            "QListWidget::item {"
+            "  padding: 5px 8px; border: 1px solid transparent; border-radius: 6px;"
+            "}"
+            "QListWidget::item:selected {"
+            f"  background: {self._accent}33; border: 1.4px solid {self._accent};"
+            f"  color: palette(text);"
+            "}"
+        )
         layout.addWidget(self._list)
 
-        # ── Quick-add buttons ────────────────────────────────────────────
+        # ── Quick-add: duration (ending now) ──────────────────────────────
         quick_label = QLabel("Quick Add (ending now):")
         quick_label.setStyleSheet("font-weight: 600; font-size: 12px;")
         layout.addWidget(quick_label)
 
         quick_row = QHBoxLayout()
-        quick_row.setSpacing(8)
+        quick_row.setSpacing(6)
 
-        for label, minutes in [("15 min", 15), ("30 min", 30), ("1 hour", 60), ("1h 15m", 75), ("2 hours", 120)]:
+        durations = [
+            ("15", 15), ("30", 30), ("45", 45),
+            ("1h", 60), ("1h15", 75), ("1h30", 90),
+            ("2h", 120), ("2h30", 150),
+        ]
+        for label, minutes in durations:
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
             btn.setObjectName("primaryBtn")
-            btn.setStyleSheet("font-size: 12px; padding: 6px 12px;")
+            btn.setStyleSheet("font-size: 12px; padding: 6px 8px;")
             btn.clicked.connect(lambda checked, m=minutes: self._quick_add(m))
             quick_row.addWidget(btn)
 
         layout.addLayout(quick_row)
+
+        # ── Quick-add: fixed time slots (today) ───────────────────────────
+        slot_label = QLabel("Quick Add (time slot, today):")
+        slot_label.setStyleSheet("font-weight: 600; font-size: 12px;")
+        layout.addWidget(slot_label)
+
+        slot_row = QHBoxLayout()
+        slot_row.setSpacing(6)
+
+        slots = [(9, 11), (11, 13), (13, 15), (15, 17), (17, 19)]
+        for start_h, end_h in slots:
+            btn = QPushButton(f"{start_h}–{end_h}")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(32)
+            btn.setStyleSheet("font-size: 12px; padding: 6px 8px;")
+            btn.clicked.connect(
+                lambda checked, sh=start_h, eh=end_h: self._quick_add_slot(sh, eh)
+            )
+            slot_row.addWidget(btn)
+
+        layout.addLayout(slot_row)
 
         # ── Action buttons ───────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -111,22 +149,40 @@ class ManageSessionsDialog(QDialog):
 
         for s in closed:
             h, rem = divmod(s.duration_seconds, 3600)
-            m, sec = divmod(rem, 60)
-            dur = f"{h}h {m}m {sec}s"
+            m, _sec = divmod(rem, 60)
+            dur = f"{h}h {m}m" if h else f"{m}m"
             start = s.start_time[:16].replace("T", "  ")
             line = f"{start}   ·   {dur}"
             if s.note:
-                line += f"\n  {s.note}"
+                line += f"   —   {s.note}"
 
             item = QListWidgetItem(line)
             item.setData(Qt.UserRole, s)
             self._list.addItem(item)
 
+        # Outline the first row by default so Edit/Delete have a clear target.
+        if self._list.count():
+            self._list.setCurrentRow(0)
+
     # ── Actions ──────────────────────────────────────────────────────────
     def _quick_add(self, minutes: int) -> None:
-        """Create a session ending now that started *minutes* ago."""
+        """Create a session ending now that started *minutes* ago.
+
+        Never rolls the start back across midnight — the session stays
+        strictly on today.
+        """
         end = datetime.now()
         start = end - timedelta(minutes=minutes)
+        if start.date() < end.date():
+            start = datetime.combine(end.date(), time.min)
+        self.service.add_session(self.subject_id, start, end)
+        self._load()
+
+    def _quick_add_slot(self, start_hour: int, end_hour: int) -> None:
+        """Create a session for a fixed time slot on today's date."""
+        today = datetime.now().date()
+        start = datetime.combine(today, time(hour=start_hour))
+        end = datetime.combine(today, time(hour=end_hour))
         self.service.add_session(self.subject_id, start, end)
         self._load()
 

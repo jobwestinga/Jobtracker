@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -150,9 +151,63 @@ class SubjectItemWidget(QFrame):
 
         layout.addLayout(info)
         layout.addStretch()
+
+        # ── Inline action buttons (right side) ────────────────────────────
+        self._action_buttons: list[QPushButton] = []
+        if self._is_archived:
+            specs = [
+                ("Unarchive", self.unarchive_requested, False),
+                ("Sessions", self.manage_sessions_requested, False),
+                ("Delete", self.delete_requested, True),
+            ]
+        else:
+            specs = [
+                ("Edit", self.edit_requested, False),
+                ("Sessions", self.manage_sessions_requested, False),
+                ("Archive", self.archive_requested, False),
+            ]
+
+        for text, signal, danger in specs:
+            btn = self._make_action_button(text, signal, danger)
+            layout.addWidget(btn, 0, Qt.AlignVCenter)
+            self._action_buttons.append(btn)
+
         # Keep a stable size hint so active border style changes do not shift
         # neighboring cards in the list.
         self._base_size_hint = super().sizeHint()
+
+    def _make_action_button(self, text: str, signal, danger: bool) -> QPushButton:
+        t = self._t
+        btn = QPushButton(text)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFocusPolicy(Qt.NoFocus)
+        btn.setMinimumHeight(30)
+        # Don't let the reorderable list treat a button press as a drag handle.
+        btn.setProperty("no_drag", True)
+        accent = t["ACCENT_RED"] if danger else self.subject.color
+        btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {_hex_to_rgba(accent, 28)};
+                border: 1.2px solid {_hex_to_rgba(accent, 150)};
+                border-radius: 9px;
+                padding: 5px 14px;
+                font-size: 11px;
+                font-weight: 600;
+                color: {t['TEXT_PRIMARY']};
+            }}
+            QPushButton:hover {{
+                background-color: {_hex_to_rgba(accent, 70)};
+                border-color: {accent};
+            }}
+            QPushButton:pressed {{
+                background-color: {_hex_to_rgba(accent, 110)};
+            }}
+            """
+        )
+        if self.subject.id is not None:
+            btn.clicked.connect(lambda checked=False: signal.emit(self.subject.id))
+        return btn
 
     # ── Styles ───────────────────────────────────────────────────────────
     def _apply_normal_style(self) -> None:
@@ -221,6 +276,9 @@ class SubjectItemWidget(QFrame):
     # ── Dimming ──────────────────────────────────────────────────────────
     def set_dimmed(self, dimmed: bool) -> None:
         self.is_dimmed = dimmed
+        # Hide inline actions while another subject is being tracked.
+        for btn in getattr(self, "_action_buttons", []):
+            btn.setVisible(not dimmed)
         self._apply_state_style()
 
     def set_active(self, active: bool) -> None:

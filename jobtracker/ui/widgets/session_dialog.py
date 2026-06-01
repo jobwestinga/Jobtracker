@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QTextEdit, QPushButton, QDateTimeEdit, QMessageBox,
 )
-from PySide6.QtCore import QDateTime, Qt
+from PySide6.QtCore import QDateTime, QTime, Qt
 
 
 class SessionDialog(QDialog):
@@ -37,7 +37,12 @@ class SessionDialog(QDialog):
                 QDateTime.fromString(self.session.start_time[:19], "yyyy-MM-ddTHH:mm:ss")
             )
         else:
-            self.start_edit.setDateTime(QDateTime.currentDateTime().addSecs(-3600))
+            # Default start = 1h ago, but never roll back to the previous day.
+            now = QDateTime.currentDateTime()
+            start_default = now.addSecs(-3600)
+            if start_default.date() != now.date():
+                start_default = QDateTime(now.date(), QTime(0, 0, 0))
+            self.start_edit.setDateTime(start_default)
         layout.addWidget(self.start_edit)
 
         # ── End ──────────────────────────────────────────────────────────
