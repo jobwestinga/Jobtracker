@@ -14,12 +14,13 @@ database so they never touch real user data.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 
 from ..core.database import Database, db as _global_db
-from ..core.models import Subject, Session, TodoTask
+from ..core.models import Subject, Session, TodoTask, Milestone, GoalTemplate
 from ..core import timeutils, recovery
 
 logger = logging.getLogger("jobtracker")
@@ -35,19 +36,27 @@ class TrackerService:
         self.active_subject: Optional[Subject] = None
 
         # Close stale parallel open sessions to keep a single active timer
-        # invariant. The newest open session is kept as the active one; any
-        # extras are closed out (they should not normally exist).
+        # invariant. The newest open session is kept as active. Any unexpected
+        # extras are closed but explicitly preserved even when shorter than the
+        # normal 30-second minimum: unfinished recovery data is never deleted.
         if len(open_sessions) > 1:
             now = datetime.now()
             for stale in open_sessions[1:]:
                 if stale.id is None:
                     continue
                 started_at = timeutils.parse_iso(stale.start_time)
-                duration = timeutils.duration_seconds(started_at, now)
-                self.db.stop_session(stale.id, now, duration)
+                last_active = timeutils.parse_iso(stale.last_active_at) or started_at
+                if started_at is None:
+                    end_at = now
+                else:
+                    end_at = min(now, max(started_at, last_active or started_at))
+                duration = timeutils.duration_seconds(started_at, end_at)
+                self.db.close_recovered_session(stale.id, end_at, duration)
                 logger.info(
-                    "Recovery: closed stale parallel open session %s (%ds)",
-                    stale.id, duration,
+                    "Recovery: closed stale parallel open session %s at its "
+                    "last-known-active time (%ds)",
+                    stale.id,
+                    duration,
                 )
 
         if self.active_session:
@@ -55,7 +64,9 @@ class TrackerService:
             # If the subject was deleted while a session was open, close it.
             if self.active_subject is None:
                 if self.active_session.id is not None:
-                    self.db.stop_session(self.active_session.id, datetime.now(), 0)
+                    self.db.close_recovered_session(
+                        self.active_session.id, datetime.now(), 0
+                    )
                 logger.info("Recovery: active session had no subject; closed it")
                 self.active_session = None
             else:
@@ -259,6 +270,12 @@ class TrackerService:
             earliest = timeutils.logical_day_of_iso(
                 self.db.get_earliest_session_date(), day_start
             )
+            if self.active_session:
+                active_day = timeutils.logical_day_of_iso(
+                    self.active_session.start_time, day_start
+                )
+                if active_day is not None and (earliest is None or active_day < earliest):
+                    earliest = active_day
             start_day = earliest or today
             end_day = today
         return start_day, end_day
@@ -550,8 +567,9 @@ class TrackerService:
     def delete_todo_task(self, todo_task_id: int) -> None:
         self.db.delete_todo_task(todo_task_id)
 
-    def complete_todo_task(self, todo_task_id: int) -> None:
-        self.db.complete_todo_task(todo_task_id)
+    def complete_todo_task(self, todo_task_id: int) -> bool:
+        """Backward-compatible alias for milestone-aware Goal completion."""
+        return self.complete_goal(todo_task_id)
 
     def move_todo_task(self, todo_task_id: int, direction: int) -> None:
         self.db.move_todo_task(todo_task_id, direction)
@@ -561,6 +579,234 @@ class TrackerService:
 
     def sort_todo_tasks_by_deadline(self) -> None:
         self.db.sort_todo_tasks_by_deadline()
+
+    # ── Goals (the redesigned Tasks tab) ────────────────────────────────
+    # A "Goal" is a todo_tasks row. These are convenience aliases plus the
+    # milestone-aware completion rules.
+    def get_active_goals(self) -> List[TodoTask]:
+        self.db.ensure_manual_goal_order()
+        return self.db.get_all_todo_tasks()
+
+    def get_completed_goals(self) -> List[TodoTask]:
+        return self.db.get_completed_todo_tasks()
+
+    def get_goal(self, goal_id: int) -> Optional[TodoTask]:
+        return self.db.get_todo_task(goal_id)
+
+    def get_goal_milestones(self, goal_id: int) -> List[Milestone]:
+        return self.db.get_milestones(goal_id)
+
+    def get_goal_progress(self, goal_id: int) -> tuple[int, int]:
+        """(milestones_done, milestones_total) for a goal."""
+        milestones = self.db.get_milestones(goal_id)
+        done = sum(1 for m in milestones if m.is_done)
+        return done, len(milestones)
+
+    def can_complete_goal(self, goal_id: int) -> bool:
+        """A goal may be completed only when all milestones are done, or when it
+        has no milestones at all (then manual completion is always allowed)."""
+        if self.db.get_todo_task(goal_id) is None:
+            return False
+        done, total = self.get_goal_progress(goal_id)
+        return total == 0 or done == total
+
+    def complete_goal(self, goal_id: int) -> bool:
+        """Mark a goal complete. Refuses if milestones remain unchecked."""
+        if not self.can_complete_goal(goal_id):
+            return False
+        self.db.complete_todo_task(goal_id)
+        return True
+
+    def uncomplete_goal(self, goal_id: int) -> None:
+        self.db.uncomplete_todo_task(goal_id)
+
+    # Milestone editing
+    def add_milestone(self, goal_id: int, title: str, note: str = "") -> Optional[Milestone]:
+        milestone = self.db.add_milestone(goal_id, title, note)
+        if milestone is not None:
+            goal = self.db.get_todo_task(goal_id)
+            if goal and goal.is_completed:
+                self.db.uncomplete_todo_task(goal_id)
+        return milestone
+
+    def update_milestone(self, milestone_id: int, title: str, note: str = "") -> Optional[Milestone]:
+        return self.db.update_milestone(milestone_id, title, note)
+
+    def set_milestone_done(self, milestone_id: int, done: bool) -> None:
+        milestone = self.db.get_milestone(milestone_id)
+        self.db.set_milestone_done(milestone_id, done)
+        # A completed goal may never contain an unchecked milestone. Reopen it
+        # automatically so completion remains an honest, reversible invariant.
+        if milestone is not None and not done:
+            goal = self.db.get_todo_task(milestone.goal_id)
+            if goal and goal.is_completed:
+                self.db.uncomplete_todo_task(milestone.goal_id)
+
+    def delete_milestone(self, milestone_id: int) -> None:
+        self.db.delete_milestone(milestone_id)
+
+    def set_milestone_order(self, goal_id: int, ordered_ids: list[int]) -> None:
+        self.db.set_milestone_order(goal_id, ordered_ids)
+
+    # ── Recurring goal templates ────────────────────────────────────────
+    @staticmethod
+    def build_milestones_json(titles: list) -> str:
+        """Serialize milestone specs (strings or {title,note}) for a template."""
+        items = []
+        for entry in titles:
+            if isinstance(entry, dict):
+                title = (entry.get("title") or "").strip()
+                note = (entry.get("note") or "").strip()
+            else:
+                title = str(entry).strip()
+                note = ""
+            if title:
+                items.append({"title": title, "note": note})
+        return json.dumps(items)
+
+    def get_goal_templates(self, active_only: bool = False) -> List[GoalTemplate]:
+        return self.db.get_goal_templates(active_only=active_only)
+
+    def add_goal_template(
+        self, title: str, notes: str, recurrence: str, milestone_titles: Optional[list] = None
+    ) -> Optional[GoalTemplate]:
+        ms_json = self.build_milestones_json(milestone_titles or [])
+        return self.db.add_goal_template(title, notes, recurrence, ms_json)
+
+    def update_goal_template(
+        self, template_id: int, title: str, notes: str, recurrence: str,
+        milestone_titles: Optional[list] = None,
+    ) -> Optional[GoalTemplate]:
+        ms_json = self.build_milestones_json(milestone_titles or [])
+        return self.db.update_goal_template(template_id, title, notes, recurrence, ms_json)
+
+    def set_goal_template_active(self, template_id: int, active: bool) -> None:
+        self.db.set_goal_template_active(template_id, active)
+
+    def delete_goal_template(self, template_id: int) -> None:
+        self.db.delete_goal_template(template_id)
+
+    @staticmethod
+    def _template_period_key(recurrence: str, logical: date) -> str:
+        """The logical-period key a template generates against. Distinct keys ->
+        a new generation is due; identical key -> already generated."""
+        if recurrence == "weekly":
+            return timeutils.week_start(logical).isoformat()
+        if recurrence == "monthly":
+            return timeutils.month_start(logical).isoformat()
+        return logical.isoformat()
+
+    def generate_due_goal_instances(self, now: Optional[datetime] = None) -> list[int]:
+        """Append a Goal instance to the top of the list for any active template
+        whose current logical period hasn't been generated yet. Idempotent within
+        a period (safe to call on every launch). Returns the new goal ids.
+
+        Uncompleted goals from previous periods are never touched — they simply
+        remain in the list.
+        """
+        now = now or datetime.now()
+        day_start = self.get_day_start()
+        logical = timeutils.logical_day(now, day_start)
+
+        created: list[int] = []
+        for tpl in self.db.get_goal_templates(active_only=True):
+            key = self._template_period_key(tpl.recurrence, logical)
+            if tpl.last_generated == key:
+                continue  # already generated for this period -> no duplicate
+
+            goal = self.db.add_todo_task_at_top(tpl.title, tpl.notes, template_id=tpl.id)
+            try:
+                milestones = json.loads(tpl.milestones_json or "[]")
+            except (ValueError, TypeError):
+                milestones = []
+            for entry in milestones:
+                if isinstance(entry, dict):
+                    title = (entry.get("title") or "").strip()
+                    note = (entry.get("note") or "").strip()
+                else:
+                    title, note = str(entry).strip(), ""
+                if title:
+                    self.db.add_milestone(goal.id, title, note)
+
+            self.db.set_goal_template_last_generated(tpl.id, key)
+            if goal.id is not None:
+                created.append(goal.id)
+            logger.info("Generated goal '%s' from template %s for %s", tpl.title, tpl.id, key)
+
+        return created
+
+    # ── Heatmap (tracked time per logical day) ──────────────────────────
+    def get_heatmap_data(
+        self,
+        day_start: time | None = None,
+        days: int | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict]:
+        """Tracked seconds per logical day. Defaults to all history (earliest
+        session -> today). Reuses the logical-day daily breakdown."""
+        if start_date is not None and end_date is not None:
+            breakdown = self.get_subject_breakdown(
+                grouping="daily", day_start=day_start,
+                start_date=start_date, end_date=end_date,
+            )
+        else:
+            breakdown = self.get_subject_breakdown(
+                grouping="daily", days=days, day_start=day_start
+            )
+        return [
+            {"date": d["date"], "total_seconds": d["total_seconds"]}
+            for d in breakdown
+        ]
+
+    def get_sessions_for_logical_day(
+        self, day: date, day_start: time | None = None
+    ) -> list[dict]:
+        """All closed sessions belonging to a single logical day, with subject
+        metadata. Used when a heatmap cell is clicked."""
+        day_start = day_start or self.get_day_start()
+        subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
+        start_dt, end_dt = timeutils.logical_day_bounds(day, day_start)
+        rows = self.db.get_all_closed_sessions_in_range(start_dt.isoformat(), end_dt.isoformat())
+        result: list[dict] = []
+        for sess in rows:
+            subject = subjects.get(sess.subject_id)
+            if not subject:
+                continue
+            result.append(
+                {
+                    "session_id": sess.id,
+                    "subject_id": sess.subject_id,
+                    "subject_name": subject.name,
+                    "color": subject.color,
+                    "start_time": sess.start_time,
+                    "end_time": sess.end_time,
+                    "duration_seconds": sess.duration_seconds,
+                    "note": sess.note,
+                }
+            )
+        if self.active_session:
+            active_start = timeutils.parse_iso(self.active_session.start_time)
+            subject = subjects.get(self.active_session.subject_id)
+            if (
+                active_start is not None
+                and subject is not None
+                and timeutils.logical_day(active_start, day_start) == day
+            ):
+                now = datetime.now()
+                result.append(
+                    {
+                        "session_id": None,
+                        "subject_id": self.active_session.subject_id,
+                        "subject_name": subject.name,
+                        "color": subject.color,
+                        "start_time": self.active_session.start_time,
+                        "end_time": None,
+                        "duration_seconds": self._elapsed_active_seconds(now),
+                        "note": self.active_session.note,
+                    }
+                )
+        return result
 
     # ── Backup ──────────────────────────────────────────────────────────
     def export_data(self) -> dict:

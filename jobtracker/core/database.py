@@ -4,7 +4,9 @@ SQLite persistence layer for JobTracker.
 Tables:
   tasks      — timed subjects (name, color, notes, manual sort order)
   sessions   — task_id -> tasks.id, start/end times, duration, optional note
-  todo_tasks — completable tasks with optional deadline and manual sort order
+  todo_tasks — goals (legacy table name retained), completion and manual order
+  milestones — ordered checklist items belonging to goals
+  goal_templates — daily/weekly/monthly generators for normal goal instances
   settings   — key/value store for user preferences
 """
 
@@ -17,7 +19,7 @@ from typing import List, Optional, Union
 from pathlib import Path
 
 from .config import DB_PATH
-from .models import Subject, Session, TodoTask
+from .models import Subject, Session, TodoTask, Milestone, GoalTemplate
 
 logger = logging.getLogger("jobtracker")
 
@@ -88,6 +90,40 @@ class Database:
             """
         )
 
+        # Goal milestones (checklist items belonging to a todo_tasks/Goal row).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS milestones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                is_done INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (goal_id) REFERENCES todo_tasks (id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Recurring templates that append normal Goal instances once per logical
+        # period. Milestones to copy are stored as JSON.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS goal_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                notes TEXT DEFAULT '',
+                recurrence TEXT NOT NULL DEFAULT 'daily',
+                milestones_json TEXT DEFAULT '[]',
+                last_generated TEXT,
+                is_active INTEGER DEFAULT 1,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
         # Migration for sessions.note
         if not self._column_exists("sessions", "note"):
             cur.execute("ALTER TABLE sessions ADD COLUMN note TEXT")
@@ -107,6 +143,11 @@ class Database:
         if not self._column_exists("sessions", "last_active_at"):
             cur.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
 
+        # Migration for todo_tasks.template_id — which recurring template (if any)
+        # produced this Goal instance. Additive, nullable, reversible.
+        if not self._column_exists("todo_tasks", "template_id"):
+            cur.execute("ALTER TABLE todo_tasks ADD COLUMN template_id INTEGER")
+
         # Ensure task rows have a deterministic manual order.
         cur.execute(
             "UPDATE tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"
@@ -115,11 +156,6 @@ class Database:
         # Ensure todo rows have a deterministic manual order.
         cur.execute(
             "UPDATE todo_tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"
-        )
-
-        # One-time cleanup: remove accidental short sessions (< 30 seconds)
-        cur.execute(
-            "DELETE FROM sessions WHERE end_time IS NOT NULL AND duration_seconds < 30"
         )
 
         self.connection.commit()
@@ -315,6 +351,28 @@ class Database:
             )
         self.connection.commit()
 
+    def close_recovered_session(
+        self,
+        session_id: int,
+        end_time: datetime,
+        duration_seconds: int,
+        note: Optional[str] = None,
+    ) -> None:
+        """Close an unfinished session without applying the 30-second deletion.
+
+        This is only for automatic startup reconciliation of unexpected parallel
+        open rows. Recovery must never silently delete unfinished user data.
+        Normal user-initiated stop/add/edit operations still enforce the existing
+        30-second minimum through :meth:`stop_session`.
+        """
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE sessions SET end_time = ?, duration_seconds = ?, note = ? "
+            "WHERE id = ? AND end_time IS NULL",
+            (end_time.isoformat(), max(0, int(duration_seconds)), note, session_id),
+        )
+        self.connection.commit()
+
     def add_session(
         self,
         subject_id: int,
@@ -467,6 +525,14 @@ class Database:
         self._set_order("todo_tasks", "id", ordered_ids)
         self.set_setting("todo_order_mode", "manual")
 
+    def ensure_manual_goal_order(self) -> None:
+        """Migrate the legacy deadline-sorted Tasks view to manual Goal order.
+
+        The currently visible deadline order is materialised first, so the
+        redesign does not unexpectedly scramble existing items.
+        """
+        self._ensure_manual_todo_order()
+
     def sort_todo_tasks_by_deadline(self) -> None:
         ordered_ids = self._todo_ids_deadline_order()
         self._set_order("todo_tasks", "id", ordered_ids)
@@ -535,10 +601,51 @@ class Database:
             )
         return [TodoTask(**dict(row)) for row in cur.fetchall()]
 
+    def get_completed_todo_tasks(self) -> List[TodoTask]:
+        cur = self.connection.cursor()
+        cur.execute(
+            "SELECT * FROM todo_tasks WHERE is_completed = 1 "
+            "ORDER BY created_at DESC, id DESC"
+        )
+        return [TodoTask(**dict(row)) for row in cur.fetchall()]
+
+    def add_todo_task_at_top(
+        self, name: str, notes: str, template_id: Optional[int] = None
+    ) -> TodoTask:
+        """Insert a Goal at the TOP of the manual order (used by template
+        generation). Forces manual ordering so the placement sticks."""
+        normalized_name = (name or "").strip()
+        if not normalized_name:
+            raise ValueError("Goal name cannot be empty")
+        cur = self.connection.cursor()
+        cur.execute("SELECT COALESCE(MIN(sort_order), 1) - 1 AS top FROM todo_tasks")
+        top_order = int(cur.fetchone()["top"])
+        # Zero is reserved for legacy/uninitialised rows and is normalised during
+        # schema setup. Use a negative value for the first generated top item so
+        # it remains at the top after the next launch.
+        if top_order >= 0:
+            top_order = -1
+        cur.execute(
+            "INSERT INTO todo_tasks (name, notes, deadline, sort_order, template_id) "
+            "VALUES (?, ?, NULL, ?, ?)",
+            (normalized_name, (notes or "").strip(), top_order, template_id),
+        )
+        self.connection.commit()
+        self.set_setting("todo_order_mode", "manual")
+        return self.get_todo_task(cur.lastrowid)
+
     def complete_todo_task(self, todo_task_id: int) -> None:
         cur = self.connection.cursor()
         cur.execute(
             "UPDATE todo_tasks SET is_completed = 1 WHERE id = ?", (todo_task_id,)
+        )
+        self.connection.commit()
+
+    def uncomplete_todo_task(self, todo_task_id: int) -> None:
+        """Reopen a completed Goal. Completion is always reversible."""
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE todo_tasks SET is_completed = 0 WHERE id = ?", (todo_task_id,)
         )
         self.connection.commit()
 
@@ -560,6 +667,138 @@ class Database:
         self.set_setting("todo_order_mode", "manual")
         self._set_order("todo_tasks", "id", ordered_ids)
 
+    # ── Milestones ───────────────────────────────────────────────────────
+    def add_milestone(self, goal_id: int, title: str, note: str = "") -> Optional[Milestone]:
+        normalized = (title or "").strip()
+        if not normalized:
+            return None
+        cur = self.connection.cursor()
+        cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 AS nxt FROM milestones WHERE goal_id = ?", (goal_id,))
+        order = int(cur.fetchone()["nxt"])
+        cur.execute(
+            "INSERT INTO milestones (goal_id, title, note, sort_order) VALUES (?, ?, ?, ?)",
+            (goal_id, normalized, (note or "").strip(), order),
+        )
+        self.connection.commit()
+        return self.get_milestone(cur.lastrowid)
+
+    def get_milestone(self, milestone_id: int) -> Optional[Milestone]:
+        cur = self.connection.cursor()
+        cur.execute("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+        row = cur.fetchone()
+        return Milestone(**dict(row)) if row else None
+
+    def get_milestones(self, goal_id: int) -> List[Milestone]:
+        cur = self.connection.cursor()
+        cur.execute(
+            "SELECT * FROM milestones WHERE goal_id = ? ORDER BY sort_order ASC, id ASC",
+            (goal_id,),
+        )
+        return [Milestone(**dict(row)) for row in cur.fetchall()]
+
+    def update_milestone(self, milestone_id: int, title: str, note: str = "") -> Optional[Milestone]:
+        normalized = (title or "").strip()
+        if not normalized:
+            return None
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE milestones SET title = ?, note = ? WHERE id = ?",
+            (normalized, (note or "").strip(), milestone_id),
+        )
+        self.connection.commit()
+        return self.get_milestone(milestone_id)
+
+    def set_milestone_done(self, milestone_id: int, done: bool) -> None:
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE milestones SET is_done = ? WHERE id = ?",
+            (1 if done else 0, milestone_id),
+        )
+        self.connection.commit()
+
+    def delete_milestone(self, milestone_id: int) -> None:
+        cur = self.connection.cursor()
+        cur.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
+        self.connection.commit()
+
+    def set_milestone_order(self, goal_id: int, ordered_ids: list[int]) -> None:
+        for idx, mid in enumerate(ordered_ids, start=1):
+            self.connection.execute(
+                "UPDATE milestones SET sort_order = ? WHERE id = ? AND goal_id = ?",
+                (idx, int(mid), goal_id),
+            )
+        self.connection.commit()
+
+    # ── Goal templates (recurring) ───────────────────────────────────────
+    def add_goal_template(
+        self, title: str, notes: str, recurrence: str, milestones_json: str = "[]"
+    ) -> Optional[GoalTemplate]:
+        normalized = (title or "").strip()
+        if not normalized:
+            return None
+        if recurrence not in ("daily", "weekly", "monthly"):
+            recurrence = "daily"
+        cur = self.connection.cursor()
+        cur.execute(
+            "INSERT INTO goal_templates (title, notes, recurrence, milestones_json, sort_order) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (normalized, (notes or "").strip(), recurrence, milestones_json or "[]",
+             self._next_sort_order("goal_templates")),
+        )
+        self.connection.commit()
+        return self.get_goal_template(cur.lastrowid)
+
+    def get_goal_template(self, template_id: int) -> Optional[GoalTemplate]:
+        cur = self.connection.cursor()
+        cur.execute("SELECT * FROM goal_templates WHERE id = ?", (template_id,))
+        row = cur.fetchone()
+        return GoalTemplate(**dict(row)) if row else None
+
+    def get_goal_templates(self, active_only: bool = False) -> List[GoalTemplate]:
+        cur = self.connection.cursor()
+        if active_only:
+            cur.execute("SELECT * FROM goal_templates WHERE is_active = 1 ORDER BY sort_order ASC, id ASC")
+        else:
+            cur.execute("SELECT * FROM goal_templates ORDER BY sort_order ASC, id ASC")
+        return [GoalTemplate(**dict(row)) for row in cur.fetchall()]
+
+    def update_goal_template(
+        self, template_id: int, title: str, notes: str, recurrence: str, milestones_json: str
+    ) -> Optional[GoalTemplate]:
+        normalized = (title or "").strip()
+        if not normalized:
+            return None
+        if recurrence not in ("daily", "weekly", "monthly"):
+            recurrence = "daily"
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE goal_templates SET title = ?, notes = ?, recurrence = ?, milestones_json = ? WHERE id = ?",
+            (normalized, (notes or "").strip(), recurrence, milestones_json or "[]", template_id),
+        )
+        self.connection.commit()
+        return self.get_goal_template(template_id)
+
+    def set_goal_template_active(self, template_id: int, active: bool) -> None:
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE goal_templates SET is_active = ? WHERE id = ?",
+            (1 if active else 0, template_id),
+        )
+        self.connection.commit()
+
+    def delete_goal_template(self, template_id: int) -> None:
+        cur = self.connection.cursor()
+        cur.execute("DELETE FROM goal_templates WHERE id = ?", (template_id,))
+        self.connection.commit()
+
+    def set_goal_template_last_generated(self, template_id: int, period_key: str) -> None:
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE goal_templates SET last_generated = ? WHERE id = ?",
+            (period_key, template_id),
+        )
+        self.connection.commit()
+
     # ── Backup / Restore ─────────────────────────────────────────────────
     def export_data(self) -> dict:
         cur = self.connection.cursor()
@@ -572,17 +811,49 @@ class Database:
         cur.execute("SELECT * FROM todo_tasks")
         todo_tasks = [dict(row) for row in cur.fetchall()]
 
+        cur.execute("SELECT * FROM milestones")
+        milestones = [dict(row) for row in cur.fetchall()]
+
+        cur.execute("SELECT * FROM goal_templates")
+        goal_templates = [dict(row) for row in cur.fetchall()]
+
+        cur.execute("SELECT * FROM settings")
+        settings = [dict(row) for row in cur.fetchall()]
+
         logger.info(
-            "Exported %d subjects, %d sessions, %d todo tasks",
-            len(subjects), len(sessions), len(todo_tasks),
+            "Exported %d subjects, %d sessions, %d goals, %d milestones, "
+            "%d templates, %d settings",
+            len(subjects), len(sessions), len(todo_tasks), len(milestones),
+            len(goal_templates), len(settings),
         )
         return {
             "subjects": subjects,
             "sessions": sessions,
             "todo_tasks": todo_tasks,
+            "milestones": milestones,
+            "goal_templates": goal_templates,
+            "settings": settings,
         }
 
     def import_data(self, data: dict) -> None:
+        """Atomically merge an authoritative JSON backup.
+
+        A malformed row must not leave a half-imported database that gets
+        committed by a later unrelated action. A savepoint works both when the
+        connection is idle and when a caller already has a transaction open.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("SAVEPOINT jobtracker_import")
+        try:
+            self._import_data_rows(data)
+            cursor.execute("RELEASE SAVEPOINT jobtracker_import")
+        except Exception:
+            cursor.execute("ROLLBACK TO SAVEPOINT jobtracker_import")
+            cursor.execute("RELEASE SAVEPOINT jobtracker_import")
+            logger.exception("Backup import rolled back")
+            raise
+
+    def _import_data_rows(self, data: dict) -> None:
         cur = self.connection.cursor()
 
         # Import subjects (legacy key: tasks)
@@ -604,12 +875,15 @@ class Database:
                 continue
 
             cur.execute(
-                "INSERT INTO tasks (name, color, notes, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO tasks "
+                "(name, color, notes, sort_order, is_archived, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     subject["name"],
                     subject.get("color", "#3B82F6"),
                     subject.get("notes", ""),
                     subject.get("sort_order", self._next_sort_order("tasks")),
+                    subject.get("is_archived", 0),
                     subject.get("created_at", datetime.now().isoformat()),
                 ),
             )
@@ -631,36 +905,106 @@ class Database:
             if not new_subject_id:
                 continue
             cur.execute(
-                "SELECT id FROM sessions WHERE task_id = ? AND start_time = ? AND end_time = ?",
+                "SELECT id FROM sessions WHERE task_id = ? AND start_time = ? "
+                "AND COALESCE(end_time, '') = COALESCE(?, '')",
                 (new_subject_id, sess["start_time"], sess.get("end_time")),
             )
             if cur.fetchone():
                 continue
             cur.execute(
-                "INSERT INTO sessions (task_id, start_time, end_time, duration_seconds, note) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO sessions "
+                "(task_id, start_time, end_time, duration_seconds, note, last_active_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     new_subject_id,
                     sess["start_time"],
                     sess.get("end_time"),
                     sess.get("duration_seconds", 0),
                     sess.get("note"),
+                    sess.get("last_active_at"),
                 ),
             )
 
-        # Import completable tasks
+        # Import recurring templates first so generated goal instances can retain
+        # their template association after IDs are remapped.
+        template_id_map: dict[int, int] = {}
+        for tpl in data.get("goal_templates", []):
+            if not tpl.get("title"):
+                continue
+            legacy_template_id = tpl.get("id")
+            recurrence = tpl.get("recurrence", "daily")
+            cur.execute(
+                "SELECT id FROM goal_templates "
+                "WHERE title = ? COLLATE NOCASE AND recurrence = ?",
+                (tpl["title"], recurrence),
+            )
+            existing = cur.fetchone()
+            if existing:
+                new_template_id = int(existing["id"])
+            else:
+                cur.execute(
+                    "INSERT INTO goal_templates "
+                    "(title, notes, recurrence, milestones_json, last_generated, "
+                    "is_active, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        tpl["title"],
+                        tpl.get("notes", ""),
+                        recurrence,
+                        tpl.get("milestones_json", "[]"),
+                        tpl.get("last_generated"),
+                        tpl.get("is_active", 1),
+                        tpl.get("sort_order", self._next_sort_order("goal_templates")),
+                        tpl.get("created_at", datetime.now().isoformat()),
+                    ),
+                )
+                new_template_id = int(cur.lastrowid)
+            if legacy_template_id is not None:
+                try:
+                    template_id_map[int(legacy_template_id)] = new_template_id
+                except (TypeError, ValueError):
+                    pass
+
+        # Import goals (legacy table name: todo_tasks); track ID mapping for
+        # milestones. Created-at + sort-order are included in modern backup
+        # identity so repeated generated goals with the same title are preserved.
+        goal_id_map: dict[int, int] = {}
         for item in data.get("todo_tasks", []):
             if not item.get("name"):
                 continue
-            cur.execute(
-                "SELECT id FROM todo_tasks WHERE name = ? COLLATE NOCASE AND COALESCE(deadline, '') = COALESCE(?, '')",
-                (item["name"], item.get("deadline")),
-            )
-            if cur.fetchone():
+            legacy_goal_id = item.get("id")
+            created_at = item.get("created_at")
+            sort_order = item.get("sort_order")
+            if created_at is not None and sort_order is not None:
+                cur.execute(
+                    "SELECT id FROM todo_tasks WHERE name = ? COLLATE NOCASE "
+                    "AND COALESCE(deadline, '') = COALESCE(?, '') "
+                    "AND created_at = ? AND sort_order = ?",
+                    (item["name"], item.get("deadline"), created_at, sort_order),
+                )
+            else:
+                # Legacy payloads lacked reliable instance identity.
+                cur.execute(
+                    "SELECT id FROM todo_tasks WHERE name = ? COLLATE NOCASE "
+                    "AND COALESCE(deadline, '') = COALESCE(?, '')",
+                    (item["name"], item.get("deadline")),
+                )
+            existing = cur.fetchone()
+            if existing:
+                if legacy_goal_id is not None:
+                    try:
+                        goal_id_map[int(legacy_goal_id)] = int(existing["id"])
+                    except (TypeError, ValueError):
+                        pass
                 continue
+            legacy_template_id = item.get("template_id")
+            try:
+                new_template_id = template_id_map.get(int(legacy_template_id))
+            except (TypeError, ValueError):
+                new_template_id = None
             cur.execute(
-                "INSERT INTO todo_tasks (name, notes, deadline, is_completed, sort_order, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO todo_tasks "
+                "(name, notes, deadline, is_completed, sort_order, created_at, template_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     item["name"],
                     item.get("notes", ""),
@@ -668,13 +1012,65 @@ class Database:
                     item.get("is_completed", 0),
                     item.get("sort_order", self._next_sort_order("todo_tasks")),
                     item.get("created_at", datetime.now().isoformat()),
+                    new_template_id,
+                ),
+            )
+            if legacy_goal_id is not None:
+                try:
+                    goal_id_map[int(legacy_goal_id)] = int(cur.lastrowid)
+                except (TypeError, ValueError):
+                    pass
+
+        # Import milestones, remapping goal_id onto the imported goals.
+        for ms in data.get("milestones", []):
+            legacy_goal = ms.get("goal_id")
+            if legacy_goal is None or not ms.get("title"):
+                continue
+            try:
+                new_goal_id = goal_id_map.get(int(legacy_goal))
+            except (TypeError, ValueError):
+                new_goal_id = None
+            if not new_goal_id:
+                continue
+            cur.execute(
+                "SELECT id FROM milestones WHERE goal_id = ? "
+                "AND title = ? COLLATE NOCASE AND sort_order = ?",
+                (new_goal_id, ms["title"], ms.get("sort_order", 0)),
+            )
+            if cur.fetchone():
+                continue
+            cur.execute(
+                "INSERT INTO milestones (goal_id, title, note, is_done, sort_order, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    new_goal_id,
+                    ms["title"],
+                    ms.get("note", ""),
+                    ms.get("is_done", 0),
+                    ms.get("sort_order", 0),
+                    ms.get("created_at", datetime.now().isoformat()),
                 ),
             )
 
-        self.connection.commit()
+        # Settings are part of the authoritative JSON backup. Unknown keys are
+        # intentionally retained for forward compatibility.
+        for setting in data.get("settings", []):
+            key = setting.get("key")
+            value = setting.get("value")
+            if not isinstance(key, str) or not isinstance(value, str) or not key:
+                continue
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
         logger.info(
-            "Imported backup: %d subject(s), %d session(s), %d todo(s) in source payload",
+            "Imported backup: %d subject(s), %d session(s), %d goal(s), "
+            "%d milestone(s), %d template(s), %d setting(s)",
             len(subjects), len(data.get("sessions", [])), len(data.get("todo_tasks", [])),
+            len(data.get("milestones", [])), len(data.get("goal_templates", [])),
+            len(data.get("settings", [])),
         )
 
 

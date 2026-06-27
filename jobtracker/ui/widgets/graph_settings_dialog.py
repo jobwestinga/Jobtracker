@@ -2,7 +2,7 @@
 Graph Settings dialog — configures the Graphs tab:
 - Time range (7 / 14 / 30 / All Time) or a one-off custom from/to range
 - Grouping (Daily / Weekly / Monthly) for the stacked bar chart
-- View mode (Stacked Bar / Agenda Timeline)
+- View mode (Stacked Bar / Agenda Timeline / Heatmap)
 - Agenda visible hour range (start / end hour) + auto-fit
 """
 
@@ -33,6 +33,7 @@ GROUPING_OPTIONS = [
 VIEW_OPTIONS = [
     ("Stacked Bar", "bar"),
     ("Agenda Timeline", "agenda"),
+    ("Heatmap", "heatmap"),
 ]
 
 
@@ -95,9 +96,9 @@ class GraphSettingsDialog(QDialog):
         layout.addLayout(custom_row)
 
         # ── Grouping ─────────────────────────────────────────────────────
-        lbl_group = QLabel("Grouping (Bar chart)")
-        lbl_group.setStyleSheet("font-weight: 600; font-size: 13px;")
-        layout.addWidget(lbl_group)
+        self._group_label = QLabel("Grouping (Bar chart)")
+        self._group_label.setStyleSheet("font-weight: 600; font-size: 13px;")
+        layout.addWidget(self._group_label)
 
         self.group_btns = []
         group_row = QHBoxLayout()
@@ -227,12 +228,18 @@ class GraphSettingsDialog(QDialog):
             self._restyle(self.range_btns, self._selected_range)
 
     def _on_mode_changed(self) -> None:
-        is_agenda = self._selected_mode == 1
+        mode = VIEW_OPTIONS[self._selected_mode][1]
+        is_bar = mode == "bar"
+        is_agenda = mode == "agenda"
+        self._group_label.setVisible(is_bar)
+        for btn in self.group_btns:
+            btn.setVisible(is_bar)
+        self.fit_width_check.setVisible(mode in ("bar", "agenda"))
         self.autofit_hours_check.setVisible(is_agenda)
         self._on_autofit_toggled(self.autofit_hours_check.isChecked())
 
     def _on_autofit_toggled(self, checked: bool) -> None:
-        is_agenda = self._selected_mode == 1
+        is_agenda = VIEW_OPTIONS[self._selected_mode][1] == "agenda"
         show_hours = is_agenda and not checked
         self._hours_label.setVisible(show_hours)
         for i in range(self._hours_row.count()):

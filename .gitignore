@@ -3,6 +3,7 @@ build/
 dist/
 *.pyc
 __pycache__/
+.pytest_cache/
 
 # Virtual environment
 venv/

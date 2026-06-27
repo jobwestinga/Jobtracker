@@ -1,7 +1,7 @@
 """
 Main application window with 3 environments:
 - Subjects
-- Tasks
+- Goals
 - Graphs
 """
 
@@ -43,12 +43,15 @@ from .widgets.agenda_view import AgendaViewWidget
 from .widgets.fx_background import FxBackgroundWidget
 from .widgets.graph_settings_dialog import GraphSettingsDialog
 from .widgets.graphs_view import WorkGraphWidget
+from .widgets.goal_dialog import GoalDetailDialog, GoalDialog
+from .widgets.heatmap_view import HeatmapWidget
+from .widgets.day_sessions_dialog import DaySessionsDialog
 from .widgets.manage_sessions_dialog import ManageSessionsDialog
 from .widgets.reorderable_list import ReorderableCardList
 from .widgets.settings_dialog import SettingsDialog
 from .widgets.subject_dialog import SubjectDialog
 from .widgets.subject_item import SubjectItemWidget
-from .widgets.todo_task_dialog import TodoTaskDialog
+from .widgets.template_dialog import TemplateManagerDialog
 from .widgets.todo_task_item import TodoTaskItemWidget
 
 
@@ -117,6 +120,7 @@ class MainWindow(QMainWindow):
         self._graph_custom_range: tuple[date, date] | None = self._load_custom_range()
 
         self._showing_archived: bool = False
+        self._showing_completed_goals: bool = False
 
         self.app_instance.aboutToQuit.connect(self._on_close)
         # Pause expensive background animation when the app is not in front.
@@ -124,6 +128,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._apply_theme()
+        self._generate_due_goals(reload=False)
         self._reload()
 
         # Keep graphs up to date while tracking, without requiring manual refresh.
@@ -186,6 +191,17 @@ class MainWindow(QMainWindow):
             self.service.heartbeat_active_session()
         except Exception:
             logger.exception("Heartbeat failed")
+        self._generate_due_goals()
+
+    def _generate_due_goals(self, reload: bool = True) -> None:
+        """Generate recurring goal instances due for the current logical period."""
+        try:
+            created = self.service.generate_due_goal_instances()
+        except Exception:
+            logger.exception("Recurring goal generation failed")
+            return
+        if created and reload and hasattr(self, "_todo_list"):
+            self._reload_tasks()
 
     def _load_graph_range(self) -> int | None:
         raw = db.get_setting("graph_range", "7")
@@ -303,16 +319,16 @@ class MainWindow(QMainWindow):
         lay.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Tasks")
+        title = QLabel("Goals")
         title.setObjectName("title")
         header.addWidget(title)
         header.addStretch()
 
-        add_btn = QPushButton("+ Task")
+        add_btn = QPushButton("+ Goal")
         add_btn.setObjectName("primaryBtn")
         add_btn.setMinimumHeight(34)
         add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self._new_todo_task)
+        add_btn.clicked.connect(self._new_goal)
         header.addWidget(add_btn)
 
         gear_btn = QPushButton("⚙")
@@ -326,15 +342,21 @@ class MainWindow(QMainWindow):
         lay.addLayout(header)
 
         tools = QHBoxLayout()
+        templates_btn = QPushButton("Templates")
+        templates_btn.setCursor(Qt.PointingHandCursor)
+        templates_btn.setMinimumHeight(30)
+        templates_btn.setToolTip("Recurring goal templates (daily/weekly/monthly)")
+        templates_btn.clicked.connect(self._open_templates)
+        tools.addWidget(templates_btn)
         tools.addStretch()
-        sort_deadline_btn = QPushButton("Sort by Deadline")
-        sort_deadline_btn.setCursor(Qt.PointingHandCursor)
-        sort_deadline_btn.setMinimumHeight(30)
-        sort_deadline_btn.clicked.connect(self._sort_todo_by_deadline)
-        tools.addWidget(sort_deadline_btn)
+        self._show_completed_btn = QPushButton("Show Completed")
+        self._show_completed_btn.setCursor(Qt.PointingHandCursor)
+        self._show_completed_btn.setMinimumHeight(30)
+        self._show_completed_btn.clicked.connect(self._toggle_completed_goals)
+        tools.addWidget(self._show_completed_btn)
         lay.addLayout(tools)
 
-        self._todo_empty = QLabel("No tasks yet - click + Task to add one.")
+        self._todo_empty = QLabel("No goals yet — click + Goal to add one.")
         self._todo_empty.setStyleSheet(
             f"color: {self._tokens['TEXT_DIMMED']}; font-style: italic; padding: 20px 0;"
         )
@@ -390,6 +412,10 @@ class MainWindow(QMainWindow):
         self._agenda_view = AgendaViewWidget()
         self._graph_stack.addWidget(self._agenda_view)  # index 1
 
+        self._heatmap_view = HeatmapWidget()
+        self._heatmap_view.day_clicked.connect(self._open_heatmap_day)
+        self._graph_stack.addWidget(self._heatmap_view)  # index 2
+
         lay.addWidget(self._graph_stack, 1)
 
         self._graph_legend = QLabel("")
@@ -408,11 +434,11 @@ class MainWindow(QMainWindow):
         nav.setContentsMargins(0, 0, 0, 0)
         nav.setSpacing(0)
 
-        labels = ["Subjects", "Tasks", "Graphs"]
+        labels = ["Subjects", "Goals", "Graphs"]
         self._nav_buttons: list[QPushButton] = []
 
         for idx, label in enumerate(labels):
-            if label == "Tasks":
+            if label == "Goals":
                 btn = _BadgeNavButton(label)
                 self._tasks_nav_btn = btn
             else:
@@ -442,6 +468,7 @@ class MainWindow(QMainWindow):
         self._timer.apply_tokens(self._tokens)
         self._graph_view.set_tokens(self._tokens)
         self._agenda_view.set_tokens(self._tokens)
+        self._heatmap_view.set_tokens(self._tokens)
         self._fx_bg.apply_theme(self._tokens, self._fx)
 
     # ═══════════════════════════════════════════════════════════════════
@@ -499,27 +526,43 @@ class MainWindow(QMainWindow):
 
     def _reload_tasks(self) -> None:
         self._todo_list.clear_cards()
+        active_count = self.service.get_incomplete_todo_count()
+        self._update_task_badge(active_count)
 
-        todo_tasks = self.service.get_all_todo_tasks()
-        if not todo_tasks:
+        goals = (
+            self.service.get_completed_goals()
+            if self._showing_completed_goals
+            else self.service.get_active_goals()
+        )
+        self._show_completed_btn.setText(
+            "Show Active" if self._showing_completed_goals else "Show Completed"
+        )
+        self._todo_list.setDragEnabled(not self._showing_completed_goals)
+        self._todo_list.setAcceptDrops(not self._showing_completed_goals)
+
+        if not goals:
+            self._todo_empty.setText(
+                "No completed goals yet."
+                if self._showing_completed_goals
+                else "No goals yet — click + Goal to add one."
+            )
             self._todo_empty.show()
             self._todo_list.hide()
-            self._update_task_badge(0)
             return
         self._todo_empty.hide()
         self._todo_list.show()
 
-        for todo_task in todo_tasks:
-            card = TodoTaskItemWidget(todo_task, self._tokens)
-            card.edit_requested.connect(self._edit_todo_task)
-            card.delete_requested.connect(self._delete_todo_task)
-            card.complete_requested.connect(self._complete_todo_task)
-            if todo_task.id is not None:
-                self._todo_list.add_card(todo_task.id, card)
-
-        # Update badge
-        count = self.service.get_incomplete_todo_count()
-        self._update_task_badge(count)
+        for goal in goals:
+            if goal.id is None:
+                continue
+            progress = self.service.get_goal_progress(goal.id)
+            card = TodoTaskItemWidget(goal, self._tokens, progress=progress)
+            card.open_requested.connect(self._open_goal)
+            card.edit_requested.connect(self._edit_goal)
+            card.delete_requested.connect(self._delete_goal)
+            card.complete_requested.connect(self._complete_goal)
+            card.reopen_requested.connect(self._reopen_goal)
+            self._todo_list.add_card(goal.id, card)
 
     def _update_task_badge(self, count: int) -> None:
         if hasattr(self, "_tasks_nav_btn"):
@@ -528,6 +571,8 @@ class MainWindow(QMainWindow):
     def _reload_graphs(self) -> None:
         if self._graph_view_mode == "agenda":
             self._reload_agenda()
+        elif self._graph_view_mode == "heatmap":
+            self._reload_heatmap()
         else:
             self._reload_bar_chart()
 
@@ -545,6 +590,7 @@ class MainWindow(QMainWindow):
         return f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
 
     def _set_legend(self, seen: dict[str, str]) -> None:
+        self._graph_legend.show()
         if seen:
             parts = [
                 f"<span style='color:{color};'>■</span> {name}"
@@ -626,6 +672,31 @@ class MainWindow(QMainWindow):
         for s in sessions:
             seen[s["subject_name"]] = s["color"]
         self._set_legend(seen)
+
+    def _reload_heatmap(self) -> None:
+        self._graph_stack.setCurrentIndex(2)
+        days, start_day, end_day = self._current_window()
+        rows = self.service.get_heatmap_data(
+            days=days,
+            start_date=start_day,
+            end_date=end_day,
+        )
+        self._heatmap_view.set_data(rows)
+        total_seconds = sum(row["total_seconds"] for row in rows)
+        self._graph_subtitle.setText(
+            f"Heatmap · {self._range_label()} · {total_seconds / 3600:.1f}h"
+        )
+        self._graph_legend.hide()
+
+    def _open_heatmap_day(self, day_iso: str) -> None:
+        try:
+            day = date.fromisoformat(day_iso)
+        except ValueError:
+            logger.warning("Ignored invalid heatmap day: %r", day_iso)
+            return
+        DaySessionsDialog(self.service, day, self).exec()
+        self._reload_subjects()
+        self._reload_graphs()
 
     def _refresh_graphs_if_needed(self) -> None:
         if self.service.active_session or self._pages.currentIndex() == 2:
@@ -772,54 +843,83 @@ class MainWindow(QMainWindow):
         self._reload_graphs()
 
     # ═══════════════════════════════════════════════════════════════════
-    #  TASK ACTIONS
+    #  GOAL ACTIONS
     # ═══════════════════════════════════════════════════════════════════
-    def _new_todo_task(self) -> None:
-        dlg = TodoTaskDialog(self)
+    def _new_goal(self) -> None:
+        dlg = GoalDialog(self)
         if dlg.exec():
             d = dlg.get_data()
-            if not d["name"]:
-                QMessageBox.warning(self, "Validation", "Task name cannot be empty.")
+            goal = self.service.add_todo_task(d["name"], d["notes"], None)
+            if goal is None or goal.id is None:
+                QMessageBox.warning(self, "Validation", "Goal title cannot be empty.")
                 return
-            self.service.add_todo_task(d["name"], d["notes"], d["deadline"])
+            for title in d["milestones"]:
+                self.service.add_milestone(goal.id, title)
+            self._showing_completed_goals = False
             self._reload_tasks()
 
-    def _edit_todo_task(self, todo_task_id: int) -> None:
-        todo_task = next((t for t in self.service.get_all_todo_tasks() if t.id == todo_task_id), None)
-        if not todo_task:
+    def _open_goal(self, goal_id: int) -> None:
+        if self.service.get_goal(goal_id) is None:
             return
-        dlg = TodoTaskDialog(self, todo_task)
-        if dlg.exec():
-            d = dlg.get_data()
-            if not d["name"]:
-                QMessageBox.warning(self, "Validation", "Task name cannot be empty.")
-                return
-            self.service.update_todo_task(todo_task_id, d["name"], d["notes"], d["deadline"])
-            self._reload_tasks()
-
-    def _delete_todo_task(self, todo_task_id: int) -> None:
-        if QMessageBox.question(
-            self,
-            "Delete Task",
-            "Delete this task permanently?",
-            QMessageBox.Yes | QMessageBox.No,
-        ) == QMessageBox.Yes:
-            self.service.delete_todo_task(todo_task_id)
-            self._reload_tasks()
-
-    def _complete_todo_task(self, todo_task_id: int) -> None:
-        def after_anim() -> None:
-            self.service.complete_todo_task(todo_task_id)
-            self._reload_tasks()
-
-        self._todo_list.animate_remove(todo_task_id, on_finished=after_anim)
-
-    def _on_todo_order_changed(self, ordered_ids: list[int]) -> None:
-        self.service.set_todo_task_order(ordered_ids)
+        GoalDetailDialog(self.service, goal_id, self).exec()
         self._reload_tasks()
 
-    def _sort_todo_by_deadline(self) -> None:
-        self.service.sort_todo_tasks_by_deadline()
+    def _edit_goal(self, goal_id: int) -> None:
+        goal = self.service.get_goal(goal_id)
+        if goal is None:
+            return
+        dlg = GoalDialog(self, goal=goal)
+        if dlg.exec():
+            d = dlg.get_data()
+            self.service.update_todo_task(goal_id, d["name"], d["notes"], None)
+            self._reload_tasks()
+
+    def _delete_goal(self, goal_id: int) -> None:
+        goal = self.service.get_goal(goal_id)
+        if goal is None:
+            return
+        if QMessageBox.question(
+            self,
+            "Delete Goal",
+            f'Delete “{goal.name}” and all of its milestones permanently?',
+            QMessageBox.Yes | QMessageBox.No,
+        ) == QMessageBox.Yes:
+            self.service.delete_todo_task(goal_id)
+            self._reload_tasks()
+
+    def _complete_goal(self, goal_id: int) -> None:
+        if not self.service.can_complete_goal(goal_id):
+            QMessageBox.information(
+                self,
+                "Milestones remain",
+                "Finish all milestones before completing this goal.",
+            )
+            self._reload_tasks()
+            return
+
+        def after_anim() -> None:
+            self.service.complete_goal(goal_id)
+            self._reload_tasks()
+
+        self._todo_list.animate_remove(goal_id, on_finished=after_anim)
+
+    def _reopen_goal(self, goal_id: int) -> None:
+        self.service.uncomplete_goal(goal_id)
+        self._reload_tasks()
+
+    def _toggle_completed_goals(self) -> None:
+        self._showing_completed_goals = not self._showing_completed_goals
+        self._reload_tasks()
+
+    def _open_templates(self) -> None:
+        TemplateManagerDialog(self.service, self).exec()
+        self._generate_due_goals(reload=False)
+        self._reload_tasks()
+
+    def _on_todo_order_changed(self, ordered_ids: list[int]) -> None:
+        if self._showing_completed_goals:
+            return
+        self.service.set_todo_task_order(ordered_ids)
         self._reload_tasks()
 
     # ═══════════════════════════════════════════════════════════════════

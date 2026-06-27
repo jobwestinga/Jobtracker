@@ -228,6 +228,10 @@ class SettingsDialog(QDialog):
             main._fx_bg.apply_theme(tokens, self._fx)
         if main and hasattr(main, "_graph_view"):
             main._graph_view.set_tokens(tokens)
+        if main and hasattr(main, "_agenda_view"):
+            main._agenda_view.set_tokens(tokens)
+        if main and hasattr(main, "_heatmap_view"):
+            main._heatmap_view.set_tokens(tokens)
         self._refresh_buttons()
 
     def _cancel(self) -> None:
@@ -245,6 +249,10 @@ class SettingsDialog(QDialog):
                 main._fx_bg.apply_theme(tokens, self._original_fx)
             if main and hasattr(main, "_graph_view"):
                 main._graph_view.set_tokens(tokens)
+            if main and hasattr(main, "_agenda_view"):
+                main._agenda_view.set_tokens(tokens)
+            if main and hasattr(main, "_heatmap_view"):
+                main._heatmap_view.set_tokens(tokens)
         self.reject()
 
     def _resolve_main_window(self) -> Optional[object]:
@@ -300,7 +308,20 @@ class SettingsDialog(QDialog):
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
             db.import_data(data)
+            main = self._resolve_main_window()
+            if main is not None and hasattr(main, "_reload"):
+                # Apply restored preferences immediately. Close this settings
+                # dialog afterward so its pre-import controls cannot overwrite
+                # the restored values when Save is pressed.
+                if hasattr(main, "_fx"):
+                    main._fx = db.get_setting("theme_fx", main._fx)
+                if hasattr(main, "_palette"):
+                    main._palette = db.get_setting("theme_palette", main._palette)
+                if hasattr(main, "_apply_theme"):
+                    main._apply_theme()
+                main._reload()
             QMessageBox.information(self, "Imported", "Data restored successfully.")
+            self.reject()
         except Exception as exc:
             logger.exception("Import failed")
             QMessageBox.critical(self, "Error", f"Import failed:\n{exc}")

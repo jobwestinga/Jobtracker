@@ -19,6 +19,7 @@ import tempfile
 # Must happen before importing anything from jobtracker.
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="jobtracker-tests-")
 os.environ["JOBTRACKER_DB_PATH"] = str(pathlib.Path(_TEST_DB_DIR) / "singleton.db")
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 

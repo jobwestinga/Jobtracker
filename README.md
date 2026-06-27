@@ -6,8 +6,9 @@ JobTracker is a native macOS desktop application designed to capture and visuali
 
 - **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions. New subjects suggest colors that stay visually distinct from your existing ones.
 - **Crash-safe recovery:** If the app or laptop dies mid-session, on reopen JobTracker asks how to handle the unfinished session — end it at the last time it was known active, end it now, or set a custom end time/length. It never silently counts hours you weren't working, and never deletes the session for you.
-- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—including duration and fixed time-slot quick-adds for fast backfilling. Gain insights through custom-built stacked bar charts (grouped **daily, weekly, or monthly**) and daily agenda timelines that illustrate exactly where your day went. Pick a preset range (7/14/30/All) or a one-off custom date range.
-- **Integrated To-Do Lists:** Separate from your timed subjects, standard tasks allow you to set deadlines and manage direct task completion workflows.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—including duration and fixed time-slot quick-adds for fast backfilling. Use stacked bar charts (grouped **daily, weekly, or monthly**), compact agenda timelines, or an all-history **heatmap** of tracked time. Pick a preset range (7/14/30/All) or a one-off custom date range; click a heatmap day to inspect its sessions.
+- **Outcome-focused Goals:** Keep goals separate from timed subjects. Add a description and milestone checklist, track progress, complete a goal only after its milestones are done, and reopen completed goals at any time.
+- **Recurring Goal Templates:** Daily, weekly, or monthly templates generate ordinary goals at the top of the list. Previous unfinished instances remain, and opening the app repeatedly in one logical period never creates duplicates.
 - **Offline & Fully Local:** Your data never leaves your computer. Backed by a local SQLite engine, all your tracking history is private and portable.
 - **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
 
@@ -83,12 +84,33 @@ view, late-night work that belongs to the previous logical day appears at the
 bottom of that day with labels like `01:00 (+1)`, so ordinary daytime days stay
 compact.
 
+## Goals and Recurring Templates
+
+The **Goals** tab is for outcomes such as completing a project or earning a
+qualification—not hour quotas. A goal can have a description and
+milestones. Check milestones off in the goal detail view; completed milestones
+stay visible, and completed goals can be reopened.
+
+Use **Goals → Templates** for routine packs such as a daily practice checklist,
+weekly review, or monthly admin task. When a new logical day/week/month begins,
+JobTracker creates one normal, editable goal from each active template. Older
+unfinished instances are left untouched.
+
+## Heatmap
+
+Choose **Heatmap** under Graph Settings to view tracked time per logical day.
+Cell intensity represents total tracked time using the same configurable day
+boundary as the other graphs. The 7/14/30/All and custom-range controls apply,
+and clicking a cell opens that day’s sessions with access to the existing
+session editor.
+
 ## Exporting Your Data
 
 **Settings → Export Backup** writes a `.zip` bundle containing:
 
 - `jobtracker_backup.json` — the authoritative full backup (the only file used to
-  restore; **Import Backup** accepts this `.json`, or the `.zip` directly)
+  restore, including goals, templates, milestones, and settings; **Import
+  Backup** accepts this `.json`, or the `.zip` directly)
 - `sessions.csv`, `subjects.csv` — human-readable, open in Numbers/Excel
 - `daily_summary.csv` — per-day, per-subject totals (respects your day-start)
 - `README.txt` — explains the files

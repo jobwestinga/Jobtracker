@@ -8,8 +8,9 @@ live here.
 
 - A **local-only, macOS desktop time tracker**. PySide6 (Qt 6 Widgets) + SQLite.
 - **Subjects** are the timed entities — you start/stop a timer on a subject and
-  it records sessions. **Tasks/goals are a separate area** (a deadline to-do
-  list) and are intentionally **not** connected to timed subjects yet.
+  it records sessions. **Goals are a separate, outcome-focused area** with
+  descriptions and milestones. They are intentionally **not** connected to
+  timed subjects.
 - Personal-use, single-user, single-machine. Keep it **simple and personal**.
 - Architecture layers: `core` (config, models, database, themes, timeutils,
   logging) → `services` (TrackerService) → `ui` (PySide6 widgets).
@@ -75,6 +76,10 @@ live here.
     query and the import legacy-key handling.
 - `last_active_at` (sessions) is a heartbeat timestamp updated ~once/minute while
   active. One UPDATE, no history rows. Keep it cheap.
+- Prompt 3 adds two tables and one nullable column, all additive:
+  `milestones` (FK to legacy `todo_tasks`), `goal_templates`, and
+  `todo_tasks.template_id`. The `todo_tasks`/`TodoTask` names remain for
+  compatibility; user-facing terminology is **Goals**.
 
 ## Logging
 
@@ -101,7 +106,37 @@ logic in widgets:
 Service methods doing the analytics (all logical-day aware, include the live
 session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`,
 `get_agenda_data()`, `get_subject_deletion_summary()`, `get_active_recovery_info()`,
-`resolve_recovery()`. `get_daily_subject_breakdown()` is a thin back-compat wrapper.
+`resolve_recovery()`, `get_heatmap_data()`, and
+`get_sessions_for_logical_day()`. `get_daily_subject_breakdown()` is a thin
+back-compat wrapper.
+
+## Goals, milestones, and recurring generation
+
+- A Goal is stored in the legacy `todo_tasks` table. It has a title
+  (`name`), description (`notes`), completion state, order, and optional
+  `template_id`. Do not reconnect it to timed Subjects.
+- Completion is manual and milestone-gated in `TrackerService.complete_goal()`:
+  all milestones must be checked, unless the goal has none. Adding or unchecking
+  a milestone on a completed goal reopens it so the invariant stays true.
+- Completed goals remain queryable and reopenable; their milestones are never
+  hidden or deleted by completion.
+- Active daily/weekly/monthly templates are checked on startup and approximately
+  once per minute while the app is open. `last_generated` stores the logical
+  period key. A due template inserts one ordinary editable goal at the top;
+  prior unfinished instances remain. Generation must stay idempotent.
+- The authoritative JSON backup includes goals, milestones, templates, their ID
+  relationships, and settings. Restore must preserve repeated generated goals
+  that legitimately share a title.
+
+## Heatmap
+
+- The heatmap is the third Graphs view and uses tracked session time only—never
+  goal completion, streaks, or insights.
+- `TrackerService.get_heatmap_data()` uses the same logical-day/start-attribution
+  rule as the bar chart and includes a live session. Empty days are zero-filled.
+- Clicking a cell opens `DaySessionsDialog`, which uses
+  `get_sessions_for_logical_day()` and delegates edits to the existing subject
+  session manager.
 
 Rules when extending:
 - Weeks are Monday-start. Don't change that convention.

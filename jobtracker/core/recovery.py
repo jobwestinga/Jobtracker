@@ -107,14 +107,15 @@ def end_time_for_choice(
 ) -> datetime:
     """Resolve a recovery choice into the concrete end datetime to store.
 
-    Falls back to "now" for unknown/empty inputs so a session is never left open.
+    Falls back to "now" for unknown/empty inputs. Custom values are clamped to
+    the original start-to-now window so malformed input cannot create a negative
+    duration or accidentally extend a recovered session into the future.
     """
+    chosen = info.now
     if choice == CHOICE_LAST:
-        return info.last_active
-    if choice == CHOICE_NOW:
-        return info.now
-    if choice == CHOICE_CUSTOM_END and custom_end is not None:
-        return custom_end
-    if choice == CHOICE_CUSTOM_LENGTH and custom_length_seconds is not None:
-        return info.start + timedelta(seconds=max(0, int(custom_length_seconds)))
-    return info.now
+        chosen = info.last_active
+    elif choice == CHOICE_CUSTOM_END and custom_end is not None:
+        chosen = custom_end
+    elif choice == CHOICE_CUSTOM_LENGTH and custom_length_seconds is not None:
+        chosen = info.start + timedelta(seconds=max(0, int(custom_length_seconds)))
+    return min(info.now, max(info.start, chosen))

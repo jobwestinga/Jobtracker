@@ -92,3 +92,23 @@ def test_choice_defaults_to_now_when_underspecified():
     )
     # custom end requested but none supplied -> safe fallback to now.
     assert recovery.end_time_for_choice(info, recovery.CHOICE_CUSTOM_END) == now
+
+
+def test_custom_recovery_values_are_clamped_to_session_window():
+    start = datetime(2026, 6, 20, 9, 0)
+    last = datetime(2026, 6, 20, 10, 0)
+    now = datetime(2026, 6, 20, 12, 0)
+    info = recovery.build_recovery_info(
+        _session(start.isoformat(), last.isoformat()), "P", now=now,
+        gap_threshold_seconds=300,
+    )
+
+    assert recovery.end_time_for_choice(
+        info, recovery.CHOICE_CUSTOM_END, custom_end=start - timedelta(hours=1)
+    ) == start
+    assert recovery.end_time_for_choice(
+        info, recovery.CHOICE_CUSTOM_END, custom_end=now + timedelta(hours=1)
+    ) == now
+    assert recovery.end_time_for_choice(
+        info, recovery.CHOICE_CUSTOM_LENGTH, custom_length_seconds=99 * 3600
+    ) == now

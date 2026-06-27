@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Signal, Qt
 from datetime import datetime
 from ...core.models import Session, Subject
+from ...core import timeutils
 
 
 IDLE_MESSAGE = "Get to work."
@@ -196,14 +197,12 @@ class ActiveTimerWidget(QFrame):
     def _update_time(self) -> None:
         if not self.session:
             return
-        try:
-            started_at = datetime.fromisoformat(self.session.start_time)
-        except ValueError:
+        started_at = timeutils.parse_iso(self.session.start_time)
+        if started_at is None:
             self._clock.setText("--:--:--")
             self._tick.stop()
             return
-        elapsed = datetime.now() - started_at
-        total = int(elapsed.total_seconds())
+        total = timeutils.duration_seconds(started_at, datetime.now())
         h, rem = divmod(total, 3600)
         m, s = divmod(rem, 60)
         self._clock.setText(f"{h:02d}:{m:02d}:{s:02d}")

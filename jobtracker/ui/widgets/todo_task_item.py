@@ -1,5 +1,5 @@
 """
-Completable task card widget.
+Goal card widget (legacy filename retained for compatibility).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPolygonF
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -131,7 +132,7 @@ class _CheckButton(QPushButton):
         super().__init__(parent)
         self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Complete task")
+        self.setToolTip("Complete goal")
         self.setProperty("no_drag", True)
         self.setFlat(True)
         self.setStyleSheet(
@@ -157,12 +158,17 @@ class TodoTaskItemWidget(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
     complete_requested = Signal(int)
+    reopen_requested = Signal(int)
+    open_requested = Signal(int)
 
-    def __init__(self, todo_task: TodoTask, tokens: dict) -> None:
+    def __init__(self, todo_task: TodoTask, tokens: dict, progress: tuple = (0, 0)) -> None:
         super().__init__()
         self.todo_task = todo_task
         self._t = tokens
         self._completing = False
+        self._progress = progress  # (done, total) milestones
+        self._suppress_click_once = False
+        self._press_pos = QPoint()
 
         self._build_ui()
         self._apply_style()
@@ -188,12 +194,24 @@ class TodoTaskItemWidget(QFrame):
         )
         info.addWidget(self.name_lbl)
 
-        self.deadline_lbl = QLabel(_format_deadline(self.todo_task.deadline))
-        deadline_color = t["ACCENT_RED"] if self.todo_task.deadline else t["TEXT_DIMMED"]
-        self.deadline_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {deadline_color}; background: transparent;"
+        done, total = self._progress
+        if self.todo_task.is_completed:
+            progress_text = (
+                f"Completed · {done}/{total} milestones"
+                if total > 0 else "Completed"
+            )
+            progress_color = t["ACCENT_GREEN"]
+        elif total > 0:
+            progress_text = f"✓ {done}/{total} milestones"
+            progress_color = t["ACCENT_GREEN"] if done == total else t["TEXT_SECONDARY"]
+        else:
+            progress_text = "No milestones — complete manually"
+            progress_color = t["TEXT_DIMMED"]
+        self.progress_lbl = QLabel(progress_text)
+        self.progress_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {progress_color}; background: transparent;"
         )
-        info.addWidget(self.deadline_lbl)
+        info.addWidget(self.progress_lbl)
 
         if self.todo_task.notes:
             notes_lbl = QLabel(self.todo_task.notes)
@@ -206,7 +224,24 @@ class TodoTaskItemWidget(QFrame):
         layout.addLayout(info)
         layout.addStretch()
 
+        self.open_btn = QPushButton("Open")
+        self.open_btn.setProperty("no_drag", True)
+        self.open_btn.setCursor(Qt.PointingHandCursor)
+        self.open_btn.setMinimumHeight(28)
+        self.open_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1.2px solid {t['BORDER_COLOR']};"
+            f" border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 600;"
+            f" color: {t['TEXT_PRIMARY']}; }}"
+            f" QPushButton:hover {{ border-color: {t['ACCENT']}; }}"
+        )
+        if self.todo_task.id is not None:
+            self.open_btn.clicked.connect(lambda: self.open_requested.emit(self.todo_task.id))
+        layout.addWidget(self.open_btn, 0, Qt.AlignVCenter)
+
         self.check_btn = _CheckButton(self)
+        if self.todo_task.is_completed:
+            self.check_btn.setText("↺")
+            self.check_btn.setToolTip("Reopen goal")
         self.check_btn.clicked.connect(self._on_check_clicked)
         layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
 
@@ -229,6 +264,10 @@ class TodoTaskItemWidget(QFrame):
     def _on_check_clicked(self) -> None:
         if self._completing or self.todo_task.id is None:
             return
+        if self.todo_task.is_completed:
+            self.reopen_requested.emit(self.todo_task.id)
+            return
+
         self._completing = True
         self.check_btn.setEnabled(False)
 
@@ -240,16 +279,47 @@ class TodoTaskItemWidget(QFrame):
         # Emit after short delay so parent can coordinate list reflow
         self.complete_requested.emit(self.todo_task.id)
 
+    def suppress_next_click(self) -> None:
+        self._suppress_click_once = True
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if (
+            event.button() == Qt.LeftButton
+            and self.todo_task.id is not None
+            and not self._suppress_click_once
+        ):
+            distance = (event.position().toPoint() - self._press_pos).manhattanLength()
+            if distance < QApplication.startDragDistance():
+                self.open_requested.emit(self.todo_task.id)
+                event.accept()
+                return
+        self._suppress_click_once = False
+        super().mouseReleaseEvent(event)
+
     def _show_context_menu(self, pos) -> None:
         if self.todo_task.id is None:
             return
         menu = QMenu(self)
 
-        edit = QAction("Edit Task", self)
+        open_action = QAction("Open Goal", self)
+        open_action.triggered.connect(lambda: self.open_requested.emit(self.todo_task.id))
+        menu.addAction(open_action)
+
+        if self.todo_task.is_completed:
+            reopen = QAction("Reopen Goal", self)
+            reopen.triggered.connect(lambda: self.reopen_requested.emit(self.todo_task.id))
+            menu.addAction(reopen)
+
+        edit = QAction("Edit Goal", self)
         edit.triggered.connect(lambda: self.edit_requested.emit(self.todo_task.id))
         menu.addAction(edit)
 
-        delete = QAction("Delete Task", self)
+        delete = QAction("Delete Goal", self)
         delete.triggered.connect(lambda: self.delete_requested.emit(self.todo_task.id))
         menu.addAction(delete)
 
