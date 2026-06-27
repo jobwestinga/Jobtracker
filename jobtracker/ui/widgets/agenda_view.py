@@ -192,24 +192,20 @@ class _AgendaCanvas(QWidget):
         else:
             col_width = max(2, col_width)
 
-        # Current-time marker: a subtle horizontal line at "now" on today's
-        # column, bleeding a little into the neighbours. Painted here (before the
-        # columns) so it sits BEHIND the coloured session bars, like a faint
-        # gridline showing where we are in the day.
+        # Current-time marker: a subtle horizontal line at "now" spanning the
+        # timeline. Painted here (before the columns) so it sits BEHIND the
+        # coloured session bars, like a faint gridline showing where we are.
         if self._now_marker is not None:
             now_day, now_hour = self._now_marker
             if (
                 now_day in self._day_keys
                 and self._hour_start <= now_hour <= self._hour_end
             ):
-                today_idx = self._day_keys.index(now_day)
-                today_x = chart.left() + today_idx * (col_width + gap)
                 y = chart.top() + (now_hour - self._hour_start) / hour_count * chart.height()
-                bleed = min(col_width * 0.45, 22.0)
-                x1 = max(chart.left(), today_x - bleed)
-                x2 = min(chart.right(), today_x + col_width + bleed)
-                p.setPen(QPen(_with_alpha(t["TEXT_DIMMED"], 135), 2.0))
-                p.drawLine(int(x1), int(y), int(x2), int(y))
+                p.setPen(QPen(_with_alpha(t["TEXT_DIMMED"], 115), 1.5))
+                p.drawLine(
+                    int(chart.left()), int(y), int(chart.right()), int(y)
+                )
 
         # Group sessions by logical day.
         day_sessions: dict[str, list[dict]] = {d: [] for d in self._day_keys}
