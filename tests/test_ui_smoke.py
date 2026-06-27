@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
 from jobtracker.services.tracker_service import TrackerService
 from jobtracker.ui import app as app_module
@@ -20,6 +20,7 @@ from jobtracker.ui.widgets.goal_dialog import (
     apply_goal_edits,
 )
 from jobtracker.ui.widgets.graph_settings_dialog import GraphSettingsDialog
+from jobtracker.ui.widgets.graph_settings_dialog import RANGE_OPTIONS
 from jobtracker.ui.widgets.heatmap_view import (
     GAP,
     LEFT,
@@ -27,10 +28,12 @@ from jobtracker.ui.widgets.heatmap_view import (
     _intensity_ratio,
     _mix_color,
     _scale_colors,
+    _visual_ratio,
 )
 from jobtracker.ui.widgets.settings_dialog import SettingsDialog
 from jobtracker.ui.widgets.template_dialog import TemplateManagerDialog
 from jobtracker.ui.widgets.todo_task_item import TodoTaskItemWidget
+from jobtracker.ui.widgets.todo_task_item import _StarBurstOverlay
 
 
 def _application():
@@ -77,7 +80,7 @@ def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
         window.service.add_session(
             old_subject.id, old_start, old_start + timedelta(hours=1)
         )
-        window._graph_range_days = 7
+        window._graph_range_preset = "weeks"
         window._graph_mode_buttons["heatmap"].click()
         assert window._graph_stack.currentIndex() == 2
         assert database.get_setting("graph_view_mode") == "heatmap"
@@ -157,7 +160,7 @@ def test_archived_goal_card_can_only_be_restored_from_detail(service):
 def test_goal_edits_are_the_only_place_that_adds_or_deletes_milestones(service):
     qt_app = _application()
     goal = service.add_todo_task("Original", "Old motivation", None)
-    first = service.add_milestone(goal.id, "Keep")
+    first = service.add_milestone(goal.id, "Keep", "Old description")
     service.add_milestone(goal.id, "Remove")
 
     apply_goal_edits(
@@ -167,8 +170,16 @@ def test_goal_edits_are_the_only_place_that_adds_or_deletes_milestones(service):
             "name": "Updated",
             "notes": "New motivation",
             "milestones": [
-                {"id": first.id, "title": "Renamed"},
-                {"id": None, "title": "Added"},
+                {
+                    "id": first.id,
+                    "title": "Renamed",
+                    "note": "Updated description",
+                },
+                {
+                    "id": None,
+                    "title": "Added",
+                    "note": "New description",
+                },
             ],
         },
     )
@@ -176,10 +187,16 @@ def test_goal_edits_are_the_only_place_that_adds_or_deletes_milestones(service):
     assert [m.title for m in service.get_goal_milestones(goal.id)] == [
         "Renamed", "Added",
     ]
+    assert [m.note for m in service.get_goal_milestones(goal.id)] == [
+        "Updated description", "New description",
+    ]
 
     detail = GoalDetailDialog(service, goal.id)
     detail.show()
     qt_app.processEvents()
+    assert detail.windowTitle() == "Updated"
+    assert not hasattr(detail, "title_lbl")
+    assert detail.desc_lbl.text() == "New motivation"
     button_texts = {button.text() for button in detail.findChildren(type(detail.edit_btn))}
     assert "Edit Goal" in button_texts
     assert "Add" not in button_texts
@@ -200,7 +217,41 @@ def test_add_milestone_button_inserts_an_editable_row():
 
     assert len(dialog._milestone_rows) == 2
     assert dialog._milestone_rows[-1]["input"].isVisible()
+    assert dialog._milestone_rows[-1]["note_input"].isVisible()
     dialog.close()
+
+
+def test_edit_goal_offers_confirmed_permanent_delete(service, monkeypatch):
+    goal = service.add_todo_task("Delete from edit", "", None)
+    dialog = GoalDialog(
+        goal=goal,
+        milestones=[],
+    )
+    assert dialog.delete_btn.text() == "Delete Goal"
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.Yes,
+    )
+    dialog._confirm_delete()
+    assert dialog.result() == GoalDialog.DELETE_RESULT
+    dialog.close()
+
+
+def test_checking_milestone_starts_completion_animation(service):
+    qt_app = _application()
+    goal = service.add_todo_task("Animated", "Description", None)
+    milestone = service.add_milestone(goal.id, "First", "Visible detail")
+    detail = GoalDetailDialog(service, goal.id)
+    detail.show()
+    qt_app.processEvents()
+    check = detail.findChildren(QCheckBox)[0]
+    check.click()
+    qt_app.processEvents()
+    assert service.db.get_milestone(milestone.id).is_done == 1
+    burst = detail.findChildren(_StarBurstOverlay)[0]
+    assert burst._origin.x() < detail.width() / 3
+    detail.close()
 
 
 def test_template_manager_makes_selection_and_action_clear(service):
@@ -243,7 +294,10 @@ def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
     assert half != low
     assert half != high
     assert _mix_color(low, high, 0.51) != half
-    assert high == QColor("#86FFB5")
+    assert _visual_ratio(0) == 0
+    assert _visual_ratio(0.25) > 0.25
+    assert _visual_ratio(1) == 1
+    assert high == QColor("#4DFF88")
     heatmap.close()
 
 
@@ -257,6 +311,21 @@ def test_heatmap_mode_hides_date_range_settings():
     assert dialog.custom_check.isHidden()
     assert dialog._heatmap_range_hint.isVisible()
     assert all(button.isHidden() for button in dialog.range_btns)
+    dialog.close()
+
+
+def test_graph_ranges_are_calendar_presets_with_custom_still_available():
+    assert RANGE_OPTIONS == [
+        ("Weeks", "weeks"),
+        ("Months", "months"),
+        ("All Time", "all"),
+    ]
+    dialog = GraphSettingsDialog()
+    dialog._select_mode(0)
+    assert [button.text() for button in dialog.range_btns] == [
+        "Weeks", "Months", "All Time",
+    ]
+    assert not dialog.custom_check.isHidden()
     dialog.close()
 
 

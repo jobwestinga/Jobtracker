@@ -88,21 +88,26 @@ compact.
 
 The **Goals** tab is for outcomes such as completing a project or earning a
 qualification—not hour quotas. A goal can have a description and
-milestones. Check milestones off in the goal detail view; completed milestones
-stay visible, and completed goals can be reopened.
+milestones with their own titles and descriptions. Check milestones off in the
+goal detail view; completed milestones stay visible, and archived goals can be
+restored. Goal editing also provides the confirmed permanent-delete action.
 
 Use **Goals → Templates** for routine packs such as a daily practice checklist,
 weekly review, or monthly admin task. When a new logical day/week/month begins,
 JobTracker creates one normal, editable goal from each active template. Older
 unfinished instances are left untouched.
 
-## Heatmap
+## Graphs
 
-Choose **Heatmap** under Graph Settings to view tracked time per logical day.
-Cell intensity represents total tracked time using the same configurable day
-boundary as the other graphs. The 7/14/30/All and custom-range controls apply,
-and clicking a cell opens that day’s sessions with access to the existing
-session editor.
+The stacked-bar and agenda views offer calendar-aligned **Weeks** (previous
+Monday through today), **Months** (the previous month through today), **All
+Time**, and custom ranges. Stacked bars can be grouped daily, by ISO week
+number, or by calendar month.
+
+The **Heatmap** always includes all history and opens on the newest weeks;
+scroll left for older days. Its continuous cell intensity represents tracked
+time using the same configurable day boundary as the other graphs. Clicking a
+cell opens that day’s sessions in the existing session editor.
 
 ## Exporting Your Data
 

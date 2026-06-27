@@ -396,12 +396,21 @@ class TrackerService:
                 )[1]
             else:
                 period_days = 1
+            threshold_factor = {
+                "weekly": 0.85,
+                "monthly": 0.70,
+            }.get(grouping, 1.0)
             result.append(
                 {
                     "date": key,
                     "total_seconds": total_seconds,
-                    "intensity_seconds": total_seconds / period_days,
+                    # Weekly labels reach each daily intensity tier at 85% of
+                    # the straight seven-day threshold; monthly labels at 70%.
+                    "intensity_seconds": (
+                        total_seconds / (period_days * threshold_factor)
+                    ),
                     "period_days": period_days,
+                    "threshold_factor": threshold_factor,
                     "segments": buckets[key],
                 }
             )

@@ -134,6 +134,35 @@ def test_month_start():
     assert timeutils.month_start(date(2026, 6, 18)) == date(2026, 6, 1)
 
 
+def test_weeks_preset_starts_previous_monday():
+    monday_window = timeutils.graph_preset_window(
+        "weeks", date(2026, 6, 22)
+    )
+    sunday_window = timeutils.graph_preset_window(
+        "weeks", date(2026, 6, 28)
+    )
+    assert monday_window == (date(2026, 6, 15), date(2026, 6, 22))
+    assert (monday_window[1] - monday_window[0]).days + 1 == 8
+    assert sunday_window == (date(2026, 6, 15), date(2026, 6, 28))
+    assert (sunday_window[1] - sunday_window[0]).days + 1 == 14
+
+
+def test_months_preset_starts_first_of_previous_month():
+    assert timeutils.graph_preset_window(
+        "months", date(2026, 6, 27)
+    ) == (date(2026, 5, 1), date(2026, 6, 27))
+    assert timeutils.graph_preset_window(
+        "months", date(2026, 3, 1)
+    ) == (date(2026, 2, 1), date(2026, 3, 1))
+    assert timeutils.graph_preset_window(
+        "months", date(2026, 1, 10)
+    ) == (date(2025, 12, 1), date(2026, 1, 10))
+
+
+def test_all_time_preset_has_no_fixed_window():
+    assert timeutils.graph_preset_window("all", date(2026, 6, 27)) is None
+
+
 def test_bucket_key_daily_weekly_monthly():
     day = date(2026, 6, 18)
     assert timeutils.bucket_key(day, "daily") == day

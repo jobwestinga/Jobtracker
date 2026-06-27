@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from .todo_task_item import _StarBurstOverlay
 
 
 def _tokens_from(parent, explicit: dict | None = None) -> dict:
@@ -57,18 +59,23 @@ def apply_goal_edits(service, goal_id: int, data: dict) -> None:
         service.delete_milestone(milestone_id)
     for entry in data["milestones"]:
         milestone_id = entry.get("id")
+        note = entry.get("note")
+        if note is None:
+            note = existing[milestone_id].note if milestone_id in existing else ""
         if milestone_id is None:
-            service.add_milestone(goal_id, entry["title"])
+            service.add_milestone(goal_id, entry["title"], note)
         else:
             service.update_milestone(
                 milestone_id,
                 entry["title"],
-                existing[milestone_id].note,
+                note,
             )
 
 
 class GoalDialog(QDialog):
     """Create/edit the Goal and its complete milestone definition."""
+
+    DELETE_RESULT = 2
 
     def __init__(
         self,
@@ -104,7 +111,7 @@ class GoalDialog(QDialog):
             self.title_input.setText(self.goal.name)
         layout.addWidget(self.title_input)
 
-        layout.addWidget(self._label("Description / motivation"))
+        layout.addWidget(self._label("Description"))
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("Why this matters and what success looks like …")
         self.desc_input.setMaximumHeight(100)
@@ -146,7 +153,11 @@ class GoalDialog(QDialog):
 
         if self._initial_milestones:
             for milestone in self._initial_milestones:
-                self._add_milestone_row(milestone.title, milestone.id)
+                self._add_milestone_row(
+                    milestone.title,
+                    milestone.id,
+                    milestone.note,
+                )
         else:
             self._add_milestone_row()
 
@@ -156,6 +167,13 @@ class GoalDialog(QDialog):
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
+        if self._is_edit:
+            self.delete_btn = QPushButton("Delete Goal")
+            self.delete_btn.setObjectName("dangerBtn")
+            self.delete_btn.setMinimumHeight(38)
+            self.delete_btn.setCursor(Qt.PointingHandCursor)
+            self.delete_btn.clicked.connect(self._confirm_delete)
+            btn_row.addWidget(self.delete_btn)
         btn_row.addStretch()
         save = QPushButton("Save Goal")
         save.setObjectName("primaryBtn")
@@ -176,29 +194,48 @@ class GoalDialog(QDialog):
         label.setStyleSheet("font-weight: 700;")
         return label
 
-    def _add_milestone_row(self, text: str = "", milestone_id: int | None = None) -> None:
+    def _add_milestone_row(
+        self,
+        text: str = "",
+        milestone_id: int | None = None,
+        note: str = "",
+    ) -> None:
         frame = QFrame()
         frame.setStyleSheet(
             f"QFrame {{ background: {self._tokens.get('BG_TERTIARY', '#18243A')};"
             f" border: 1px solid {self._tokens['BORDER_COLOR']}; border-radius: 9px; }}"
         )
-        row_layout = QHBoxLayout(frame)
-        row_layout.setContentsMargins(10, 7, 8, 7)
-        row_layout.setSpacing(8)
+        row_layout = QVBoxLayout(frame)
+        row_layout.setContentsMargins(10, 8, 8, 9)
+        row_layout.setSpacing(7)
 
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         title_input = QLineEdit()
         title_input.setPlaceholderText("Milestone title …")
         title_input.setMinimumHeight(32)
         title_input.setText(text)
-        row_layout.addWidget(title_input, 1)
+        title_row.addWidget(title_input, 1)
 
         remove_btn = QPushButton("Remove")
         remove_btn.setCursor(Qt.PointingHandCursor)
         remove_btn.setMinimumHeight(30)
         remove_btn.setProperty("no_drag", True)
-        row_layout.addWidget(remove_btn)
+        title_row.addWidget(remove_btn)
+        row_layout.addLayout(title_row)
 
-        entry = {"id": milestone_id, "input": title_input, "frame": frame}
+        note_input = QTextEdit()
+        note_input.setPlaceholderText("Milestone description (optional) …")
+        note_input.setMaximumHeight(58)
+        note_input.setPlainText(note or "")
+        row_layout.addWidget(note_input)
+
+        entry = {
+            "id": milestone_id,
+            "input": title_input,
+            "note_input": note_input,
+            "frame": frame,
+        }
         remove_btn.clicked.connect(lambda: self._remove_milestone_row(entry))
         self._milestone_rows.append(entry)
         self._ms_container.insertWidget(self._ms_container.count() - 1, frame)
@@ -216,12 +253,27 @@ class GoalDialog(QDialog):
             return
         self.accept()
 
+    def _confirm_delete(self) -> None:
+        if QMessageBox.question(
+            self,
+            "Delete Goal",
+            f'Delete “{self.goal.name}” and all of its milestones permanently?',
+            QMessageBox.Yes | QMessageBox.No,
+        ) == QMessageBox.Yes:
+            self.done(self.DELETE_RESULT)
+
     def get_data(self) -> dict:
         milestones = []
         for entry in self._milestone_rows:
             title = entry["input"].text().strip()
             if title:
-                milestones.append({"id": entry["id"], "title": title})
+                milestones.append(
+                    {
+                        "id": entry["id"],
+                        "title": title,
+                        "note": entry["note_input"].toPlainText().strip(),
+                    }
+                )
         return {
             "name": self.title_input.text().strip(),
             "notes": self.desc_input.toPlainText().strip(),
@@ -253,33 +305,13 @@ class GoalDetailDialog(QDialog):
         layout.setContentsMargins(26, 24, 26, 20)
         layout.setSpacing(12)
 
-        self.title_lbl = QLabel("")
-        self.title_lbl.setStyleSheet("font-size: 21px; font-weight: 800;")
-        self.title_lbl.setWordWrap(True)
-        layout.addWidget(self.title_lbl)
-
-        description_frame = QFrame()
-        description_frame.setStyleSheet(
-            f"QFrame {{ background: {self._tokens.get('CARD_BG', self._tokens['BG_SECONDARY'])};"
-            f" border: 1px solid {self._tokens['BORDER_COLOR']}; border-radius: 11px; }}"
-        )
-        description_layout = QVBoxLayout(description_frame)
-        description_layout.setContentsMargins(14, 12, 14, 12)
-        description_caption = QLabel("MOTIVATION")
-        description_caption.setStyleSheet(
-            f"font-size: 9px; font-weight: 800; letter-spacing: 1px;"
-            f" color: {self._tokens['TEXT_DIMMED']};"
-            " border: none; background: transparent;"
-        )
-        description_layout.addWidget(description_caption)
         self.desc_lbl = QLabel("")
         self.desc_lbl.setWordWrap(True)
         self.desc_lbl.setStyleSheet(
-            f"font-size: 12px; color: {self._tokens['TEXT_SECONDARY']};"
-            " border: none; background: transparent;"
+            f"font-size: 13px; color: {self._tokens['TEXT_SECONDARY']};"
+            " border: none; background: transparent; padding: 2px 1px 8px 1px;"
         )
-        description_layout.addWidget(self.desc_lbl)
-        layout.addWidget(description_frame)
+        layout.addWidget(self.desc_lbl)
 
         progress_row = QHBoxLayout()
         milestones_title = QLabel("Milestones")
@@ -334,8 +366,8 @@ class GoalDetailDialog(QDialog):
             self.accept()
             return
         self._goal = goal
-        self.title_lbl.setText(goal.name)
-        self.desc_lbl.setText(goal.notes or "No description or motivation yet.")
+        self.setWindowTitle(goal.name)
+        self.desc_lbl.setText(goal.notes or "No description yet.")
 
         while self._ms_layout.count() > 1:
             item = self._ms_layout.takeAt(0)
@@ -400,8 +432,8 @@ class GoalDetailDialog(QDialog):
             font.setStrikeOut(True)
             check.setFont(font)
         check.toggled.connect(
-            lambda checked, milestone_id=milestone.id: self._toggle_milestone(
-                milestone_id, checked
+            lambda checked, milestone_id=milestone.id, source=check: self._toggle_milestone(
+                milestone_id, checked, source
             )
         )
         layout.addWidget(check)
@@ -410,15 +442,29 @@ class GoalDetailDialog(QDialog):
             note = QLabel(milestone.note)
             note.setWordWrap(True)
             note.setStyleSheet(
-                f"font-size: 10px; color: {self._tokens['TEXT_DIMMED']};"
-                " padding-left: 30px; background: transparent;"
+                f"font-size: 11px; color: {self._tokens['TEXT_SECONDARY']};"
+                " padding-left: 30px; border: none; background: transparent;"
             )
             layout.addWidget(note)
         return frame
 
-    def _toggle_milestone(self, milestone_id: int, checked: bool) -> None:
+    def _toggle_milestone(
+        self,
+        milestone_id: int,
+        checked: bool,
+        source: QCheckBox,
+    ) -> None:
         self.service.set_milestone_done(milestone_id, checked)
-        self._reload()
+        if checked:
+            # QCheckBox spans the full milestone row; its visual indicator is
+            # the 18px circle at the left, not the widget's geometric center.
+            indicator_center = QPoint(9, source.height() // 2)
+            origin = source.mapTo(self, indicator_center)
+            burst = _StarBurstOverlay(self, origin, count=12)
+            burst.start()
+            QTimer.singleShot(320, self._reload)
+        else:
+            self._reload()
 
     def _edit_goal(self) -> None:
         milestones = self.service.get_goal_milestones(self.goal_id)
@@ -428,7 +474,11 @@ class GoalDetailDialog(QDialog):
             milestones=milestones,
             tokens=self._tokens,
         )
-        if dialog.exec():
+        result = dialog.exec()
+        if result == GoalDialog.DELETE_RESULT:
+            self.service.delete_todo_task(self.goal_id)
+            self.accept()
+        elif result == QDialog.Accepted:
             apply_goal_edits(self.service, self.goal_id, dialog.get_data())
             self._reload()
 

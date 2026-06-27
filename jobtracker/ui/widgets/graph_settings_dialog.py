@@ -1,6 +1,6 @@
 """
 Graph Settings dialog — configures the Graphs tab:
-- Time range (7 / 14 / 30 / All Time) or a one-off custom from/to range
+- Calendar range (Weeks / Months / All Time) or a one-off custom range
 - Grouping (Daily / Weekly / Monthly) for the stacked bar chart
 - View mode (Stacked Bar / Agenda Timeline / Heatmap)
 - Agenda visible hour range (start / end hour) + auto-fit
@@ -18,10 +18,9 @@ from ...core.database import db
 
 
 RANGE_OPTIONS = [
-    ("7 days", 7),
-    ("14 days", 14),
-    ("30 days", 30),
-    ("All Time", None),
+    ("Weeks", "weeks"),
+    ("Months", "months"),
+    ("All Time", "all"),
 ]
 
 GROUPING_OPTIONS = [
@@ -68,6 +67,10 @@ class GraphSettingsDialog(QDialog):
             btn.setStyleSheet("padding: 0 4px;")
             btn.setSizePolicy(btn.sizePolicy().Policy.MinimumExpanding, btn.sizePolicy().Policy.Fixed)
             btn.clicked.connect(lambda checked, i=idx: self._select_range(i))
+            if label == "Weeks":
+                btn.setToolTip("Previous Monday through today")
+            elif label == "Months":
+                btn.setToolTip("First day of the previous month through today")
             range_row.addWidget(btn)
             self.range_btns.append(btn)
         layout.addLayout(range_row)
@@ -269,13 +272,18 @@ class GraphSettingsDialog(QDialog):
 
     # ── load / save ──────────────────────────────────────────────────────
     def _load_current(self) -> None:
-        saved_range = db.get_setting("graph_range", "7")
+        saved_range = db.get_setting("graph_range", "weeks")
         is_custom = saved_range == "custom"
+        legacy_ranges = {
+            "7": "weeks",
+            "14": "weeks",
+            "30": "months",
+        }
+        saved_range = legacy_ranges.get(saved_range, saved_range)
 
         idx_to_select = 0
         for idx, (_, value) in enumerate(RANGE_OPTIONS):
-            str_val = str(value) if value is not None else "all"
-            if saved_range == str_val:
+            if saved_range == value:
                 idx_to_select = idx
                 break
         self._select_range(idx_to_select)
@@ -348,12 +356,12 @@ class GraphSettingsDialog(QDialog):
         self.accept()
 
     def get_settings(self) -> dict:
-        _, range_val = RANGE_OPTIONS[self._selected_range]
+        _, range_preset = RANGE_OPTIONS[self._selected_range]
         _, grouping_val = GROUPING_OPTIONS[self._selected_grouping]
         _, mode_val = VIEW_OPTIONS[self._selected_mode]
 
         custom_range = None
-        range_str = str(range_val) if range_val is not None else "all"
+        range_str = range_preset
         if self.custom_check.isChecked():
             start_q = self.from_date.date()
             end_q = self.to_date.date()
@@ -363,10 +371,9 @@ class GraphSettingsDialog(QDialog):
                 start, end = end, start
             custom_range = (start, end)
             range_str = "custom"
-            range_val = None
 
         return {
-            "range_days": range_val,
+            "range_preset": range_preset,
             "range_str": range_str,
             "custom_range": custom_range,
             "grouping": grouping_val,

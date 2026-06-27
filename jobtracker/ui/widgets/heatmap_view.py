@@ -27,7 +27,7 @@ def _scale_colors(tokens: dict) -> tuple[QColor, QColor]:
     """Return visually quiet zero and unmistakable best-day colors."""
     background = QColor(tokens.get("BG_PRIMARY", "#0B1120"))
     low = QColor(tokens.get("BG_TERTIARY", "#1A2640"))
-    high = QColor("#007A2F" if _is_light(background) else "#86FFB5")
+    high = QColor("#008F3B" if _is_light(background) else "#4DFF88")
     return low, high
 
 
@@ -36,6 +36,11 @@ def _intensity_ratio(seconds: int, scale_max_seconds: int) -> float:
     if seconds <= 0 or scale_max_seconds <= 0:
         return 0.0
     return max(0.0, min(1.0, float(seconds) / float(scale_max_seconds)))
+
+
+def _visual_ratio(ratio: float) -> float:
+    """Lift positive intensities smoothly while preserving exact endpoints."""
+    return max(0.0, min(1.0, float(ratio))) ** 0.82
 
 
 def _mix_color(start: QColor, end: QColor, ratio: float) -> QColor:
@@ -187,7 +192,11 @@ class _HeatmapCanvas(QWidget):
                 y = origin_y + row * stride
                 rect = QRectF(x, y, cell, cell)
                 ratio = _intensity_ratio(seconds, self._scale_max_seconds)
-                color = _mix_color(low_color, high_color, ratio)
+                color = _mix_color(
+                    low_color,
+                    high_color,
+                    _visual_ratio(ratio),
+                )
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(color)
                 radius = min(7.0, cell * 0.22)

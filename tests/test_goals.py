@@ -125,3 +125,13 @@ def test_milestone_edit(service):
     updated = service.get_goal_milestones(g.id)[0]
     assert updated.title == "New title"
     assert updated.note == "new note"
+
+
+def test_milestone_description_is_stored_on_create(service):
+    g = _goal(service)
+    created = service.add_milestone(
+        g.id,
+        "Publish the draft",
+        "Get feedback from two reviewers before publishing.",
+    )
+    assert created.note == "Get feedback from two reviewers before publishing."

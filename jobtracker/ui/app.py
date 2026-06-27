@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -28,7 +29,12 @@ from PySide6.QtWidgets import (
 
 from ..core.database import db
 from ..core.themes import get_tokens
-from ..core.timeutils import parse_iso, logical_day, agenda_hour_label
+from ..core.timeutils import (
+    agenda_hour_label,
+    graph_preset_window,
+    logical_day,
+    parse_iso,
+)
 from ..services.tracker_service import TrackerService
 from .widgets.delete_subject_dialog import (
     DeleteSubjectDialog, RESULT_ARCHIVE, RESULT_DELETE,
@@ -68,7 +74,7 @@ class MainWindow(QMainWindow):
         self._tokens = get_tokens(self._fx, self._palette)
 
         # Graph settings (persisted)
-        self._graph_range_days: int | None = self._load_graph_range()
+        self._graph_range_preset: str = self._load_graph_range_preset()
         self._graph_view_mode: str = db.get_setting("graph_view_mode", "bar")
         self._graph_hour_start: int = int(db.get_setting("graph_hour_start", "6"))
         self._graph_hour_end: int = int(db.get_setting("graph_hour_end", "23"))
@@ -107,7 +113,11 @@ class MainWindow(QMainWindow):
     def _load_custom_range(self) -> tuple[date, date] | None:
         start_raw = db.get_setting("graph_custom_start", "")
         end_raw = db.get_setting("graph_custom_end", "")
-        if db.get_setting("graph_range", "7") != "custom" or not start_raw or not end_raw:
+        if (
+            db.get_setting("graph_range", "weeks") != "custom"
+            or not start_raw
+            or not end_raw
+        ):
             return None
         try:
             return date.fromisoformat(start_raw), date.fromisoformat(end_raw)
@@ -159,14 +169,15 @@ class MainWindow(QMainWindow):
         if created and reload and hasattr(self, "_todo_list"):
             self._reload_tasks()
 
-    def _load_graph_range(self) -> int | None:
-        raw = db.get_setting("graph_range", "7")
-        if raw == "all":
-            return None
-        try:
-            return int(raw)
-        except ValueError:
-            return 7
+    def _load_graph_range_preset(self) -> str:
+        raw = db.get_setting("graph_range", "weeks")
+        legacy_ranges = {
+            "7": "weeks",
+            "14": "weeks",
+            "30": "months",
+        }
+        resolved = legacy_ranges.get(raw, raw)
+        return resolved if resolved in {"weeks", "months", "all"} else "weeks"
 
     # ═══════════════════════════════════════════════════════════════════
     #  UI
@@ -561,17 +572,25 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
 
     def _current_window(self) -> tuple[int | None, date | None, date | None]:
-        """(days, start_date, end_date) for analytics: a custom range wins."""
+        """(days, start_date, end_date); custom and calendar presets are explicit."""
         if self._graph_custom_range:
             start_day, end_day = self._graph_custom_range
             return None, start_day, end_day
-        return self._graph_range_days, None, None
+        today = logical_day(datetime.now(), self.service.get_day_start())
+        window = graph_preset_window(self._graph_range_preset, today)
+        if window is not None:
+            return None, window[0], window[1]
+        return None, None, None
 
     def _range_label(self) -> str:
         if self._graph_custom_range:
             start_day, end_day = self._graph_custom_range
             return f"{start_day.isoformat()} → {end_day.isoformat()}"
-        return f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
+        return {
+            "weeks": "Weeks",
+            "months": "Months",
+            "all": "All Time",
+        }.get(self._graph_range_preset, "Weeks")
 
     def _set_legend(self, seen: dict[str, str]) -> None:
         self._graph_legend.show()
@@ -592,7 +611,7 @@ class MainWindow(QMainWindow):
             start_date=start_day, end_date=end_day,
         )
         fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
-        self._graph_view.set_data(data, fit_width)
+        self._graph_view.set_data(data, fit_width, self._graph_grouping)
 
         total_seconds = sum(day["total_seconds"] for day in data)
         group_label = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}.get(
@@ -614,18 +633,12 @@ class MainWindow(QMainWindow):
         day_start = self.service.get_day_start()
         today = logical_day(datetime.now(), day_start)
 
-        if self._graph_custom_range:
-            start_day, end_day = self._graph_custom_range
-            if end_day < start_day:
-                start_day, end_day = end_day, start_day
-        elif self._graph_range_days is None:
+        _days, start_day, end_day = self._current_window()
+        if start_day is None or end_day is None:
             earliest_iso = db.get_earliest_session_date()
             parsed = parse_iso(earliest_iso) if earliest_iso else None
             start_day = logical_day(parsed, day_start) if parsed else today
             end_day = today
-        else:
-            end_day = today
-            start_day = today - timedelta(days=max(1, self._graph_range_days) - 1)
 
         day_keys, sessions = self.service.get_agenda_data(start_day, end_day, day_start)
 
@@ -702,7 +715,7 @@ class MainWindow(QMainWindow):
         dlg = GraphSettingsDialog(self)
         if dlg.exec():
             s = dlg.get_settings()
-            self._graph_range_days = s["range_days"]
+            self._graph_range_preset = s["range_preset"]
             self._graph_view_mode = s["view_mode"]
             self._graph_hour_start = s["hour_start"]
             self._graph_hour_end = s["hour_end"]
@@ -836,7 +849,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Validation", "Goal title cannot be empty.")
                 return
             for milestone in d["milestones"]:
-                self.service.add_milestone(goal.id, milestone["title"])
+                self.service.add_milestone(
+                    goal.id,
+                    milestone["title"],
+                    milestone.get("note", ""),
+                )
             self._showing_completed_goals = False
             self._reload_tasks()
 
@@ -856,7 +873,11 @@ class MainWindow(QMainWindow):
             milestones=self.service.get_goal_milestones(goal_id),
             tokens=self._tokens,
         )
-        if dlg.exec():
+        result = dlg.exec()
+        if result == GoalDialog.DELETE_RESULT:
+            self.service.delete_todo_task(goal_id)
+            self._reload_tasks()
+        elif result == QDialog.Accepted:
             apply_goal_edits(self.service, goal_id, dlg.get_data())
             self._reload_tasks()
 

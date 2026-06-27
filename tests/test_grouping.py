@@ -182,8 +182,9 @@ def test_weekly_and_monthly_intensity_is_daily_average(service, subject):
     )[0]
     assert weekly["total_seconds"] == 70 * 3600
     assert weekly["period_days"] == 7
-    assert weekly["intensity_seconds"] == 10 * 3600
-    assert _intensity_style(weekly["intensity_seconds"])[0] == "#FB923C"
+    assert weekly["threshold_factor"] == 0.85
+    assert weekly["intensity_seconds"] == 70 * 3600 / (7 * 0.85)
+    assert _intensity_style(weekly["intensity_seconds"])[0] == "#EF4444"
 
     monthly = service.get_subject_breakdown(
         grouping="monthly",
@@ -192,4 +193,5 @@ def test_weekly_and_monthly_intensity_is_daily_average(service, subject):
         end_date=date(2026, 6, 30),
     )[0]
     assert monthly["period_days"] == 30
-    assert monthly["intensity_seconds"] == monthly["total_seconds"] / 30
+    assert monthly["threshold_factor"] == 0.70
+    assert monthly["intensity_seconds"] == monthly["total_seconds"] / (30 * 0.70)

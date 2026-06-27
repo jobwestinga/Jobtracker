@@ -159,6 +159,16 @@ def month_start(day: date) -> date:
     return day.replace(day=1)
 
 
+def graph_preset_window(preset: str, today: date) -> tuple[date, date] | None:
+    """Resolve calendar-aligned graph presets; ``None`` means all history."""
+    if preset == "weeks":
+        return week_start(today) - timedelta(weeks=1), today
+    if preset == "months":
+        previous_month_end = month_start(today) - timedelta(days=1)
+        return month_start(previous_month_end), today
+    return None
+
+
 def bucket_key(logical: date, grouping: str = "daily") -> date:
     """Map a logical day to its representative bucket date for a grouping.
 

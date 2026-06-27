@@ -34,6 +34,41 @@ def _intensity_style(seconds: float) -> tuple[str, float]:
     return "#EF4444", 1.25
 
 
+def _bucket_label(date_iso: str, grouping: str) -> str:
+    try:
+        bucket_date = datetime.fromisoformat(date_iso).date()
+    except ValueError:
+        return date_iso
+    if grouping == "weekly":
+        _, iso_week, _ = bucket_date.isocalendar()
+        return f"W{iso_week:02d}"
+    if grouping == "monthly":
+        return bucket_date.strftime("%b %y")
+    return bucket_date.strftime("%m-%d")
+
+
+def _merge_adjacent_segments(segments: list[dict]) -> list[dict]:
+    """Collapse consecutive same-subject sessions into one seamless segment."""
+    merged: list[dict] = []
+    for segment in segments:
+        seconds = max(0, int(segment.get("seconds", 0)))
+        if seconds == 0:
+            continue
+        key = (
+            segment.get("subject_id"),
+            segment.get("subject_name"),
+            segment.get("color"),
+        )
+        if merged and merged[-1]["_merge_key"] == key:
+            merged[-1]["seconds"] += seconds
+            continue
+        item = dict(segment)
+        item["seconds"] = seconds
+        item["_merge_key"] = key
+        merged.append(item)
+    return merged
+
+
 class _GraphCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -41,15 +76,22 @@ class _GraphCanvas(QWidget):
         self._data: list[dict] = []
         self._tokens: dict = {}
         self._fit_width: bool = True
+        self._grouping: str = "daily"
         self.setMinimumHeight(360)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
         self.update()
 
-    def set_data(self, data: list[dict], fit_width: bool) -> None:
+    def set_data(
+        self,
+        data: list[dict],
+        fit_width: bool,
+        grouping: str = "daily",
+    ) -> None:
         self._data = data
         self._fit_width = fit_width
+        self._grouping = grouping
         
         bar_count = max(1, len(self._data))
         gap = 10
@@ -123,7 +165,7 @@ class _GraphCanvas(QWidget):
         for idx, day_data in enumerate(self._data):
             x = chart.left() + idx * (bar_width + gap)
             total_seconds = max(0, int(day_data.get("total_seconds", 0)))
-            segments = day_data.get("segments", [])
+            segments = _merge_adjacent_segments(day_data.get("segments", []))
 
             bar_rect = QRectF(x, chart.top(), bar_width, chart.height())
             clip = QPainterPath()
@@ -139,7 +181,14 @@ class _GraphCanvas(QWidget):
                 height = chart.height() * (seconds / max_total)
                 y_cursor -= height
 
-                rect = QRectF(x, y_cursor, bar_width, max(1.0, height))
+                # A small overlap removes antialiasing hairlines between stacked
+                # colors while the bar-level clip preserves the outer shape.
+                rect = QRectF(
+                    x,
+                    y_cursor - 0.5,
+                    bar_width,
+                    max(1.0, height) + 1.0,
+                )
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(seg.get("color", "#3B82F6")))
                 p.drawRect(rect)
@@ -175,11 +224,9 @@ class _GraphCanvas(QWidget):
                 p.drawText(text_rect, Qt.AlignCenter, text)
 
             # Day label
-            day_text = day_data.get("date", "")
-            try:
-                day_text = datetime.fromisoformat(day_text).strftime("%m-%d")
-            except ValueError:
-                pass
+            day_text = _bucket_label(
+                day_data.get("date", ""), self._grouping
+            )
             p.setPen(QColor(t["TEXT_DIMMED"]))
             p.setFont(QFont("SF Pro Text", 9))
             # Hide text if width is too small on fit_width mode and bar_count is high
@@ -216,9 +263,14 @@ class WorkGraphWidget(QWidget):
     def set_tokens(self, tokens: dict) -> None:
         self._canvas.set_tokens(tokens)
 
-    def set_data(self, data: list[dict], fit_width: bool = True) -> None:
+    def set_data(
+        self,
+        data: list[dict],
+        fit_width: bool = True,
+        grouping: str = "daily",
+    ) -> None:
         self._scroll.setWidgetResizable(fit_width)
-        self._canvas.set_data(data, fit_width)
+        self._canvas.set_data(data, fit_width, grouping)
         # Force height constraint
         self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))
 

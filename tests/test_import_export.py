@@ -59,7 +59,7 @@ def test_duplicate_import_is_idempotent(service, tmp_path):
 
 def test_goals_milestones_templates_round_trip(service, tmp_path):
     g = service.add_todo_task("Become FIDE master", "outcome goal", None)
-    service.add_milestone(g.id, "Reach 2000")
+    service.add_milestone(g.id, "Reach 2000", "Build a stable rating first.")
     service.add_milestone(g.id, "Reach 2200")
     service.add_goal_template("Daily routine", "", "daily", ["Cube", "Chess"])
 
@@ -69,7 +69,9 @@ def test_goals_milestones_templates_round_trip(service, tmp_path):
 
     goals = other.get_all_todo_tasks()
     assert len(goals) == 1
-    assert len(other.get_milestones(goals[0].id)) == 2
+    restored_milestones = other.get_milestones(goals[0].id)
+    assert len(restored_milestones) == 2
+    assert restored_milestones[0].note == "Build a stable rating first."
     assert len(other.get_goal_templates()) == 1
     other.connection.close()
 
