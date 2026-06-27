@@ -38,6 +38,15 @@ class FxBackgroundWidget(QWidget):
         self._fx = fx_name
         self.update()
 
+    def set_animating(self, on: bool) -> None:
+        """Start/stop the animation loop. Paused when the app is unfocused or
+        minimized to avoid burning CPU/battery on an off-screen window."""
+        if on:
+            if not self._timer.isActive():
+                self._timer.start(40)
+        else:
+            self._timer.stop()
+
     def _tick(self) -> None:
         self._phase += 0.010
         if self._phase > math.tau:

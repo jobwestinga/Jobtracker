@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
+from ...core.colors import suggest_colors
+
 
 # ── Preset colour palette ────────────────────────────────────────────────────
 PRESET_COLORS = [
@@ -24,11 +26,18 @@ PRESET_COLORS = [
 
 
 class SubjectDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, existing_colors=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("New Subject")
-        self.setFixedSize(380, 440)
+        self.setFixedSize(380, 500)
         self.selected_color = PRESET_COLORS[0]
+        # Colours already used by ACTIVE subjects, so suggestions stay distinct.
+        self._existing_colors = list(existing_colors or [])
+        self._suggested_colors = suggest_colors(self._existing_colors, count=3)
+        # Default a new subject to the first suggestion when we have existing
+        # subjects to contrast against (keeps the palette varied automatically).
+        if self._existing_colors and self._suggested_colors:
+            self.selected_color = self._suggested_colors[0]
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -85,6 +94,27 @@ class SubjectDialog(QDialog):
         preview_row.addStretch()
         layout.addLayout(preview_row)
 
+        # ── Suggested colours (distinct from active subjects) ─────────────
+        if self._suggested_colors:
+            suggest_lbl = QLabel("Suggested (distinct from your subjects)")
+            suggest_lbl.setStyleSheet("font-size: 11px; opacity: 0.7;")
+            layout.addWidget(suggest_lbl)
+
+            suggest_row = QHBoxLayout()
+            suggest_row.setSpacing(6)
+            self._suggest_btns: list[QPushButton] = []
+            for c in self._suggested_colors:
+                btn = QPushButton()
+                btn.setFixedSize(28, 28)
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setToolTip(f"Use {c}")
+                btn.setProperty("hex", c)
+                btn.clicked.connect(lambda checked, color=c: self._select_color(color))
+                suggest_row.addWidget(btn)
+                self._suggest_btns.append(btn)
+            suggest_row.addStretch()
+            layout.addLayout(suggest_row)
+
         self._refresh_swatches()
 
         # ── Notes ────────────────────────────────────────────────────────
@@ -135,7 +165,7 @@ class SubjectDialog(QDialog):
             self._select_color(c.name())
 
     def _refresh_swatches(self) -> None:
-        for btn in self._swatch_btns:
+        for btn in self._swatch_btns + getattr(self, "_suggest_btns", []):
             c = btn.property("hex")
             ring = "border: 2px solid white;" if c == self.selected_color else "border: 2px solid transparent;"
             btn.setStyleSheet(

@@ -149,6 +149,58 @@ def logical_day_range(
     return [start_day + timedelta(days=i) for i in range(span + 1)]
 
 
+def week_start(day: date) -> date:
+    """Monday of the week containing ``day`` (weeks are Monday-start)."""
+    return day - timedelta(days=day.weekday())
+
+
+def month_start(day: date) -> date:
+    """First day of the month containing ``day``."""
+    return day.replace(day=1)
+
+
+def bucket_key(logical: date, grouping: str = "daily") -> date:
+    """Map a logical day to its representative bucket date for a grouping.
+
+    - ``"daily"``   -> the day itself
+    - ``"weekly"``  -> the Monday of that week
+    - ``"monthly"`` -> the first of that month
+    """
+    g = (grouping or "daily").lower()
+    if g == "weekly":
+        return week_start(logical)
+    if g == "monthly":
+        return month_start(logical)
+    return logical
+
+
+def agenda_hour(moment: datetime, day_start: time = DEFAULT_DAY_START) -> float:
+    """Vertical position of a timestamp on a logical-day agenda, in hours.
+
+    Times at/after ``day_start`` map to their normal clock hour (e.g. 06:30 ->
+    6.5). Times BEFORE ``day_start`` belong to the previous logical day and are
+    pushed past 24 so they render at the BOTTOM of that day's column rather than
+    creating empty space at the top. With day_start = 03:00 the agenda axis spans
+    [3.0, 27.0):
+
+        06:30 -> 6.5
+        23:00 -> 23.0
+        00:30 -> 24.5   (i.e. "00:30 (+1)")
+        02:00 -> 26.0   (i.e. "02:00 (+1)")
+    """
+    hours = moment.hour + moment.minute / 60.0 + moment.second / 3600.0
+    if moment.time() < day_start:
+        hours += 24.0
+    return hours
+
+
+def agenda_hour_label(hour: int) -> str:
+    """Human label for an agenda axis hour, e.g. 25 -> '01:00 (+1)'."""
+    if hour >= 24:
+        return f"{hour - 24:02d}:00 (+1)"
+    return f"{hour:02d}:00"
+
+
 def split_by_logical_day(
     start: datetime,
     end: datetime,

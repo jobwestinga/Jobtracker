@@ -121,3 +121,26 @@ def test_split_session_crossing_3am_boundary():
 def test_split_zero_length_returns_empty():
     moment = datetime(2026, 6, 20, 10, 0)
     assert timeutils.split_by_logical_day(moment, moment, DAY_START) == []
+
+
+# ── week / month / bucket helpers ────────────────────────────────────────────
+def test_week_start_is_monday():
+    # 2026-06-18 is a Thursday; its week starts Monday 2026-06-15.
+    assert timeutils.week_start(date(2026, 6, 18)) == date(2026, 6, 15)
+    assert timeutils.week_start(date(2026, 6, 15)) == date(2026, 6, 15)
+
+
+def test_month_start():
+    assert timeutils.month_start(date(2026, 6, 18)) == date(2026, 6, 1)
+
+
+def test_bucket_key_daily_weekly_monthly():
+    day = date(2026, 6, 18)
+    assert timeutils.bucket_key(day, "daily") == day
+    assert timeutils.bucket_key(day, "weekly") == date(2026, 6, 15)
+    assert timeutils.bucket_key(day, "monthly") == date(2026, 6, 1)
+
+
+def test_logical_day_range_inclusive():
+    rng = timeutils.logical_day_range(date(2026, 6, 1), date(2026, 6, 3))
+    assert rng == [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)]

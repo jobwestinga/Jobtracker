@@ -4,25 +4,32 @@ Settings dialog — theme FX, colour palette, and data management.
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QPushButton, QFrame, QMessageBox, QFileDialog,
+    QPushButton, QFrame, QMessageBox, QFileDialog, QComboBox,
 )
 from PySide6.QtCore import Qt, QTimer
 import json
+import logging
+import zipfile
 from typing import Optional
 
 from ...core.database import db
 from ...core.themes import PALETTES, PALETTE_NAMES, FX_NAMES, get_tokens
+from ...core import export_bundle
+from ...core.timeutils import parse_day_start
+
+logger = logging.getLogger("jobtracker")
 
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setFixedSize(440, 500)
+        self.setFixedSize(440, 600)
 
         # Load current prefs
         self._fx = db.get_setting("theme_fx", "Glow")
         self._palette = db.get_setting("theme_palette", "Ocean")
+        self._day_start = db.get_setting("day_start_time", "03:00")
         self._original_fx = self._fx
         self._original_palette = self._palette
 
@@ -95,6 +102,25 @@ class SettingsDialog(QDialog):
         sep.setFixedHeight(1)
         sep.setStyleSheet("background-color: #303040;")
         layout.addWidget(sep)
+
+        # ── Logical day start ────────────────────────────────────────────
+        day_lbl = QLabel("Day starts at")
+        day_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
+        layout.addWidget(day_lbl)
+
+        day_row = QHBoxLayout()
+        self.day_start_combo = QComboBox()
+        self.day_start_combo.setCursor(Qt.PointingHandCursor)
+        for h in range(24):
+            self.day_start_combo.addItem(f"{h:02d}:00", h)
+        self.day_start_combo.setCurrentIndex(parse_day_start(self._day_start).hour)
+        self.day_start_combo.setMinimumHeight(32)
+        day_row.addWidget(self.day_start_combo)
+        day_hint = QLabel("late-night work counts on the day it started")
+        day_hint.setStyleSheet("font-size: 11px; opacity: 0.7;")
+        day_hint.setWordWrap(True)
+        day_row.addWidget(day_hint, 1)
+        layout.addLayout(day_row)
 
         # ── Data Management ──────────────────────────────────────────────
         data_lbl = QLabel("Data")
@@ -231,14 +257,33 @@ class SettingsDialog(QDialog):
 
     # ── Data ─────────────────────────────────────────────────────────────
     def _export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Export Backup", "", "JSON (*.json)")
-        if path:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(db.export_data(), f, indent=2)
-            QMessageBox.information(self, "Exported", "Backup saved successfully.")
+        """Export a bundle .zip: authoritative JSON + readable CSV files."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Backup Bundle", "jobtracker_backup.zip", "Zip bundle (*.zip)"
+        )
+        if not path:
+            return
+        try:
+            export_data = db.export_data()
+            # Daily summary CSV respects the logical day-start setting.
+            breakdown = []
+            main = self._resolve_main_window()
+            if main is not None and hasattr(main, "service"):
+                breakdown = main.service.get_subject_breakdown(grouping="daily", days=None)
+            export_bundle.write_zip(path, export_data, breakdown)
+            QMessageBox.information(
+                self, "Exported",
+                "Backup bundle saved:\n• jobtracker_backup.json (restore file)\n"
+                "• sessions.csv, subjects.csv, daily_summary.csv",
+            )
+        except Exception as exc:
+            logger.exception("Export failed")
+            QMessageBox.critical(self, "Error", f"Export failed:\n{exc}")
 
     def _import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import Backup", "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Backup", "", "Backup (*.json *.zip)"
+        )
         if not path:
             return
         if QMessageBox.question(
@@ -248,13 +293,23 @@ class SettingsDialog(QDialog):
         ) != QMessageBox.Yes:
             return
         try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
+            if path.lower().endswith(".zip"):
+                with zipfile.ZipFile(path) as zf:
+                    data = json.loads(zf.read(export_bundle.JSON_FILENAME))
+            else:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
             db.import_data(data)
             QMessageBox.information(self, "Imported", "Data restored successfully.")
         except Exception as exc:
+            logger.exception("Import failed")
             QMessageBox.critical(self, "Error", f"Import failed:\n{exc}")
 
     # ── Result ───────────────────────────────────────────────────────────
     def get_settings(self) -> dict:
-        return {"theme_fx": self._fx, "theme_palette": self._palette}
+        hour = self.day_start_combo.currentData()
+        return {
+            "theme_fx": self._fx,
+            "theme_palette": self._palette,
+            "day_start_time": f"{int(hour):02d}:00",
+        }

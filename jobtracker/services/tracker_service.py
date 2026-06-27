@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from ..core.database import Database, db as _global_db
 from ..core.models import Subject, Session, TodoTask
-from ..core import timeutils
+from ..core import timeutils, recovery
 
 logger = logging.getLogger("jobtracker")
 
@@ -149,19 +149,50 @@ class TrackerService:
             return False
         return True
 
-    def stop_active_subject(self) -> None:
+    def stop_active_subject(self, end_time: Optional[datetime] = None) -> None:
+        """Stop the active session. Ends now unless an explicit ``end_time`` is
+        given (used by crash-recovery to end at a chosen point in the past)."""
         if not self.active_session:
             return
         if self.active_session.id is None:
             self.active_session = None
             self._set_active_subject(None)
             return
-        end_dt = datetime.now()
+        end_dt = end_time or datetime.now()
         start_dt = timeutils.parse_iso(self.active_session.start_time)
         duration = timeutils.duration_seconds(start_dt, end_dt)
         self.db.stop_session(self.active_session.id, end_dt, duration)
         self.active_session = None
         self._set_active_subject(None)
+
+    # ── Crash / ghost-time recovery ─────────────────────────────────────
+    def get_active_recovery_info(
+        self, now: Optional[datetime] = None, gap_threshold_seconds: Optional[int] = None
+    ):
+        """Return RecoveryInfo if the resumed active session needs a recovery
+        prompt (large gap since last known active), else None."""
+        if not self.active_session or not self.active_subject:
+            return None
+        threshold = (
+            recovery.DEFAULT_GAP_PROMPT_SECONDS
+            if gap_threshold_seconds is None
+            else gap_threshold_seconds
+        )
+        return recovery.build_recovery_info(
+            self.active_session,
+            self.active_subject.name,
+            now=now,
+            gap_threshold_seconds=threshold,
+        )
+
+    def resolve_recovery(self, end_time: datetime) -> None:
+        """Close the recovered active session at the user-chosen end time."""
+        logger.info(
+            "Recovery resolved: ending session %s at %s",
+            self.active_session.id if self.active_session else None,
+            end_time.isoformat(),
+        )
+        self.stop_active_subject(end_time=end_time)
 
     def heartbeat_active_session(self, moment: Optional[datetime] = None) -> None:
         """Record that the active session is still legitimately running.
@@ -203,45 +234,90 @@ class TrackerService:
     def get_daily_subject_breakdown(
         self, days: int | None = 10, day_start: time | None = None
     ) -> list[dict]:
-        """Return the last N logical days of stacked work data.
+        """Backwards-compatible daily breakdown. See get_subject_breakdown."""
+        return self.get_subject_breakdown(
+            grouping="daily", days=days, day_start=day_start
+        )
 
-        Sessions are attributed to the logical day of their START time (default
-        boundary 03:00). A session 23:00 -> 02:00 therefore counts on the day it
-        began rather than being split at midnight. If *days* is ``None`` every
-        logical day from the earliest recorded session to today is included.
-        """
-        day_start = day_start or self.get_day_start()
-        now = datetime.now()
-        today = timeutils.logical_day(now, day_start)
-
-        if days is None:
+    def _resolve_logical_window(
+        self,
+        day_start: time,
+        days: int | None,
+        start_date: date | None,
+        end_date: date | None,
+    ) -> tuple[date, date]:
+        """Resolve the [start_day, end_day] logical-day window for analytics."""
+        today = timeutils.logical_day(datetime.now(), day_start)
+        if start_date is not None and end_date is not None:
+            start_day, end_day = start_date, end_date
+            if end_day < start_day:
+                start_day, end_day = end_day, start_day
+        elif days is not None:
+            end_day = today
+            start_day = today - timedelta(days=max(1, days) - 1)
+        else:  # "All time"
             earliest = timeutils.logical_day_of_iso(
                 self.db.get_earliest_session_date(), day_start
             )
             start_day = earliest or today
-            num_days = max(1, (today - start_day).days + 1)
-        else:
-            num_days = max(1, days)
-            start_day = today - timedelta(days=num_days - 1)
+            end_day = today
+        return start_day, end_day
 
-        day_keys = [
-            (start_day + timedelta(days=i)).isoformat()
-            for i in range(num_days)
-        ]
+    def get_subject_breakdown(
+        self,
+        grouping: str = "daily",
+        days: int | None = 10,
+        day_start: time | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict]:
+        """Return stacked work data grouped daily / weekly / monthly.
 
+        Every session is attributed to the logical day of its START time (default
+        boundary 03:00), then rolled up into the requested ``grouping`` bucket
+        (day, ISO-Monday week, or month). A 23:00 -> 02:00 session counts on the
+        day it began. The currently running session is included as a live segment.
+
+        Window selection (in priority order):
+          • explicit ``start_date``/``end_date`` (custom range)
+          • last ``days`` logical days
+          • all time (``days=None``)
+        """
+        day_start = day_start or self.get_day_start()
+        now = datetime.now()
+
+        start_day, end_day = self._resolve_logical_window(
+            day_start, days, start_date, end_date
+        )
+
+        # Ordered, de-duplicated bucket keys spanning the window.
+        bucket_keys: list[str] = []
+        seen: set[str] = set()
+        for logical in timeutils.logical_day_range(start_day, end_day):
+            key = timeutils.bucket_key(logical, grouping).isoformat()
+            if key not in seen:
+                seen.add(key)
+                bucket_keys.append(key)
+
+        buckets: dict[str, list[dict]] = {key: [] for key in bucket_keys}
         subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
 
-        buckets: dict[str, list[dict]] = {day: [] for day in day_keys}
-
-        # Query from the calendar start of the earliest logical day shown.
         first_start_dt, _ = timeutils.logical_day_bounds(start_day, day_start)
-        sessions = self.db.get_closed_sessions_since(first_start_dt.isoformat())
-        for sess in sessions:
-            logical = timeutils.logical_day_of_iso(sess.start_time, day_start)
+        _, last_end_dt = timeutils.logical_day_bounds(end_day, day_start)
+        sessions = self.db.get_all_closed_sessions_in_range(
+            first_start_dt.isoformat(), last_end_dt.isoformat()
+        )
+
+        def _bucket_for(start_iso: str) -> str | None:
+            logical = timeutils.logical_day_of_iso(start_iso, day_start)
             if logical is None:
-                continue
-            key = logical.isoformat()
-            if key not in buckets:
+                return None
+            key = timeutils.bucket_key(logical, grouping).isoformat()
+            return key if key in buckets else None
+
+        for sess in sessions:
+            key = _bucket_for(sess.start_time)
+            if key is None:
                 continue
             subject = subjects.get(sess.subject_id)
             if not subject or sess.duration_seconds <= 0:
@@ -259,35 +335,114 @@ class TrackerService:
 
         # Include the currently running session as a live segment.
         if self.active_session:
-            logical = timeutils.logical_day_of_iso(self.active_session.start_time, day_start)
             subject = subjects.get(self.active_session.subject_id)
-            if logical is not None and subject is not None:
-                key = logical.isoformat()
-                if key in buckets:
-                    live_seconds = self._elapsed_active_seconds(now)
-                    if live_seconds > 0:
-                        buckets[key].append(
-                            {
-                                "subject_id": self.active_session.subject_id,
-                                "subject_name": subject.name,
-                                "color": subject.color,
-                                "seconds": live_seconds,
-                                "start_time": self.active_session.start_time,
-                                "end_time": now.isoformat(),
-                            }
-                        )
+            key = _bucket_for(self.active_session.start_time)
+            if subject is not None and key is not None:
+                live_seconds = self._elapsed_active_seconds(now)
+                if live_seconds > 0:
+                    buckets[key].append(
+                        {
+                            "subject_id": self.active_session.subject_id,
+                            "subject_name": subject.name,
+                            "color": subject.color,
+                            "seconds": live_seconds,
+                            "start_time": self.active_session.start_time,
+                            "end_time": now.isoformat(),
+                        }
+                    )
 
-        output: list[dict] = []
-        for day in day_keys:
-            segments = buckets[day]  # already in chronological order
-            output.append(
+        return [
+            {
+                "date": key,
+                "total_seconds": sum(seg["seconds"] for seg in buckets[key]),
+                "segments": buckets[key],
+            }
+            for key in bucket_keys
+        ]
+
+    def get_agenda_data(
+        self,
+        start_day: date,
+        end_day: date,
+        day_start: time | None = None,
+    ) -> tuple[list[str], list[dict]]:
+        """Return (logical_day_keys, sessions) for the agenda timeline.
+
+        Each session carries ``start_h`` / ``end_h`` as agenda hours within its
+        logical day (see :func:`timeutils.agenda_hour`): after-midnight work that
+        belongs to the previous logical day lands at 24..27 so it renders at the
+        bottom of that day rather than padding the top. Sessions that run past the
+        logical-day end are clamped to the day's lower edge.
+        """
+        day_start = day_start or self.get_day_start()
+        subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
+        day_keys = [d.isoformat() for d in timeutils.logical_day_range(start_day, end_day)]
+        day_key_set = set(day_keys)
+        day_end_hour = 24.0 + day_start.hour + day_start.minute / 60.0
+
+        first_start_dt, _ = timeutils.logical_day_bounds(start_day, day_start)
+        _, last_end_dt = timeutils.logical_day_bounds(end_day, day_start)
+        sessions = self.db.get_all_closed_sessions_in_range(
+            first_start_dt.isoformat(), last_end_dt.isoformat()
+        )
+
+        result: list[dict] = []
+
+        def _emit(session_id, subject, start_dt, end_dt, duration):
+            logical = timeutils.logical_day(start_dt, day_start)
+            key = logical.isoformat()
+            if key not in day_key_set:
+                return
+            start_h = timeutils.agenda_hour(start_dt, day_start)
+            if timeutils.logical_day(end_dt, day_start) > logical:
+                end_h = day_end_hour  # spilled past this logical day; clamp to edge
+            else:
+                end_h = timeutils.agenda_hour(end_dt, day_start)
+            if end_h <= start_h:
+                end_h = min(day_end_hour, start_h + (1.0 / 60.0))
+            result.append(
                 {
-                    "date": day,
-                    "total_seconds": sum(seg["seconds"] for seg in segments),
-                    "segments": segments,
+                    "session_id": session_id,
+                    "day": key,
+                    "subject_id": subject.id,
+                    "subject_name": subject.name,
+                    "color": subject.color,
+                    "start_h": start_h,
+                    "end_h": end_h,
+                    "duration_seconds": duration,
                 }
             )
-        return output
+
+        for sess in sessions:
+            subject = subjects.get(sess.subject_id)
+            start_dt = timeutils.parse_iso(sess.start_time)
+            end_dt = timeutils.parse_iso(sess.end_time)
+            if not subject or start_dt is None or end_dt is None:
+                continue
+            _emit(sess.id, subject, start_dt, end_dt, sess.duration_seconds)
+
+        if self.active_session:
+            subject = subjects.get(self.active_session.subject_id)
+            start_dt = timeutils.parse_iso(self.active_session.start_time)
+            if subject is not None and start_dt is not None:
+                now = datetime.now()
+                _emit(None, subject, start_dt, now, self._elapsed_active_seconds(now))
+
+        return day_keys, result
+
+    def get_subject_deletion_summary(self, subject_id: int) -> dict:
+        """Facts needed to warn before deleting a subject with history."""
+        sessions = self.db.get_sessions_for_subject(subject_id)
+        closed = [s for s in sessions if s.end_time]
+        total_seconds = sum(s.duration_seconds for s in closed)
+        starts = sorted(s.start_time for s in closed if s.start_time)
+        return {
+            "session_count": len(closed),
+            "total_seconds": total_seconds,
+            "earliest": starts[0] if starts else None,
+            "latest": starts[-1] if starts else None,
+            "sessions": closed,
+        }
 
     def get_sessions_in_range(
         self, since_date: date, until_date: date

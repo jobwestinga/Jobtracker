@@ -8,9 +8,10 @@ Main application window with 3 environments:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+import math
+from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QTimer, Qt, QRect
+from PySide6.QtCore import QEvent, QTimer, Qt, QRect
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QComboBox,
@@ -28,8 +29,12 @@ from PySide6.QtWidgets import (
 
 from ..core.database import db
 from ..core.themes import get_tokens
-from ..core.timeutils import parse_iso
+from ..core.timeutils import parse_iso, logical_day, agenda_hour_label
 from ..services.tracker_service import TrackerService
+from .widgets.delete_subject_dialog import (
+    DeleteSubjectDialog, RESULT_ARCHIVE, RESULT_DELETE,
+)
+from .widgets.recovery_dialog import RecoveryDialog
 
 logger = logging.getLogger("jobtracker")
 from .styles import build_stylesheet
@@ -108,10 +113,14 @@ class MainWindow(QMainWindow):
         self._graph_view_mode: str = db.get_setting("graph_view_mode", "bar")
         self._graph_hour_start: int = int(db.get_setting("graph_hour_start", "6"))
         self._graph_hour_end: int = int(db.get_setting("graph_hour_end", "23"))
+        self._graph_grouping: str = db.get_setting("graph_grouping", "daily")
+        self._graph_custom_range: tuple[date, date] | None = self._load_custom_range()
 
         self._showing_archived: bool = False
 
         self.app_instance.aboutToQuit.connect(self._on_close)
+        # Pause expensive background animation when the app is not in front.
+        self.app_instance.applicationStateChanged.connect(self._on_app_state_changed)
 
         self._build_ui()
         self._apply_theme()
@@ -130,6 +139,47 @@ class MainWindow(QMainWindow):
         self._heartbeat_timer.setInterval(60_000)
         self._heartbeat_timer.timeout.connect(self._heartbeat)
         self._heartbeat_timer.start()
+
+        # After the window is up, offer recovery for any unfinished session.
+        QTimer.singleShot(0, self._maybe_prompt_recovery)
+
+    def _load_custom_range(self) -> tuple[date, date] | None:
+        start_raw = db.get_setting("graph_custom_start", "")
+        end_raw = db.get_setting("graph_custom_end", "")
+        if db.get_setting("graph_range", "7") != "custom" or not start_raw or not end_raw:
+            return None
+        try:
+            return date.fromisoformat(start_raw), date.fromisoformat(end_raw)
+        except ValueError:
+            return None
+
+    def _maybe_prompt_recovery(self) -> None:
+        info = self.service.get_active_recovery_info()
+        if not info:
+            return
+        dlg = RecoveryDialog(info, self)
+        if dlg.exec():
+            self.service.resolve_recovery(dlg.chosen_end())
+        # If dismissed, the session stays active (non-destructive) and keeps ticking.
+        self._reload_subjects()
+        self._reload_graphs()
+
+    def _on_app_state_changed(self, state) -> None:
+        active = state == Qt.ApplicationActive
+        if hasattr(self, "_fx_bg"):
+            self._fx_bg.set_animating(active)
+        if hasattr(self, "_graph_live_timer"):
+            if active:
+                if not self._graph_live_timer.isActive():
+                    self._graph_live_timer.start()
+            else:
+                self._graph_live_timer.stop()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        if event.type() == QEvent.WindowStateChange and hasattr(self, "_fx_bg"):
+            minimized = bool(self.windowState() & Qt.WindowMinimized)
+            self._fx_bg.set_animating(not minimized)
+        super().changeEvent(event)
 
     def _heartbeat(self) -> None:
         try:
@@ -481,101 +531,101 @@ class MainWindow(QMainWindow):
         else:
             self._reload_bar_chart()
 
+    def _current_window(self) -> tuple[int | None, date | None, date | None]:
+        """(days, start_date, end_date) for analytics: a custom range wins."""
+        if self._graph_custom_range:
+            start_day, end_day = self._graph_custom_range
+            return None, start_day, end_day
+        return self._graph_range_days, None, None
+
+    def _range_label(self) -> str:
+        if self._graph_custom_range:
+            start_day, end_day = self._graph_custom_range
+            return f"{start_day.isoformat()} → {end_day.isoformat()}"
+        return f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
+
+    def _set_legend(self, seen: dict[str, str]) -> None:
+        if seen:
+            parts = [
+                f"<span style='color:{color};'>■</span> {name}"
+                for name, color in seen.items()
+            ]
+            self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
+        else:
+            self._graph_legend.setText("No tracked sessions in the displayed range.")
+
     def _reload_bar_chart(self) -> None:
         self._graph_stack.setCurrentIndex(0)
-        data = self.service.get_daily_subject_breakdown(self._graph_range_days)
+        days, start_day, end_day = self._current_window()
+        data = self.service.get_subject_breakdown(
+            grouping=self._graph_grouping, days=days,
+            start_date=start_day, end_date=end_day,
+        )
         fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
         self._graph_view.set_data(data, fit_width)
 
         total_seconds = sum(day["total_seconds"] for day in data)
-        range_label = f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
+        group_label = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}.get(
+            self._graph_grouping, "Daily"
+        )
         self._graph_subtitle.setText(
-            f"{range_label} total: {total_seconds / 3600:.1f}h"
+            f"{group_label} · {self._range_label()} · {total_seconds / 3600:.1f}h"
         )
 
         seen: dict[str, str] = {}
         for day in data:
             for seg in day["segments"]:
                 seen[seg["subject_name"]] = seg["color"]
-        if seen:
-            parts = [
-                f"<span style='color:{color};'>■</span> {name}"
-                for name, color in seen.items()
-            ]
-            self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
-        else:
-            self._graph_legend.setText("No tracked sessions in the displayed range.")
+        self._set_legend(seen)
 
     def _reload_agenda(self) -> None:
         self._graph_stack.setCurrentIndex(1)
 
-        today = date.today()
-        if self._graph_range_days is None:
+        day_start = self.service.get_day_start()
+        today = logical_day(datetime.now(), day_start)
+
+        if self._graph_custom_range:
+            start_day, end_day = self._graph_custom_range
+            if end_day < start_day:
+                start_day, end_day = end_day, start_day
+        elif self._graph_range_days is None:
             earliest_iso = db.get_earliest_session_date()
             parsed = parse_iso(earliest_iso) if earliest_iso else None
-            start_day = parsed.date() if parsed else today
+            start_day = logical_day(parsed, day_start) if parsed else today
+            end_day = today
         else:
+            end_day = today
             start_day = today - timedelta(days=max(1, self._graph_range_days) - 1)
 
-        day_keys = [
-            (start_day + timedelta(days=i)).isoformat()
-            for i in range((today - start_day).days + 1)
-        ]
+        day_keys, sessions = self.service.get_agenda_data(start_day, end_day, day_start)
 
-        sessions = self.service.get_sessions_in_range(start_day, today)
-
-        # Handle auto-fit hours
+        # Auto-fit the visible hour band to actual work (in agenda-hour space, so
+        # late-night work can push the bottom edge past 24 -> "(+1)").
         hour_start = self._graph_hour_start
         hour_end = self._graph_hour_end
-        
         if db.get_setting("graph_autofit_hours", "0") == "1" and sessions:
             try:
-                # Find min start hour and max end hour across all sessions
-                from datetime import datetime
-                min_h = 24
-                max_h = 0
-                for s in sessions:
-                    if not s.get("start_time"): continue
-                    st = datetime.fromisoformat(s["start_time"])
-                    min_h = min(min_h, st.hour)
-                    
-                    if s.get("end_time"):
-                        et = datetime.fromisoformat(s["end_time"])
-                        # If it ends exactly on the hour, use that hour. Otherwise round up.
-                        eh = et.hour if et.minute == 0 and et.second == 0 else et.hour + 1
-                        if et.date() > st.date():
-                            eh = 24 # Spilled to next day
-                        max_h = max(max_h, eh)
-                
-                if min_h < 24 and max_h > 0 and min_h < max_h:
-                    hour_start = min_h
-                    hour_end = max_h
+                min_h = math.floor(min(s["start_h"] for s in sessions))
+                max_h = math.ceil(max(s["end_h"] for s in sessions))
+                if min_h < max_h:
+                    hour_start = max(0, min_h)
+                    hour_end = min(27, max(max_h, hour_start + 1))
             except Exception:
-                logger.exception("Agenda auto-fit hour calculation failed; using configured hours")
+                logger.exception("Agenda auto-fit failed; using configured hours")
 
         fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
-        self._agenda_view.set_data(
-            sessions, day_keys, hour_start, hour_end, fit_width
-        )
+        self._agenda_view.set_data(sessions, day_keys, hour_start, hour_end, fit_width)
 
         total_seconds = sum(s.get("duration_seconds", 0) for s in sessions)
-        range_label = f"{self._graph_range_days} days" if self._graph_range_days else "All Time"
         self._graph_subtitle.setText(
-            f"Agenda · {range_label} · {total_seconds / 3600:.1f}h · "
-            f"{hour_start:02d}:00–{hour_end:02d}:00"
+            f"Agenda · {self._range_label()} · {total_seconds / 3600:.1f}h · "
+            f"{agenda_hour_label(hour_start)}–{agenda_hour_label(hour_end)}"
         )
 
         seen: dict[str, str] = {}
         for s in sessions:
             seen[s["subject_name"]] = s["color"]
-        if seen:
-            parts = [
-                f"<span style='color:{color};'>■</span> {name}"
-                for name, color in seen.items()
-            ]
-            self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
-        else:
-            self._graph_legend.setText("No tracked sessions in the displayed range.")
+        self._set_legend(seen)
 
     def _refresh_graphs_if_needed(self) -> None:
         if self.service.active_session or self._pages.currentIndex() == 2:
@@ -592,8 +642,9 @@ class MainWindow(QMainWindow):
             self._palette = settings["theme_palette"]
             db.set_setting("theme_fx", self._fx)
             db.set_setting("theme_palette", self._palette)
+            self.service.set_day_start(settings["day_start_time"])
             self._apply_theme()
-            self._reload()
+            self._reload()  # day-start affects subject totals + graphs
 
     def _open_graph_settings(self) -> None:
         dlg = GraphSettingsDialog(self)
@@ -603,13 +654,16 @@ class MainWindow(QMainWindow):
             self._graph_view_mode = s["view_mode"]
             self._graph_hour_start = s["hour_start"]
             self._graph_hour_end = s["hour_end"]
+            self._graph_grouping = s["grouping"]
+            self._graph_custom_range = s["custom_range"]
             self._reload_graphs()
 
     # ═══════════════════════════════════════════════════════════════════
     #  SUBJECT ACTIONS
     # ═══════════════════════════════════════════════════════════════════
     def _new_subject(self) -> None:
-        dlg = SubjectDialog(self)
+        existing = [s.color for s in self.service.get_all_subjects(archived=False)]
+        dlg = SubjectDialog(self, existing_colors=existing)
         if dlg.exec():
             d = dlg.get_data()
             if not d["name"]:
@@ -655,7 +709,8 @@ class MainWindow(QMainWindow):
         if not subject:
             return
 
-        dlg = SubjectDialog(self)
+        existing = [s.color for s in self.service.get_all_subjects(archived=False) if s.id != subject_id]
+        dlg = SubjectDialog(self, existing_colors=existing)
         dlg.setWindowTitle("Edit Subject")
         dlg.name_input.setText(subject.name)
         dlg.selected_color = subject.color
@@ -675,15 +730,37 @@ class MainWindow(QMainWindow):
             self._reload_graphs()
 
     def _delete_subject(self, subject_id: int) -> None:
-        if QMessageBox.question(
-            self,
-            "Delete Subject",
-            "This will permanently delete this subject and all its sessions.\nContinue?",
-            QMessageBox.Yes | QMessageBox.No,
-        ) == QMessageBox.Yes:
+        summary = self.service.get_subject_deletion_summary(subject_id)
+        subject = next(
+            (s for s in self.service.get_all_subjects_including_archived() if s.id == subject_id),
+            None,
+        )
+        name = subject.name if subject else "this subject"
+
+        # No history to lose -> a simple confirm is enough (don't be annoying).
+        if summary["session_count"] == 0:
+            if QMessageBox.question(
+                self,
+                "Delete Subject",
+                f'Delete "{name}"? It has no tracked sessions.',
+                QMessageBox.Yes | QMessageBox.No,
+            ) == QMessageBox.Yes:
+                self.service.delete_subject(subject_id)
+                self._reload_subjects()
+                self._reload_graphs()
+            return
+
+        # Has tracked time -> strong confirmation, archive recommended.
+        dlg = DeleteSubjectDialog(name, summary, self)
+        result = dlg.exec()
+        if result == RESULT_DELETE:
             self.service.delete_subject(subject_id)
-            self._reload_subjects()
-            self._reload_graphs()
+        elif result == RESULT_ARCHIVE:
+            self.service.archive_subject(subject_id)
+        else:
+            return
+        self._reload_subjects()
+        self._reload_graphs()
 
     def _on_subject_order_changed(self, ordered_ids: list[int]) -> None:
         self.service.set_subject_order(ordered_ids)

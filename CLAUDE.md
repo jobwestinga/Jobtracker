@@ -82,6 +82,37 @@ live here.
   `main.py`) writes to a rotating file under the data dir + stderr. **No remote
   logging.** Prefer logging over silent `except Exception: pass`.
 
+## Feature module map (added after the foundation phase)
+
+Pure, UI-free, fully unit-tested core logic — extend these rather than putting
+logic in widgets:
+
+- `core/timeutils.py` — parsing, durations, logical day, week/month bucket keys,
+  `agenda_hour()` (after-midnight work maps to 24..27), `split_by_logical_day()`.
+- `core/recovery.py` — crash-recovery decision: `build_recovery_info()` returns
+  None for small gaps (don't prompt), else the numbers the dialog shows;
+  `end_time_for_choice()` maps a choice to an end datetime. Gap threshold default
+  5 min. The dialog (`ui/widgets/recovery_dialog.py`) is a thin shell.
+- `core/colors.py` — `suggest_colors(existing_active_colors)` for the subject
+  dialog. Only ACTIVE (non-archived) subject colours are passed in.
+- `core/export_bundle.py` — CSV builders + `write_zip()`. JSON stays the only
+  restore format; CSVs are read-only. Daily summary respects the logical day.
+
+Service methods doing the analytics (all logical-day aware, include the live
+session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`,
+`get_agenda_data()`, `get_subject_deletion_summary()`, `get_active_recovery_info()`,
+`resolve_recovery()`. `get_daily_subject_breakdown()` is a thin back-compat wrapper.
+
+Rules when extending:
+- Weeks are Monday-start. Don't change that convention.
+- The bar chart attributes a whole session to the logical day of its START. The
+  agenda clamps sessions that spill past the logical-day end. Keep both.
+- Animations pause when the app is unfocused/minimized (`FxBackgroundWidget.
+  set_animating`, driven by `applicationStateChanged` / `changeEvent`). Don't
+  reintroduce always-on full-window repaints.
+- Settings/graph dialogs persist via the `db` settings table; new graph keys:
+  `graph_grouping`, `graph_custom_start`, `graph_custom_end` (range == "custom").
+
 ## Style
 
 - Concise, direct solutions over abstractions. Match surrounding code.

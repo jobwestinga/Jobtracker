@@ -4,8 +4,9 @@ JobTracker is a native macOS desktop application designed to capture and visuali
 
 ## Features
 
-- **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions.
-- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—including duration and fixed time-slot quick-adds for fast backfilling. Gain insights through custom-built stacked bar charts and daily agenda timelines that illustrate exactly where your day went.
+- **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions. New subjects suggest colors that stay visually distinct from your existing ones.
+- **Crash-safe recovery:** If the app or laptop dies mid-session, on reopen JobTracker asks how to handle the unfinished session — end it at the last time it was known active, end it now, or set a custom end time/length. It never silently counts hours you weren't working, and never deletes the session for you.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—including duration and fixed time-slot quick-adds for fast backfilling. Gain insights through custom-built stacked bar charts (grouped **daily, weekly, or monthly**) and daily agenda timelines that illustrate exactly where your day went. Pick a preset range (7/14/30/All) or a one-off custom date range.
 - **Integrated To-Do Lists:** Separate from your timed subjects, standard tasks allow you to set deadlines and manage direct task completion workflows.
 - **Offline & Fully Local:** Your data never leaves your computer. Backed by a local SQLite engine, all your tracking history is private and portable.
 - **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
@@ -73,9 +74,31 @@ safe and will not modify `data/jobtracker.db`.
 
 Tracked time is grouped by a **logical day** that starts at **03:00** by default,
 not midnight — for most people a day "ends" when they sleep. So a session from
-23:00 to 02:00 is counted on the day it started. This boundary is stored as the
-`day_start_time` setting (currently configurable in the database; a settings
-control may be added later).
+23:00 to 02:00 is counted on the day it started.
+
+You can change this under **Settings → Day starts at** (hour selector). The logical day
+is used everywhere time is grouped: subject "Today" totals, the daily/weekly/
+monthly graphs, the agenda timeline, and the daily-summary CSV. In the agenda
+view, late-night work that belongs to the previous logical day appears at the
+bottom of that day with labels like `01:00 (+1)`, so ordinary daytime days stay
+compact.
+
+## Exporting Your Data
+
+**Settings → Export Backup** writes a `.zip` bundle containing:
+
+- `jobtracker_backup.json` — the authoritative full backup (the only file used to
+  restore; **Import Backup** accepts this `.json`, or the `.zip` directly)
+- `sessions.csv`, `subjects.csv` — human-readable, open in Numbers/Excel
+- `daily_summary.csv` — per-day, per-subject totals (respects your day-start)
+- `README.txt` — explains the files
+
+## Deleting Subjects
+
+Deleting a subject also deletes its sessions. If a subject has tracked time, a
+strong confirmation appears showing how many sessions and how much time would be
+lost, recommends archiving instead, and requires you to type the subject name (or
+`DELETE`) to proceed. Subjects with no sessions delete with a simple confirm.
 
 ## Building the macOS App
 

@@ -1,19 +1,23 @@
 """
 Agenda-style timeline view for daily tracked sessions.
 
-Shows a day-by-day timeline with hours on the Y-axis and sessions painted
-as colored rectangles at their actual clock positions.  When sessions overlap,
-they are placed into adjacent sub-lanes to remain visible.
+Sessions are positioned using logical-day "agenda hours" computed by the service
+(see ``timeutils.agenda_hour``): work that happens after midnight but belongs to
+the previous logical day is placed at hours 24..27 so it renders at the BOTTOM of
+that day's column instead of padding empty space at the top. Axis labels above 24
+read like ``00:00 (+1)``.
+
+Each session dict carries: ``day`` (logical-day iso), ``start_h`` / ``end_h``
+(floats, may exceed 24), ``color``, ``subject_name``.
 """
 
 from __future__ import annotations
 
-import math
-from datetime import date, datetime, timedelta
-
-from PySide6.QtCore import QRectF, Qt, QPointF
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
+
+from ...core.timeutils import agenda_hour_label
 
 
 def _with_alpha(hex_color: str, alpha: int) -> QColor:
@@ -51,28 +55,25 @@ class _AgendaCanvas(QWidget):
     ) -> None:
         self._sessions = sessions
         self._day_keys = day_keys
-        self._hour_start = max(0, min(23, hour_start))
-        self._hour_end = max(self._hour_start + 1, min(24, hour_end))
+        # Agenda axis may extend past midnight (up to 27 == 03:00 (+1)).
+        self._hour_start = max(0, min(26, hour_start))
+        self._hour_end = max(self._hour_start + 1, min(27, hour_end))
         self._fit_width = fit_width
-        
-        left_margin = 48
+
+        left_margin = 56
         right_margin = 14
         gap = 6
         min_col_width = 40
         day_count = max(1, len(day_keys))
         required_width = left_margin + right_margin + day_count * min_col_width + (day_count - 1) * gap
-        
+
         if not self._fit_width and self._day_keys:
-            # Compute width so each day column gets at least 70px
             min_width = max(400, 60 + len(day_keys) * 80)
             self.setMinimumWidth(max(min_width, required_width))
         else:
             self.setMinimumWidth(100)
-            
-        self.update()
 
-    # ── layout helpers ────────────────────────────────────────────────────
-    # (Replaced horizontal layout with vertical stacking algorithm in paintEvent)
+        self.update()
 
     # ── painting ──────────────────────────────────────────────────────────
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -97,8 +98,7 @@ class _AgendaCanvas(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "No tracked data yet")
             return
 
-        # Chart area
-        left_margin = 48
+        left_margin = 56
         top_margin = 30
         bottom_margin = 30
         right_margin = 14
@@ -113,7 +113,7 @@ class _AgendaCanvas(QWidget):
         if hour_count <= 0:
             return
 
-        # Draw hour grid lines + labels
+        # Hour grid lines + labels (labels above 24 read "00:00 (+1)").
         p.setFont(QFont("SF Pro Text", 8))
         for h in range(self._hour_start, self._hour_end + 1):
             frac = (h - self._hour_start) / hour_count
@@ -121,10 +121,13 @@ class _AgendaCanvas(QWidget):
             p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 70), 0.5))
             p.drawLine(int(chart.left()), int(y), int(chart.right()), int(y))
             p.setPen(QColor(t["TEXT_DIMMED"]))
-            label = f"{h:02d}:00"
-            p.drawText(QRectF(0, y - 7, left_margin - 4, 14), Qt.AlignRight | Qt.AlignVCenter, label)
+            p.drawText(
+                QRectF(0, y - 7, left_margin - 4, 14),
+                Qt.AlignRight | Qt.AlignVCenter,
+                agenda_hour_label(h),
+            )
 
-        # Day columns
+        # Day columns.
         day_count = max(1, len(self._day_keys))
         gap = 6
         if self._fit_width and day_count > 15:
@@ -136,19 +139,18 @@ class _AgendaCanvas(QWidget):
         else:
             col_width = max(2, col_width)
 
-        # Group sessions by day
+        # Group sessions by logical day.
         day_sessions: dict[str, list[dict]] = {d: [] for d in self._day_keys}
         for sess in self._sessions:
-            start_str = sess.get("start_time", "")
-            day = start_str[:10]
+            day = sess.get("day", "")
             if day in day_sessions:
                 day_sessions[day].append(sess)
 
         for idx, day_key in enumerate(self._day_keys):
             col_x = chart.left() + idx * (col_width + gap)
 
-            # Day label at bottom
             try:
+                from datetime import datetime
                 day_label = datetime.fromisoformat(day_key).strftime("%m-%d")
             except ValueError:
                 day_label = day_key
@@ -160,48 +162,28 @@ class _AgendaCanvas(QWidget):
                 day_label,
             )
 
-            # Column background
             col_rect = QRectF(col_x, chart.top(), col_width, chart.height())
             p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 60), 0.5))
             p.setBrush(_with_alpha(t["BG_SECONDARY"], 60))
             p.drawRoundedRect(col_rect, 5, 5)
 
-            # Build session rects for lane assignment
+            # Build placement rects from precomputed agenda hours.
             sess_rects: list[dict] = []
             for sess in day_sessions[day_key]:
-                try:
-                    start_dt = datetime.fromisoformat(sess["start_time"])
-                    end_dt = datetime.fromisoformat(sess["end_time"])
-                except (ValueError, KeyError):
+                start_h = max(self._hour_start, min(self._hour_end, float(sess.get("start_h", 0))))
+                end_h = max(self._hour_start, min(self._hour_end, float(sess.get("end_h", 0))))
+                if end_h <= start_h:
                     continue
-
-                start_hour_frac = start_dt.hour + start_dt.minute / 60.0 + start_dt.second / 3600.0
-                end_hour_frac = end_dt.hour + end_dt.minute / 60.0 + end_dt.second / 3600.0
-
-                # Handle sessions spanning past the end boundary
-                if end_dt.date() > start_dt.date():
-                    end_hour_frac = self._hour_end  # clip to end of visible range
-
-                # Clip to visible range
-                start_hour_frac = max(self._hour_start, min(self._hour_end, start_hour_frac))
-                end_hour_frac = max(self._hour_start, min(self._hour_end, end_hour_frac))
-
-                if end_hour_frac <= start_hour_frac:
-                    continue
-
-                top_frac = (start_hour_frac - self._hour_start) / hour_count
-                bot_frac = (end_hour_frac - self._hour_start) / hour_count
-
                 sess_rects.append(
                     {
-                        "top_frac": top_frac,
-                        "bot_frac": bot_frac,
+                        "top_frac": (start_h - self._hour_start) / hour_count,
+                        "bot_frac": (end_h - self._hour_start) / hour_count,
                         "color": sess.get("color", "#3B82F6"),
                         "name": sess.get("subject_name", ""),
                     }
                 )
 
-            # Sort chronologically and apply vertical push for overlaps
+            # Push overlaps downward so they stay visible.
             sess_rects.sort(key=lambda x: x["top_frac"])
             current_bottom = 0.0
             for sr in sess_rects:
@@ -211,7 +193,6 @@ class _AgendaCanvas(QWidget):
                     sr["bot_frac"] = current_bottom + dur
                 current_bottom = sr["bot_frac"]
 
-            # Paint sessions
             for sr in sess_rects:
                 sy = chart.top() + sr["top_frac"] * chart.height()
                 sh = max(2, (sr["bot_frac"] - sr["top_frac"]) * chart.height())
@@ -228,7 +209,6 @@ class _AgendaCanvas(QWidget):
                 p.setBrush(color)
                 p.drawRect(rect)
 
-                # Label if tall enough
                 if sh > 16 and col_width > 24:
                     p.setPen(QColor("#FFFFFF"))
                     p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
@@ -237,7 +217,6 @@ class _AgendaCanvas(QWidget):
 
                 p.restore()
 
-                # Outline
                 p.setPen(QPen(_with_alpha(sr["color"], 220), 0.8))
                 p.setBrush(Qt.NoBrush)
                 p.drawRoundedRect(rect, 3, 3)
@@ -276,7 +255,6 @@ class AgendaViewWidget(QWidget):
     ) -> None:
         self._scroll.setWidgetResizable(fit_width)
         self._canvas.set_data(sessions, day_keys, hour_start, hour_end, fit_width)
-        # Resize canvas height to match parent
         self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))
 
     def resizeEvent(self, event) -> None:
