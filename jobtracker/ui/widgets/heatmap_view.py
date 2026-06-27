@@ -8,6 +8,8 @@ from PySide6.QtCore import QTimer, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from ...core.themes import DEFAULT_TOKENS
+
 MIN_CELL = 14
 MAX_CELL = 28
 GAP = 4
@@ -155,10 +157,7 @@ class _HeatmapCanvas(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        tokens = self._tokens or {
-            "TEXT_DIMMED": "#64748B",
-            "BORDER_COLOR": "#263852",
-        }
+        tokens = self._tokens or DEFAULT_TOKENS
 
         if self._first_monday is None:
             painter.setPen(QColor(tokens["TEXT_DIMMED"]))
@@ -327,10 +326,7 @@ class _LegendCanvas(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        tokens = self._tokens or {
-            "TEXT_DIMMED": "#64748B",
-            "BORDER_COLOR": "#263852",
-        }
+        tokens = self._tokens or DEFAULT_TOKENS
         painter.setFont(QFont("SF Pro Text", 8))
         painter.setPen(QColor(tokens["TEXT_DIMMED"]))
         painter.drawText(QRectF(0, 0, 28, 20), Qt.AlignVCenter | Qt.AlignRight, "0h")

@@ -61,7 +61,16 @@ def test_goals_milestones_templates_round_trip(service, tmp_path):
     g = service.add_todo_task("Become FIDE master", "outcome goal", None)
     service.add_milestone(g.id, "Reach 2000", "Build a stable rating first.")
     service.add_milestone(g.id, "Reach 2200")
-    service.add_goal_template("Daily routine", "", "daily", ["Cube", "Chess"])
+    service.add_goal_template(
+        "Weekly routine",
+        "",
+        "weekly",
+        [
+            {"title": "Cube", "note": "Practice lookahead."},
+            {"title": "Chess", "note": "Review one serious game."},
+        ],
+        recurrence_day=3,
+    )
 
     data = service.export_data()
     other = Database(tmp_path / "restore.db")
@@ -72,7 +81,11 @@ def test_goals_milestones_templates_round_trip(service, tmp_path):
     restored_milestones = other.get_milestones(goals[0].id)
     assert len(restored_milestones) == 2
     assert restored_milestones[0].note == "Build a stable rating first."
-    assert len(other.get_goal_templates()) == 1
+    templates = other.get_goal_templates()
+    assert len(templates) == 1
+    assert templates[0].recurrence == "weekly"
+    assert templates[0].recurrence_day == 3
+    assert "Practice lookahead." in templates[0].milestones_json
     other.connection.close()
 
 

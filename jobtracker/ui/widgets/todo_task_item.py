@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import math
 import random
-from datetime import datetime
 
 from PySide6.QtCore import (
     Property,
@@ -25,27 +24,27 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from ...core.models import TodoTask
 
-
-def _format_deadline(deadline: str | None) -> str:
-    if not deadline:
-        return "No deadline"
-    try:
-        dt = datetime.fromisoformat(deadline)
-        return dt.strftime("Due %Y-%m-%d %H:%M")
-    except ValueError:
-        return f"Due {deadline}"
+# Default celebratory star palette (used when no theme colors are supplied).
+_DEFAULT_STAR_COLORS = ["#FACC15", "#22C55E", "#FDE68A", "#FFFFFF"]
 
 
 class _StarBurstOverlay(QWidget):
     """Transparent overlay that paints outward-flying stars from origin."""
 
-    def __init__(self, parent: QWidget, origin: QPoint, count: int = 14) -> None:
+    def __init__(
+        self,
+        parent: QWidget,
+        origin: QPoint,
+        count: int = 14,
+        colors: list | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -53,6 +52,7 @@ class _StarBurstOverlay(QWidget):
         self._origin = QPointF(origin)
         self._progress = 0.0
 
+        palette = [QColor(c) for c in (colors or _DEFAULT_STAR_COLORS)]
         self._particles: list[dict] = []
         rng = random.Random()
         for _ in range(count):
@@ -64,14 +64,7 @@ class _StarBurstOverlay(QWidget):
                     "dy": math.sin(angle) * distance,
                     "size": rng.uniform(2.0, 4.5),
                     "rot": rng.uniform(0, 360),
-                    "color": rng.choice(
-                        [
-                            QColor("#FACC15"),
-                            QColor("#22C55E"),
-                            QColor("#FDE68A"),
-                            QColor("#FFFFFF"),
-                        ]
-                    ),
+                    "color": rng.choice(palette),
                 }
             )
 
@@ -158,7 +151,6 @@ class TodoTaskItemWidget(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
     complete_requested = Signal(int)
-    reopen_requested = Signal(int)
     open_requested = Signal(int)
 
     def __init__(self, todo_task: TodoTask, tokens: dict, progress: tuple = (0, 0)) -> None:
@@ -197,8 +189,8 @@ class TodoTaskItemWidget(QFrame):
         done, total = self._progress
         if self.todo_task.is_completed:
             progress_text = (
-                f"Archived · {done}/{total} milestones"
-                if total > 0 else "Archived"
+                f"Completed · {done}/{total} milestones"
+                if total > 0 else "Completed"
             )
             progress_color = t["ACCENT_GREEN"]
         elif total > 0:
@@ -213,6 +205,13 @@ class TodoTaskItemWidget(QFrame):
         )
         info.addWidget(self.progress_lbl)
 
+        if getattr(self.todo_task, "deadline", None):
+            target_lbl = QLabel(f"🎯 Target: {self.todo_task.deadline[:10]}")
+            target_lbl.setStyleSheet(
+                f"font-size: 11px; font-weight: 600; color: {t['TEXT_SECONDARY']}; background: transparent;"
+            )
+            info.addWidget(target_lbl)
+
         if self.todo_task.notes:
             notes_lbl = QLabel(self.todo_task.notes)
             notes_lbl.setWordWrap(True)
@@ -224,20 +223,8 @@ class TodoTaskItemWidget(QFrame):
         layout.addLayout(info)
         layout.addStretch()
 
-        self.open_btn = QPushButton("Open")
-        self.open_btn.setProperty("no_drag", True)
-        self.open_btn.setCursor(Qt.PointingHandCursor)
-        self.open_btn.setMinimumHeight(28)
-        self.open_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: 1.2px solid {t['BORDER_COLOR']};"
-            f" border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 600;"
-            f" color: {t['TEXT_PRIMARY']}; }}"
-            f" QPushButton:hover {{ border-color: {t['ACCENT']}; }}"
-        )
-        if self.todo_task.id is not None:
-            self.open_btn.clicked.connect(lambda: self.open_requested.emit(self.todo_task.id))
-        layout.addWidget(self.open_btn, 0, Qt.AlignVCenter)
-
+        # No explicit "Open" button: clicking anywhere on the card opens the
+        # detail view (see mouseReleaseEvent). The ✓ only completes.
         self.check_btn = _CheckButton(self)
         if self.todo_task.is_completed:
             self.check_btn.hide()
@@ -260,21 +247,57 @@ class TodoTaskItemWidget(QFrame):
             """
         )
 
+    def _can_complete(self) -> bool:
+        """A goal can be completed when it has no milestones or all are done."""
+        done, total = self._progress
+        return total == 0 or done >= total
+
+    def _star_colors(self) -> list:
+        t = self._t
+        return [
+            t.get("ACCENT_GREEN", "#22C55E"),
+            t.get("ACCENT", "#3B82F6"),
+            t.get("TEXT_PRIMARY", "#FFFFFF"),
+            t.get("ACCENT_GREEN", "#22C55E"),
+        ]
+
+    def _shake_check(self) -> None:
+        """Brief horizontal shake on the ✓ to signal 'not yet'."""
+        start = self.check_btn.pos()
+        anim = QPropertyAnimation(self.check_btn, b"pos", self)
+        anim.setDuration(300)
+        anim.setKeyValueAt(0.0, start)
+        anim.setKeyValueAt(0.2, start + QPoint(-5, 0))
+        anim.setKeyValueAt(0.4, start + QPoint(5, 0))
+        anim.setKeyValueAt(0.6, start + QPoint(-3, 0))
+        anim.setKeyValueAt(0.8, start + QPoint(3, 0))
+        anim.setKeyValueAt(1.0, start)
+        anim.start()
+        self._shake_anim = anim  # keep a reference so it isn't GC'd mid-run
+
     def _on_check_clicked(self) -> None:
-        if self._completing or self.todo_task.id is None:
+        if self._completing or self.todo_task.id is None or self.todo_task.is_completed:
             return
-        if self.todo_task.is_completed:
+
+        if not self._can_complete():
+            # Gentle "not yet": no celebration, no blocking dialog.
+            self._shake_check()
+            QToolTip.showText(
+                self.check_btn.mapToGlobal(QPoint(self.check_btn.width() // 2, -2)),
+                "Finish all milestones first",
+                self.check_btn,
+            )
             return
 
         self._completing = True
         self.check_btn.setEnabled(False)
 
-        # Spawn star burst centered on the button
+        # Themed star burst centered on the button.
         btn_center = self.check_btn.geometry().center()
-        overlay = _StarBurstOverlay(self, btn_center, count=16)
+        overlay = _StarBurstOverlay(self, btn_center, count=16, colors=self._star_colors())
         overlay.start()
 
-        # Emit after short delay so parent can coordinate list reflow
+        # Emit so the parent can coordinate list reflow + persistence.
         self.complete_requested.emit(self.todo_task.id)
 
     def suppress_next_click(self) -> None:

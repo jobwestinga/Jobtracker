@@ -12,7 +12,7 @@ import logging
 import zipfile
 from typing import Optional
 
-from ...core.database import db
+from ...services.tracker_service import TrackerService
 from ...core.themes import PALETTES, PALETTE_NAMES, FX_NAMES, get_tokens
 from ...core import export_bundle
 from ...core.timeutils import parse_day_start
@@ -21,15 +21,17 @@ logger = logging.getLogger("jobtracker")
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, service=None) -> None:
         super().__init__(parent)
+        # All persistence goes through the service (not the db directly).
+        self._svc = service or getattr(parent, "service", None) or TrackerService()
         self.setWindowTitle("Settings")
         self.setFixedSize(440, 600)
 
         # Load current prefs
-        self._fx = db.get_setting("theme_fx", "Glow")
-        self._palette = db.get_setting("theme_palette", "Ocean")
-        self._day_start = db.get_setting("day_start_time", "03:00")
+        self._fx = self._svc.get_setting("theme_fx", "Glow")
+        self._palette = self._svc.get_setting("theme_palette", "Ocean")
+        self._day_start = self._svc.get_setting("day_start_time", "03:00")
         self._original_fx = self._fx
         self._original_palette = self._palette
 
@@ -286,12 +288,9 @@ class SettingsDialog(QDialog):
         if not path:
             return
         try:
-            export_data = db.export_data()
+            export_data = self._svc.export_data()
             # Daily summary CSV respects the logical day-start setting.
-            breakdown = []
-            main = self._resolve_main_window()
-            if main is not None and hasattr(main, "service"):
-                breakdown = main.service.get_subject_breakdown(grouping="daily", days=None)
+            breakdown = self._svc.get_subject_breakdown(grouping="daily", days=None)
             export_bundle.write_zip(path, export_data, breakdown)
             QMessageBox.information(
                 self, "Exported",
@@ -324,16 +323,16 @@ class SettingsDialog(QDialog):
             else:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-            db.import_data(data)
+            self._svc.import_data(data)
             main = self._resolve_main_window()
             if main is not None and hasattr(main, "_reload"):
                 # Apply restored preferences immediately. Close this settings
                 # dialog afterward so its pre-import controls cannot overwrite
                 # the restored values when Save is pressed.
                 if hasattr(main, "_fx"):
-                    main._fx = db.get_setting("theme_fx", main._fx)
+                    main._fx = self._svc.get_setting("theme_fx", main._fx)
                 if hasattr(main, "_palette"):
-                    main._palette = db.get_setting("theme_palette", main._palette)
+                    main._palette = self._svc.get_setting("theme_palette", main._palette)
                 if hasattr(main, "_apply_theme"):
                     main._apply_theme()
                 main._reload()

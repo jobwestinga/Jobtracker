@@ -10,6 +10,16 @@ venv/
 
 # Local data
 data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.backup*
+*.log
+jobtracker_backup*.zip
+sessions*.csv
+subjects*.csv
+daily_summary*.csv
 
 # macOS
 .DS_Store

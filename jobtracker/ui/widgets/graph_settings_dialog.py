@@ -1,9 +1,12 @@
 """
 Graph Settings dialog — configures the Graphs tab:
-- Calendar range (Weeks / Months / All Time) or a one-off custom range
-- Grouping (Daily / Weekly / Monthly) for the stacked bar chart
+- A single calendar Range (Weeks / Months / Year / All Time) or a one-off custom
+  range. The bucket size (daily/weekly/monthly) is chosen automatically from the
+  range, so there is no separate grouping control.
 - View mode (Stacked Bar / Agenda Timeline / Heatmap)
 - Agenda visible hour range (start / end hour) + auto-fit
+
+Settings are read/written through the TrackerService, not the database directly.
 """
 
 from datetime import date
@@ -14,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate
 
-from ...core.database import db
+from ...services.tracker_service import TrackerService
 
 
 RANGE_OPTIONS = [
@@ -22,12 +25,6 @@ RANGE_OPTIONS = [
     ("Months", "months"),
     ("Year", "year"),
     ("All Time", "all"),
-]
-
-GROUPING_OPTIONS = [
-    ("Daily", "daily"),
-    ("Weekly", "weekly"),
-    ("Monthly", "monthly"),
 ]
 
 VIEW_OPTIONS = [
@@ -38,12 +35,14 @@ VIEW_OPTIONS = [
 
 
 class GraphSettingsDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, service=None) -> None:
         super().__init__(parent)
+        # All persistence goes through the service. Fall back to a service bound
+        # to the shared singleton db when constructed standalone (e.g. tests).
+        self._svc = service or getattr(parent, "service", None) or TrackerService()
         self.setWindowTitle("Graph Settings")
-        self.setFixedSize(440, 620)
+        self.setFixedSize(440, 560)
         self._selected_range = 0
-        self._selected_grouping = 0
         self._selected_mode = 0
         self._build_ui()
         self._load_current()
@@ -61,6 +60,12 @@ class GraphSettingsDialog(QDialog):
         self.range_btns = []
         range_row = QHBoxLayout()
         range_row.setSpacing(6)
+        tips = {
+            "Weeks": "Previous Monday through today · daily bars",
+            "Months": "Previous month through today · weekly bars",
+            "Year": "January 1 through today · monthly bars",
+            "All Time": "All history · monthly bars",
+        }
         for idx, (label, _) in enumerate(RANGE_OPTIONS):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
@@ -68,15 +73,17 @@ class GraphSettingsDialog(QDialog):
             btn.setStyleSheet("padding: 0 4px;")
             btn.setSizePolicy(btn.sizePolicy().Policy.MinimumExpanding, btn.sizePolicy().Policy.Fixed)
             btn.clicked.connect(lambda checked, i=idx: self._select_range(i))
-            if label == "Weeks":
-                btn.setToolTip("Previous Monday through today")
-            elif label == "Months":
-                btn.setToolTip("First day of the previous month through today")
-            elif label == "Year":
-                btn.setToolTip("January 1 of the current year through today")
+            btn.setToolTip(tips.get(label, ""))
             range_row.addWidget(btn)
             self.range_btns.append(btn)
         layout.addLayout(range_row)
+
+        self._grouping_hint = QLabel(
+            "Bar bucket size is chosen automatically from the range."
+        )
+        self._grouping_hint.setWordWrap(True)
+        self._grouping_hint.setStyleSheet("font-size: 11px; opacity: 0.75;")
+        layout.addWidget(self._grouping_hint)
 
         # ── Custom range ─────────────────────────────────────────────────
         self.custom_check = QCheckBox("Use a custom date range")
@@ -106,29 +113,9 @@ class GraphSettingsDialog(QDialog):
             "scroll left for older days."
         )
         self._heatmap_range_hint.setWordWrap(True)
-        self._heatmap_range_hint.setStyleSheet(
-            "font-size: 11px; padding: 6px 0;"
-        )
+        self._heatmap_range_hint.setStyleSheet("font-size: 11px; padding: 6px 0;")
         self._heatmap_range_hint.hide()
         layout.addWidget(self._heatmap_range_hint)
-
-        # ── Grouping ─────────────────────────────────────────────────────
-        self._group_label = QLabel("Grouping (Bar chart)")
-        self._group_label.setStyleSheet("font-weight: 600; font-size: 13px;")
-        layout.addWidget(self._group_label)
-
-        self.group_btns = []
-        group_row = QHBoxLayout()
-        group_row.setSpacing(6)
-        for idx, (label, _) in enumerate(GROUPING_OPTIONS):
-            btn = QPushButton(label)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setMinimumHeight(32)
-            btn.setSizePolicy(btn.sizePolicy().Policy.MinimumExpanding, btn.sizePolicy().Policy.Fixed)
-            btn.clicked.connect(lambda checked, i=idx: self._select_grouping(i))
-            group_row.addWidget(btn)
-            self.group_btns.append(btn)
-        layout.addLayout(group_row)
 
         # ── View Mode ────────────────────────────────────────────────────
         lbl_mode = QLabel("View Mode")
@@ -219,14 +206,9 @@ class GraphSettingsDialog(QDialog):
 
     def _select_range(self, idx: int) -> None:
         self._selected_range = idx
-        # Choosing a preset turns off the custom range.
         if self.custom_check.isChecked():
             self.custom_check.setChecked(False)
         self._restyle(self.range_btns, idx)
-
-    def _select_grouping(self, idx: int) -> None:
-        self._selected_grouping = idx
-        self._restyle(self.group_btns, idx)
 
     def _select_mode(self, idx: int) -> None:
         self._selected_mode = idx
@@ -241,25 +223,21 @@ class GraphSettingsDialog(QDialog):
                 w.setVisible(not is_heatmap)
                 w.setEnabled(checked and not is_heatmap)
         if checked:
-            # Visually clear preset selection while custom is active.
             self._restyle(self.range_btns, -1)
         else:
             self._restyle(self.range_btns, self._selected_range)
 
     def _on_mode_changed(self) -> None:
         mode = VIEW_OPTIONS[self._selected_mode][1]
-        is_bar = mode == "bar"
         is_agenda = mode == "agenda"
         is_heatmap = mode == "heatmap"
         self._range_label.setVisible(not is_heatmap)
         for btn in self.range_btns:
             btn.setVisible(not is_heatmap)
         self.custom_check.setVisible(not is_heatmap)
+        self._grouping_hint.setVisible(mode == "bar")
         self._heatmap_range_hint.setVisible(is_heatmap)
         self._on_custom_toggled(self.custom_check.isChecked())
-        self._group_label.setVisible(is_bar)
-        for btn in self.group_btns:
-            btn.setVisible(is_bar)
         self.fit_width_check.setVisible(mode in ("bar", "agenda"))
         self.autofit_hours_check.setVisible(is_agenda)
         self._on_autofit_toggled(self.autofit_hours_check.isChecked())
@@ -275,13 +253,9 @@ class GraphSettingsDialog(QDialog):
 
     # ── load / save ──────────────────────────────────────────────────────
     def _load_current(self) -> None:
-        saved_range = db.get_setting("graph_range", "weeks")
+        saved_range = self._svc.get_setting("graph_range", "weeks")
         is_custom = saved_range == "custom"
-        legacy_ranges = {
-            "7": "weeks",
-            "14": "weeks",
-            "30": "months",
-        }
+        legacy_ranges = {"7": "weeks", "14": "weeks", "30": "months", "12m": "year"}
         saved_range = legacy_ranges.get(saved_range, saved_range)
 
         idx_to_select = 0
@@ -291,17 +265,7 @@ class GraphSettingsDialog(QDialog):
                 break
         self._select_range(idx_to_select)
 
-        # Grouping
-        saved_group = db.get_setting("graph_grouping", "daily")
-        group_idx = 0
-        for idx, (_, value) in enumerate(GROUPING_OPTIONS):
-            if saved_group == value:
-                group_idx = idx
-                break
-        self._select_grouping(group_idx)
-
-        # View mode
-        saved_mode = db.get_setting("graph_view_mode", "bar")
+        saved_mode = self._svc.get_setting("graph_view_mode", "bar")
         mode_idx = 0
         for idx, (_, value) in enumerate(VIEW_OPTIONS):
             if saved_mode == value:
@@ -309,9 +273,8 @@ class GraphSettingsDialog(QDialog):
                 break
         self._select_mode(mode_idx)
 
-        # Custom dates
-        start_raw = db.get_setting("graph_custom_start", "")
-        end_raw = db.get_setting("graph_custom_end", "")
+        start_raw = self._svc.get_setting("graph_custom_start", "")
+        end_raw = self._svc.get_setting("graph_custom_end", "")
         if start_raw:
             try:
                 d = date.fromisoformat(start_raw)
@@ -327,15 +290,15 @@ class GraphSettingsDialog(QDialog):
         self.custom_check.setChecked(is_custom)
         self._on_custom_toggled(is_custom)
 
-        self.fit_width_check.setChecked(db.get_setting("graph_fit_horizontal", "1") == "1")
-        self.autofit_hours_check.setChecked(db.get_setting("graph_autofit_hours", "0") == "1")
+        self.fit_width_check.setChecked(self._svc.get_setting("graph_fit_horizontal", "1") == "1")
+        self.autofit_hours_check.setChecked(self._svc.get_setting("graph_autofit_hours", "0") == "1")
 
         try:
-            self.hour_start_spin.setValue(int(db.get_setting("graph_hour_start", "6")))
+            self.hour_start_spin.setValue(int(self._svc.get_setting("graph_hour_start", "6")))
         except ValueError:
             pass
         try:
-            self.hour_end_spin.setValue(int(db.get_setting("graph_hour_end", "23")))
+            self.hour_end_spin.setValue(int(self._svc.get_setting("graph_hour_end", "23")))
         except ValueError:
             pass
 
@@ -346,21 +309,19 @@ class GraphSettingsDialog(QDialog):
             self.hour_end_spin.setValue(self.hour_start_spin.value() + 1)
 
         s = self.get_settings()
-        db.set_setting("graph_range", s["range_str"])
-        db.set_setting("graph_grouping", s["grouping"])
-        db.set_setting("graph_view_mode", s["view_mode"])
-        db.set_setting("graph_hour_start", str(s["hour_start"]))
-        db.set_setting("graph_hour_end", str(s["hour_end"]))
-        db.set_setting("graph_fit_horizontal", "1" if s["fit_horizontal"] else "0")
-        db.set_setting("graph_autofit_hours", "1" if s["autofit_hours"] else "0")
+        self._svc.set_setting("graph_range", s["range_str"])
+        self._svc.set_setting("graph_view_mode", s["view_mode"])
+        self._svc.set_setting("graph_hour_start", str(s["hour_start"]))
+        self._svc.set_setting("graph_hour_end", str(s["hour_end"]))
+        self._svc.set_setting("graph_fit_horizontal", "1" if s["fit_horizontal"] else "0")
+        self._svc.set_setting("graph_autofit_hours", "1" if s["autofit_hours"] else "0")
         if s["custom_range"] is not None:
-            db.set_setting("graph_custom_start", s["custom_range"][0].isoformat())
-            db.set_setting("graph_custom_end", s["custom_range"][1].isoformat())
+            self._svc.set_setting("graph_custom_start", s["custom_range"][0].isoformat())
+            self._svc.set_setting("graph_custom_end", s["custom_range"][1].isoformat())
         self.accept()
 
     def get_settings(self) -> dict:
         _, range_preset = RANGE_OPTIONS[self._selected_range]
-        _, grouping_val = GROUPING_OPTIONS[self._selected_grouping]
         _, mode_val = VIEW_OPTIONS[self._selected_mode]
 
         custom_range = None
@@ -379,7 +340,6 @@ class GraphSettingsDialog(QDialog):
             "range_preset": range_preset,
             "range_str": range_str,
             "custom_range": custom_range,
-            "grouping": grouping_val,
             "view_mode": mode_val,
             "hour_start": self.hour_start_spin.value(),
             "hour_end": self.hour_end_spin.value(),

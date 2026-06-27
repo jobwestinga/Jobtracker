@@ -171,6 +171,27 @@ def graph_preset_window(preset: str, today: date) -> tuple[date, date] | None:
     return None
 
 
+def grouping_for_preset(preset: str) -> str:
+    """Sensible bucket size for each calendar range preset (single-picker UX):
+    short ranges show daily bars, medium weekly, long monthly."""
+    return {
+        "weeks": "daily",
+        "months": "weekly",
+        "year": "monthly",
+        "all": "monthly",
+    }.get(preset, "daily")
+
+
+def grouping_for_span(start: date, end: date) -> str:
+    """Sensible bucket size for a custom from/to range, by its length."""
+    days = abs((end - start).days)
+    if days <= 31:
+        return "daily"
+    if days <= 180:
+        return "weekly"
+    return "monthly"
+
+
 def bucket_key(logical: date, grouping: str = "daily") -> date:
     """Map a logical day to its representative bucket date for a grouping.
 

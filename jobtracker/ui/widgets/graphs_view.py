@@ -11,6 +11,8 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
+from ...core.themes import DEFAULT_TOKENS
+
 
 def _with_alpha(hex_color: str, alpha: int) -> QColor:
     c = QColor(hex_color)
@@ -114,13 +116,7 @@ class _GraphCanvas(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
 
-        t = self._tokens or {
-            "TEXT_PRIMARY": "#E2E8F0",
-            "TEXT_SECONDARY": "#94A3B8",
-            "TEXT_DIMMED": "#475569",
-            "BORDER_COLOR": "#1E3050",
-            "BG_SECONDARY": "#131D2E",
-        }
+        t = self._tokens or DEFAULT_TOKENS
 
         outer = self.rect().adjusted(0, 0, -1, -1)
         p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 160), 1))

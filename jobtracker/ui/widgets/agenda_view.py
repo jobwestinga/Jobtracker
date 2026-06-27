@@ -18,6 +18,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 from ...core.timeutils import agenda_hour_label
+from ...core.themes import DEFAULT_TOKENS
 
 ADJACENT_MARGIN_HOURS = 30 / 3600
 
@@ -92,6 +93,8 @@ class _AgendaCanvas(QWidget):
         self._hour_start: int = 6
         self._hour_end: int = 23
         self._fit_width: bool = True
+        # (today_logical_iso, current_agenda_hour) or None.
+        self._now_marker: tuple[str, float] | None = None
         self.setMinimumHeight(360)
 
     # ── public API ────────────────────────────────────────────────────────
@@ -106,6 +109,7 @@ class _AgendaCanvas(QWidget):
         hour_start: int = 6,
         hour_end: int = 23,
         fit_width: bool = True,
+        now_marker: tuple[str, float] | None = None,
     ) -> None:
         self._sessions = sessions
         self._day_keys = day_keys
@@ -113,6 +117,7 @@ class _AgendaCanvas(QWidget):
         self._hour_start = max(0, min(26, hour_start))
         self._hour_end = max(self._hour_start + 1, min(27, hour_end))
         self._fit_width = fit_width
+        self._now_marker = now_marker
 
         left_margin = 56
         right_margin = 14
@@ -134,13 +139,7 @@ class _AgendaCanvas(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
 
-        t = self._tokens or {
-            "TEXT_PRIMARY": "#E2E8F0",
-            "TEXT_SECONDARY": "#94A3B8",
-            "TEXT_DIMMED": "#475569",
-            "BORDER_COLOR": "#1E3050",
-            "BG_SECONDARY": "#131D2E",
-        }
+        t = self._tokens or DEFAULT_TOKENS
 
         outer = self.rect().adjusted(0, 0, -1, -1)
         p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 160), 1))
@@ -192,6 +191,25 @@ class _AgendaCanvas(QWidget):
             col_width = max(40, col_width)
         else:
             col_width = max(2, col_width)
+
+        # Current-time marker: a subtle horizontal line at "now" on today's
+        # column, bleeding a little into the neighbours. Painted here (before the
+        # columns) so it sits BEHIND the coloured session bars, like a faint
+        # gridline showing where we are in the day.
+        if self._now_marker is not None:
+            now_day, now_hour = self._now_marker
+            if (
+                now_day in self._day_keys
+                and self._hour_start <= now_hour <= self._hour_end
+            ):
+                today_idx = self._day_keys.index(now_day)
+                today_x = chart.left() + today_idx * (col_width + gap)
+                y = chart.top() + (now_hour - self._hour_start) / hour_count * chart.height()
+                bleed = min(col_width * 0.45, 22.0)
+                x1 = max(chart.left(), today_x - bleed)
+                x2 = min(chart.right(), today_x + col_width + bleed)
+                p.setPen(QPen(_with_alpha(t["TEXT_DIMMED"], 135), 2.0))
+                p.drawLine(int(x1), int(y), int(x2), int(y))
 
         # Group sessions by logical day.
         day_sessions: dict[str, list[dict]] = {d: [] for d in self._day_keys}
@@ -301,9 +319,12 @@ class AgendaViewWidget(QWidget):
         hour_start: int = 6,
         hour_end: int = 23,
         fit_width: bool = True,
+        now_marker: tuple[str, float] | None = None,
     ) -> None:
         self._scroll.setWidgetResizable(fit_width)
-        self._canvas.set_data(sessions, day_keys, hour_start, hour_end, fit_width)
+        self._canvas.set_data(
+            sessions, day_keys, hour_start, hour_end, fit_width, now_marker
+        )
         self._canvas.setFixedHeight(max(360, self._scroll.viewport().height()))
 
     def resizeEvent(self, event) -> None:

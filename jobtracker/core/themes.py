@@ -292,3 +292,9 @@ def get_tokens(fx_name: str = "Glow", palette_name: str = "Ocean") -> dict:
     tokens.setdefault("RADIUS_LG", "14px")
 
     return tokens
+
+
+# Single source of truth for the "no theme set yet" fallback palette. Widgets
+# that paint before tokens are applied use this instead of inlining their own
+# hardcoded colour dicts.
+DEFAULT_TOKENS = get_tokens()

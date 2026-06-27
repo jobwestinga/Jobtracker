@@ -99,6 +99,19 @@ class TrackerService:
     def _set_active_subject(self, subject: Optional[Subject]) -> None:
         self.active_subject = subject
 
+    # ── Settings (UI goes through the service, not the db directly) ─────
+    def get_setting(self, key: str, default: str = "") -> str:
+        return self.db.get_setting(key, default)
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.db.set_setting(key, value)
+
+    def delete_setting(self, key: str) -> None:
+        self.db.delete_setting(key)
+
+    def get_earliest_session_date(self) -> Optional[str]:
+        return self.db.get_earliest_session_date()
+
     # ── Logical day / settings ──────────────────────────────────────────
     def get_day_start(self) -> time:
         """The configured logical-day start time (default 03:00)."""
@@ -733,17 +746,24 @@ class TrackerService:
         return self.db.get_goal_templates(active_only=active_only)
 
     def add_goal_template(
-        self, title: str, notes: str, recurrence: str, milestone_titles: Optional[list] = None
+        self, title: str, notes: str, recurrence: str,
+        milestone_titles: Optional[list] = None,
+        recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
         ms_json = self.build_milestones_json(milestone_titles or [])
-        return self.db.add_goal_template(title, notes, recurrence, ms_json)
+        return self.db.add_goal_template(
+            title, notes, recurrence, ms_json, recurrence_day
+        )
 
     def update_goal_template(
         self, template_id: int, title: str, notes: str, recurrence: str,
         milestone_titles: Optional[list] = None,
+        recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
         ms_json = self.build_milestones_json(milestone_titles or [])
-        return self.db.update_goal_template(template_id, title, notes, recurrence, ms_json)
+        return self.db.update_goal_template(
+            template_id, title, notes, recurrence, ms_json, recurrence_day
+        )
 
     def set_goal_template_active(self, template_id: int, active: bool) -> None:
         self.db.set_goal_template_active(template_id, active)
@@ -761,6 +781,23 @@ class TrackerService:
             return timeutils.month_start(logical).isoformat()
         return logical.isoformat()
 
+    @staticmethod
+    def _template_instance_title(title: str, logical: date) -> str:
+        """Resolve supported placeholders in a generated goal title."""
+        return title.replace("{date}", logical.isoformat())
+
+    @staticmethod
+    def _template_is_due(template: GoalTemplate, logical: date) -> bool:
+        if template.recurrence == "weekly":
+            return logical.isoweekday() >= (template.recurrence_day or 1)
+        if template.recurrence == "monthly":
+            scheduled = min(
+                template.recurrence_day or 1,
+                calendar.monthrange(logical.year, logical.month)[1],
+            )
+            return logical.day >= scheduled
+        return True
+
     def generate_due_goal_instances(self, now: Optional[datetime] = None) -> list[int]:
         """Append a Goal instance to the top of the list for any active template
         whose current logical period hasn't been generated yet. Idempotent within
@@ -775,11 +812,18 @@ class TrackerService:
 
         created: list[int] = []
         for tpl in self.db.get_goal_templates(active_only=True):
+            if not self._template_is_due(tpl, logical):
+                continue
             key = self._template_period_key(tpl.recurrence, logical)
             if tpl.last_generated == key:
                 continue  # already generated for this period -> no duplicate
 
-            goal = self.db.add_todo_task_at_top(tpl.title, tpl.notes, template_id=tpl.id)
+            instance_title = self._template_instance_title(tpl.title, logical)
+            goal = self.db.add_todo_task_at_top(
+                instance_title,
+                tpl.notes,
+                template_id=tpl.id,
+            )
             try:
                 milestones = json.loads(tpl.milestones_json or "[]")
             except (ValueError, TypeError):
@@ -796,7 +840,12 @@ class TrackerService:
             self.db.set_goal_template_last_generated(tpl.id, key)
             if goal.id is not None:
                 created.append(goal.id)
-            logger.info("Generated goal '%s' from template %s for %s", tpl.title, tpl.id, key)
+            logger.info(
+                "Generated goal '%s' from template %s for %s",
+                instance_title,
+                tpl.id,
+                key,
+            )
 
         return created
 

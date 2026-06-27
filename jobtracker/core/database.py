@@ -115,6 +115,7 @@ class Database:
                 title TEXT NOT NULL,
                 notes TEXT DEFAULT '',
                 recurrence TEXT NOT NULL DEFAULT 'daily',
+                recurrence_day INTEGER,
                 milestones_json TEXT DEFAULT '[]',
                 last_generated TEXT,
                 is_active INTEGER DEFAULT 1,
@@ -147,6 +148,15 @@ class Database:
         # produced this Goal instance. Additive, nullable, reversible.
         if not self._column_exists("todo_tasks", "template_id"):
             cur.execute("ALTER TABLE todo_tasks ADD COLUMN template_id INTEGER")
+
+        # Scheduled weekday/month-day for recurring templates. Existing weekly
+        # and monthly templates retain predictable period-start behavior.
+        if not self._column_exists("goal_templates", "recurrence_day"):
+            cur.execute("ALTER TABLE goal_templates ADD COLUMN recurrence_day INTEGER")
+            cur.execute(
+                "UPDATE goal_templates SET recurrence_day = 1 "
+                "WHERE recurrence IN ('weekly', 'monthly')"
+            )
 
         # Main analytics/stat queries filter by start time and subject. These
         # additive indexes keep graph switching responsive as history grows.
@@ -228,6 +238,10 @@ class Database:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
+        self.connection.commit()
+
+    def delete_setting(self, key: str) -> None:
+        self.connection.execute("DELETE FROM settings WHERE key = ?", (key,))
         self.connection.commit()
 
     # ── Subjects (timed) ─────────────────────────────────────────────────
@@ -742,18 +756,22 @@ class Database:
 
     # ── Goal templates (recurring) ───────────────────────────────────────
     def add_goal_template(
-        self, title: str, notes: str, recurrence: str, milestones_json: str = "[]"
+        self, title: str, notes: str, recurrence: str, milestones_json: str = "[]",
+        recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
         normalized = (title or "").strip()
         if not normalized:
             return None
         if recurrence not in ("daily", "weekly", "monthly"):
             recurrence = "daily"
+        recurrence_day = self._normalize_recurrence_day(recurrence, recurrence_day)
         cur = self.connection.cursor()
         cur.execute(
-            "INSERT INTO goal_templates (title, notes, recurrence, milestones_json, sort_order) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (normalized, (notes or "").strip(), recurrence, milestones_json or "[]",
+            "INSERT INTO goal_templates "
+            "(title, notes, recurrence, recurrence_day, milestones_json, sort_order) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (normalized, (notes or "").strip(), recurrence, recurrence_day,
+             milestones_json or "[]",
              self._next_sort_order("goal_templates")),
         )
         self.connection.commit()
@@ -774,20 +792,41 @@ class Database:
         return [GoalTemplate(**dict(row)) for row in cur.fetchall()]
 
     def update_goal_template(
-        self, template_id: int, title: str, notes: str, recurrence: str, milestones_json: str
+        self, template_id: int, title: str, notes: str, recurrence: str,
+        milestones_json: str, recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
         normalized = (title or "").strip()
         if not normalized:
             return None
         if recurrence not in ("daily", "weekly", "monthly"):
             recurrence = "daily"
+        recurrence_day = self._normalize_recurrence_day(recurrence, recurrence_day)
         cur = self.connection.cursor()
         cur.execute(
-            "UPDATE goal_templates SET title = ?, notes = ?, recurrence = ?, milestones_json = ? WHERE id = ?",
-            (normalized, (notes or "").strip(), recurrence, milestones_json or "[]", template_id),
+            "UPDATE goal_templates SET title = ?, notes = ?, recurrence = ?, "
+            "recurrence_day = ?, milestones_json = ?, "
+            "last_generated = CASE "
+            "WHEN recurrence <> ? OR COALESCE(recurrence_day, 0) <> COALESCE(?, 0) "
+            "THEN NULL ELSE last_generated END WHERE id = ?",
+            (
+                normalized, (notes or "").strip(), recurrence, recurrence_day,
+                milestones_json or "[]", recurrence, recurrence_day, template_id,
+            ),
         )
         self.connection.commit()
         return self.get_goal_template(template_id)
+
+    @staticmethod
+    def _normalize_recurrence_day(
+        recurrence: str, recurrence_day: Optional[int]
+    ) -> Optional[int]:
+        if recurrence == "daily":
+            return None
+        try:
+            value = int(recurrence_day) if recurrence_day is not None else 1
+        except (TypeError, ValueError):
+            value = 1
+        return max(1, min(7 if recurrence == "weekly" else 31, value))
 
     def set_goal_template_active(self, template_id: int, active: bool) -> None:
         cur = self.connection.cursor()
@@ -946,8 +985,15 @@ class Database:
             recurrence = tpl.get("recurrence", "daily")
             cur.execute(
                 "SELECT id FROM goal_templates "
-                "WHERE title = ? COLLATE NOCASE AND recurrence = ?",
-                (tpl["title"], recurrence),
+                "WHERE title = ? COLLATE NOCASE AND recurrence = ? "
+                "AND COALESCE(recurrence_day, 0) = COALESCE(?, 0)",
+                (
+                    tpl["title"],
+                    recurrence,
+                    self._normalize_recurrence_day(
+                        recurrence, tpl.get("recurrence_day")
+                    ),
+                ),
             )
             existing = cur.fetchone()
             if existing:
@@ -955,12 +1001,16 @@ class Database:
             else:
                 cur.execute(
                     "INSERT INTO goal_templates "
-                    "(title, notes, recurrence, milestones_json, last_generated, "
-                    "is_active, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(title, notes, recurrence, recurrence_day, milestones_json, "
+                    "last_generated, is_active, sort_order, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         tpl["title"],
                         tpl.get("notes", ""),
                         recurrence,
+                        self._normalize_recurrence_day(
+                            recurrence, tpl.get("recurrence_day")
+                        ),
                         tpl.get("milestones_json", "[]"),
                         tpl.get("last_generated"),
                         tpl.get("is_active", 1),

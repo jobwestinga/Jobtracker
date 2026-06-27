@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QFrame,
+    QGraphicsOpacityEffect,
     QLabel,
     QListView,
     QListWidget,
@@ -38,6 +39,7 @@ class ReorderableCardList(QListWidget):
         self._press_id: int | None = None
         self._overlay_anim: QPropertyAnimation | None = None
         self._overlay_label: QLabel | None = None
+        self._remove_anims: dict[int, QVariantAnimation] = {}
 
         self.setFrameShape(QFrame.NoFrame)
         self.setSpacing(spacing)
@@ -190,6 +192,12 @@ class ReorderableCardList(QListWidget):
         original_height = widget.height()
         original_hint = item.sizeHint()
 
+        # True fade: a graphics opacity effect actually works on child widgets
+        # (setWindowOpacity is ignored unless the widget is a top-level window).
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        effect.setOpacity(1.0)
+
         anim = QVariantAnimation(self)
         anim.setDuration(max(120, int(duration_ms)))
         anim.setStartValue(1.0)
@@ -202,19 +210,16 @@ class ReorderableCardList(QListWidget):
             except (TypeError, ValueError):
                 return
             try:
-                widget.setWindowOpacity(f)
-            except Exception:
-                pass
-            # opacity via stylesheet fallback — many widgets ignore setWindowOpacity when not top-level
-            try:
-                widget.setStyleSheet(widget.styleSheet())
+                effect.setOpacity(f)
             except Exception:
                 pass
             new_h = max(0, int(original_height * f))
-            widget.setFixedHeight(new_h) if f < 1.0 else None
+            if f < 1.0:
+                widget.setFixedHeight(new_h)
             item.setSizeHint(QSize(original_hint.width(), new_h))
 
         def on_done() -> None:
+            self._remove_anims.pop(item_id, None)
             # Remove row; list will relayout remaining items.
             cur_row = self._row_for_id(item_id)
             if cur_row >= 0:
@@ -225,6 +230,7 @@ class ReorderableCardList(QListWidget):
 
         anim.valueChanged.connect(on_value)
         anim.finished.connect(on_done)
+        self._remove_anims[item_id] = anim
         anim.start()
 
     def _move_item_rows(self, source_row: int, target_row: int) -> None:

@@ -52,6 +52,7 @@ class GoalTemplate:
     title: str
     notes: str
     recurrence: str          # 'daily' | 'weekly' | 'monthly'
+    recurrence_day: Optional[int]  # weekly: ISO weekday 1-7; monthly: day 1-31
     milestones_json: str     # JSON list of {"title", "note"}
     last_generated: Optional[str]
     is_active: int

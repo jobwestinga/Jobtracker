@@ -12,20 +12,38 @@ import json
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QTextEdit, QVBoxLayout,
+    QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
+from ...core.themes import DEFAULT_TOKENS
+
 RECURRENCE_LABELS = [("Daily", "daily"), ("Weekly", "weekly"), ("Monthly", "monthly")]
+WEEKDAYS = [
+    ("Monday", 1),
+    ("Tuesday", 2),
+    ("Wednesday", 3),
+    ("Thursday", 4),
+    ("Friday", 5),
+    ("Saturday", 6),
+    ("Sunday", 7),
+]
+
+
+def _ordinal(day: int) -> str:
+    suffix = "th" if 10 <= day % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
 
 
 class TemplateDialog(QDialog):
     def __init__(self, parent=None, template=None) -> None:
         super().__init__(parent)
         self.template = template
+        self._tokens = getattr(parent, "_tokens", DEFAULT_TOKENS)
         self.setWindowTitle("Edit Template" if template else "New Template")
-        self.setMinimumWidth(420)
-        self._milestone_rows: list[QLineEdit] = []
+        self.setMinimumSize(500, 650)
+        self._milestone_rows: list[dict] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -33,31 +51,91 @@ class TemplateDialog(QDialog):
         layout.setContentsMargins(22, 20, 22, 16)
         layout.setSpacing(10)
 
+        heading = QLabel(
+            "Edit the recurring outcome" if self.template else "Define a recurring outcome"
+        )
+        heading.setStyleSheet("font-size: 18px; font-weight: 800;")
+        layout.addWidget(heading)
+
         layout.addWidget(self._lbl("Title"))
         self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("e.g. Daily routine pack")
-        self.title_input.setMinimumHeight(34)
+        self.title_input.setPlaceholderText("e.g. Weekly review")
+        self.title_input.setMinimumHeight(38)
         layout.addWidget(self.title_input)
 
         layout.addWidget(self._lbl("Description"))
         self.desc_input = QTextEdit()
-        self.desc_input.setMaximumHeight(70)
+        self.desc_input.setPlaceholderText(
+            "Why this recurring goal matters and what success looks like …"
+        )
+        self.desc_input.setMaximumHeight(100)
         layout.addWidget(self.desc_input)
 
-        layout.addWidget(self._lbl("Repeats"))
+        recurrence_row = QHBoxLayout()
+        recurrence_row.setSpacing(8)
+        recurrence_row.addWidget(self._lbl("Repeats"))
         self.recurrence_combo = QComboBox()
         for label, value in RECURRENCE_LABELS:
             self.recurrence_combo.addItem(label, value)
-        layout.addWidget(self.recurrence_combo)
+        recurrence_row.addWidget(self.recurrence_combo, 1)
+        self.schedule_label = QLabel("On")
+        self.schedule_label.setStyleSheet("font-weight: 700;")
+        recurrence_row.addWidget(self.schedule_label)
+        self.schedule_combo = QComboBox()
+        recurrence_row.addWidget(self.schedule_combo, 1)
+        layout.addLayout(recurrence_row)
 
-        layout.addWidget(self._lbl("Milestones copied into each generated goal"))
-        self._ms_container = QVBoxLayout()
-        self._ms_container.setSpacing(4)
-        layout.addLayout(self._ms_container)
-        add_btn = QPushButton("+ Add milestone")
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self._add_milestone_row)
-        layout.addWidget(add_btn)
+        day_start = "03:00"
+        service = getattr(self.parent(), "service", None)
+        if service is not None:
+            day_start = service.get_day_start().strftime("%H:%M")
+        self.timing_hint = QLabel(
+            f"Daily templates generate when your logical day starts at {day_start}. "
+            "If the app is closed, they generate the next time it opens."
+        )
+        self.timing_hint.setWordWrap(True)
+        self.timing_hint.setStyleSheet(
+            f"font-size: 11px; color: {self._tokens['TEXT_DIMMED']};"
+        )
+        layout.addWidget(self.timing_hint)
+
+        milestone_header = QHBoxLayout()
+        milestone_header.addWidget(
+            self._lbl("Milestones copied into each generated goal")
+        )
+        milestone_header.addStretch()
+        self._add_milestone_btn = QPushButton("+ Add milestone")
+        self._add_milestone_btn.setCursor(Qt.PointingHandCursor)
+        self._add_milestone_btn.clicked.connect(
+            lambda _checked=False: self._add_milestone_row()
+        )
+        milestone_header.addWidget(self._add_milestone_btn)
+        layout.addLayout(milestone_header)
+
+        milestone_hint = QLabel(
+            "Each generated goal receives these milestone titles and descriptions."
+        )
+        milestone_hint.setWordWrap(True)
+        milestone_hint.setStyleSheet(
+            f"font-size: 11px; color: {self._tokens['TEXT_DIMMED']};"
+        )
+        layout.addWidget(milestone_hint)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        host = QWidget()
+        host.setStyleSheet("background: transparent;")
+        self._ms_container = QVBoxLayout(host)
+        self._ms_container.setContentsMargins(0, 2, 0, 2)
+        self._ms_container.setSpacing(7)
+        self._ms_container.addStretch()
+        scroll.setWidget(host)
+        layout.addWidget(scroll, 1)
+
+        self.recurrence_combo.currentIndexChanged.connect(
+            self._sync_schedule_controls
+        )
 
         # Prefill (edit).
         if self.template:
@@ -68,14 +146,21 @@ class TemplateDialog(QDialog):
                 self.recurrence_combo.setCurrentIndex(idx)
             try:
                 for entry in json.loads(self.template.milestones_json or "[]"):
-                    title = entry.get("title", "") if isinstance(entry, dict) else str(entry)
-                    self._add_milestone_row(title)
+                    if isinstance(entry, dict):
+                        title = entry.get("title", "")
+                        note = entry.get("note", "")
+                    else:
+                        title, note = str(entry), ""
+                    self._add_milestone_row(title, note)
             except (ValueError, TypeError):
                 pass
+        self._sync_schedule_controls()
+        if self.template and self.template.recurrence_day is not None:
+            index = self.schedule_combo.findData(self.template.recurrence_day)
+            if index >= 0:
+                self.schedule_combo.setCurrentIndex(index)
         if not self._milestone_rows:
             self._add_milestone_row()
-
-        layout.addStretch()
 
         btn_row = QHBoxLayout()
         cancel = QPushButton("Cancel")
@@ -91,19 +176,101 @@ class TemplateDialog(QDialog):
         btn_row.addWidget(save)
         layout.addLayout(btn_row)
 
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
+            button.setDefault(False)
+        save.setAutoDefault(True)
+        save.setDefault(True)
+
     def _lbl(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet("font-weight: 600;")
         return lbl
 
-    def _add_milestone_row(self, text: str = "") -> None:
-        row = QLineEdit()
-        row.setPlaceholderText("Milestone title …")
-        row.setMinimumHeight(30)
-        if text:
-            row.setText(text)
-        self._ms_container.addWidget(row)
-        self._milestone_rows.append(row)
+    def _sync_schedule_controls(self, _index: int | None = None) -> None:
+        recurrence = self.recurrence_combo.currentData()
+        previous = self.schedule_combo.currentData()
+        self.schedule_combo.clear()
+        if recurrence == "weekly":
+            for label, value in WEEKDAYS:
+                self.schedule_combo.addItem(label, value)
+            self.schedule_label.show()
+            self.schedule_combo.show()
+            self.timing_hint.setText(
+                "Generates on the selected weekday at your logical-day start. "
+                "If the app is closed, it generates the next time it opens."
+            )
+        elif recurrence == "monthly":
+            for day in range(1, 32):
+                self.schedule_combo.addItem(_ordinal(day), day)
+            self.schedule_label.show()
+            self.schedule_combo.show()
+            self.timing_hint.setText(
+                "Generates on the selected day at your logical-day start. "
+                "For shorter months, dates 29–31 run on the final day."
+            )
+        else:
+            self.schedule_label.hide()
+            self.schedule_combo.hide()
+            day_start = "03:00"
+            service = getattr(self.parent(), "service", None)
+            if service is not None:
+                day_start = service.get_day_start().strftime("%H:%M")
+            self.timing_hint.setText(
+                f"Generates when your logical day starts at {day_start}. "
+                "If the app is closed, it generates the next time it opens."
+            )
+            return
+        index = self.schedule_combo.findData(previous)
+        self.schedule_combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def _add_milestone_row(self, text: str = "", note: str = "") -> None:
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {self._tokens.get('BG_TERTIARY', '#18243A')};"
+            f" border: 1px solid {self._tokens['BORDER_COLOR']}; border-radius: 9px; }}"
+        )
+        row_layout = QVBoxLayout(frame)
+        row_layout.setContentsMargins(10, 8, 8, 9)
+        row_layout.setSpacing(7)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_input = QLineEdit()
+        title_input.setPlaceholderText("Milestone title …")
+        title_input.setMinimumHeight(32)
+        title_input.setText(text)
+        title_row.addWidget(title_input, 1)
+
+        remove_btn = QPushButton("Remove")
+        remove_btn.setCursor(Qt.PointingHandCursor)
+        remove_btn.setMinimumHeight(30)
+        title_row.addWidget(remove_btn)
+        row_layout.addLayout(title_row)
+
+        note_input = QTextEdit()
+        note_input.setPlaceholderText("Milestone description (optional) …")
+        note_input.setMaximumHeight(58)
+        note_input.setPlainText(note or "")
+        row_layout.addWidget(note_input)
+
+        entry = {
+            "input": title_input,
+            "note_input": note_input,
+            "frame": frame,
+        }
+        remove_btn.clicked.connect(
+            lambda _checked=False, current=entry: self._remove_milestone_row(current)
+        )
+        self._milestone_rows.append(entry)
+        self._ms_container.insertWidget(self._ms_container.count() - 1, frame)
+        title_input.setFocus()
+
+    def _remove_milestone_row(self, entry: dict) -> None:
+        if entry not in self._milestone_rows:
+            return
+        self._milestone_rows.remove(entry)
+        entry["frame"].deleteLater()
 
     def _accept(self) -> None:
         if not self.title_input.text().strip():
@@ -112,11 +279,26 @@ class TemplateDialog(QDialog):
         self.accept()
 
     def get_data(self) -> dict:
+        milestones = []
+        for entry in self._milestone_rows:
+            title = entry["input"].text().strip()
+            if title:
+                milestones.append(
+                    {
+                        "title": title,
+                        "note": entry["note_input"].toPlainText().strip(),
+                    }
+                )
         return {
             "title": self.title_input.text().strip(),
             "notes": self.desc_input.toPlainText().strip(),
             "recurrence": self.recurrence_combo.currentData(),
-            "milestones": [r.text().strip() for r in self._milestone_rows if r.text().strip()],
+            "recurrence_day": (
+                self.schedule_combo.currentData()
+                if self.recurrence_combo.currentData() != "daily"
+                else None
+            ),
+            "milestones": milestones,
         }
 
 
@@ -124,7 +306,7 @@ class TemplateManagerDialog(QDialog):
     def __init__(self, service, parent=None) -> None:
         super().__init__(parent)
         self.service = service
-        self._tokens = getattr(parent, "_tokens", {}) if parent is not None else {}
+        self._tokens = (getattr(parent, "_tokens", None) if parent is not None else None) or DEFAULT_TOKENS
         self.setWindowTitle("Recurring Templates")
         self.setMinimumSize(500, 460)
         self._build_ui()
@@ -197,8 +379,17 @@ class TemplateManagerDialog(QDialog):
         self._list.clear()
         for tpl in self.service.get_goal_templates():
             state = "Active" if tpl.is_active else "Disabled"
+            if tpl.recurrence == "weekly":
+                schedule = dict((value, label) for label, value in WEEKDAYS).get(
+                    tpl.recurrence_day or 1, "Monday"
+                )
+                recurrence_label = f"Weekly on {schedule}"
+            elif tpl.recurrence == "monthly":
+                recurrence_label = f"Monthly on the {_ordinal(tpl.recurrence_day or 1)}"
+            else:
+                recurrence_label = "Daily"
             item = QListWidgetItem(
-                f"{tpl.title}\n{tpl.recurrence.title()} · {state}"
+                f"{tpl.title}\n{recurrence_label} · {state}"
             )
             item.setData(Qt.UserRole, tpl.id)
             item.setToolTip(f"{tpl.title} — {state.lower()}")
@@ -243,7 +434,8 @@ class TemplateManagerDialog(QDialog):
         if dlg.exec():
             d = dlg.get_data()
             template = self.service.add_goal_template(
-                d["title"], d["notes"], d["recurrence"], d["milestones"]
+                d["title"], d["notes"], d["recurrence"], d["milestones"],
+                d["recurrence_day"],
             )
             self._reload(template.id if template else None)
 
@@ -257,7 +449,10 @@ class TemplateManagerDialog(QDialog):
         dlg = TemplateDialog(self, template=tpl)
         if dlg.exec():
             d = dlg.get_data()
-            self.service.update_goal_template(tid, d["title"], d["notes"], d["recurrence"], d["milestones"])
+            self.service.update_goal_template(
+                tid, d["title"], d["notes"], d["recurrence"], d["milestones"],
+                d["recurrence_day"],
+            )
             self._reload(tid)
 
     def _toggle_active(self) -> None:

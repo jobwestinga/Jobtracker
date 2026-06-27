@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QTimer, Qt
+from datetime import date
+
+from PySide6.QtCore import QDate, QPoint, QTimer, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDateEdit,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -19,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.themes import DEFAULT_TOKENS
 from .todo_task_item import _StarBurstOverlay
 
 
@@ -31,22 +35,12 @@ def _tokens_from(parent, explicit: dict | None = None) -> dict:
         if tokens:
             return tokens
         current = current.parent() if hasattr(current, "parent") else None
-    return {
-        "CARD_BG": "#131D2E",
-        "BG_SECONDARY": "#131D2E",
-        "BG_TERTIARY": "#18243A",
-        "BORDER_COLOR": "#263852",
-        "TEXT_PRIMARY": "#E2E8F0",
-        "TEXT_SECONDARY": "#94A3B8",
-        "TEXT_DIMMED": "#64748B",
-        "ACCENT": "#3B82F6",
-        "ACCENT_GREEN": "#22C55E",
-    }
+    return DEFAULT_TOKENS
 
 
 def apply_goal_edits(service, goal_id: int, data: dict) -> None:
     """Apply one edit-dialog result, including milestone add/edit/delete."""
-    service.update_todo_task(goal_id, data["name"], data["notes"], None)
+    service.update_todo_task(goal_id, data["name"], data["notes"], data.get("deadline"))
     existing = {
         milestone.id: milestone
         for milestone in service.get_goal_milestones(goal_id)
@@ -118,6 +112,29 @@ class GoalDialog(QDialog):
         if self.goal and self.goal.notes:
             self.desc_input.setPlainText(self.goal.notes)
         layout.addWidget(self.desc_input)
+
+        # Optional target date (no quota — just a soft "aim for" date).
+        date_row = QHBoxLayout()
+        date_row.setSpacing(8)
+        self.target_check = QCheckBox("Target date")
+        self.target_check.setCursor(Qt.PointingHandCursor)
+        date_row.addWidget(self.target_check)
+        self.target_date = QDateEdit()
+        self.target_date.setCalendarPopup(True)
+        self.target_date.setDisplayFormat("yyyy-MM-dd")
+        self.target_date.setDate(QDate.currentDate().addMonths(1))
+        self.target_date.setEnabled(False)
+        self.target_check.toggled.connect(self.target_date.setEnabled)
+        date_row.addWidget(self.target_date)
+        date_row.addStretch()
+        layout.addLayout(date_row)
+        if self.goal and self.goal.deadline:
+            try:
+                d = date.fromisoformat(self.goal.deadline[:10])
+                self.target_date.setDate(QDate(d.year, d.month, d.day))
+                self.target_check.setChecked(True)
+            except ValueError:
+                pass
 
         milestone_header = QHBoxLayout()
         milestone_header.addWidget(self._label("Milestones"))
@@ -274,9 +291,14 @@ class GoalDialog(QDialog):
                         "note": entry["note_input"].toPlainText().strip(),
                     }
                 )
+        deadline = None
+        if self.target_check.isChecked():
+            q = self.target_date.date()
+            deadline = date(q.year(), q.month(), q.day()).isoformat()
         return {
             "name": self.title_input.text().strip(),
             "notes": self.desc_input.toPlainText().strip(),
+            "deadline": deadline,
             "milestones": milestones,
         }
 
@@ -394,10 +416,10 @@ class GoalDetailDialog(QDialog):
         self.progress_lbl.setText(f"{done} / {total} complete" if total else "No milestones")
 
         if goal.is_completed:
-            self.complete_btn.setText("Restore to Active")
+            self.complete_btn.setText("Reopen Goal")
             self.complete_btn.setEnabled(True)
         else:
-            self.complete_btn.setText("Archive Goal")
+            self.complete_btn.setText("Mark Complete")
             self.complete_btn.setEnabled(self.service.can_complete_goal(self.goal_id))
 
     def _milestone_row(self, milestone) -> QFrame:
@@ -448,6 +470,15 @@ class GoalDetailDialog(QDialog):
             layout.addWidget(note)
         return frame
 
+    def _star_colors(self) -> list:
+        t = self._tokens
+        return [
+            t.get("ACCENT_GREEN", "#22C55E"),
+            t.get("ACCENT", "#3B82F6"),
+            t.get("TEXT_PRIMARY", "#FFFFFF"),
+            t.get("ACCENT_GREEN", "#22C55E"),
+        ]
+
     def _toggle_milestone(
         self,
         milestone_id: int,
@@ -460,7 +491,7 @@ class GoalDetailDialog(QDialog):
             # the 18px circle at the left, not the widget's geometric center.
             indicator_center = QPoint(9, source.height() // 2)
             origin = source.mapTo(self, indicator_center)
-            burst = _StarBurstOverlay(self, origin, count=12)
+            burst = _StarBurstOverlay(self, origin, count=12, colors=self._star_colors())
             burst.start()
             QTimer.singleShot(320, self._reload)
         else:
@@ -492,7 +523,7 @@ class GoalDetailDialog(QDialog):
             QMessageBox.information(
                 self,
                 "Milestones remain",
-                "Finish all milestones before archiving this goal.",
+                "Finish all milestones before completing this goal.",
             )
             return
         self.accept()

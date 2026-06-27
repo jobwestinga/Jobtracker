@@ -10,7 +10,13 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QGraphicsOpacityEffect,
+    QLabel,
+    QMessageBox,
+)
 
 from jobtracker.services.tracker_service import TrackerService
 from jobtracker.ui import app as app_module
@@ -31,7 +37,8 @@ from jobtracker.ui.widgets.heatmap_view import (
     _visual_ratio,
 )
 from jobtracker.ui.widgets.settings_dialog import SettingsDialog
-from jobtracker.ui.widgets.template_dialog import TemplateManagerDialog
+from jobtracker.ui.widgets.reorderable_list import ReorderableCardList
+from jobtracker.ui.widgets.template_dialog import TemplateDialog, TemplateManagerDialog
 from jobtracker.ui.widgets.todo_task_item import TodoTaskItemWidget
 from jobtracker.ui.widgets.todo_task_item import _StarBurstOverlay
 
@@ -42,7 +49,6 @@ def _application():
 
 def _window(database, monkeypatch):
     qt_app = _application()
-    monkeypatch.setattr(app_module, "db", database)
     monkeypatch.setattr(app_module, "TrackerService", lambda: TrackerService(database))
     window = app_module.MainWindow(qt_app)
     window.show()
@@ -51,12 +57,15 @@ def _window(database, monkeypatch):
 
 
 def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
+    database.set_setting("graph_grouping", "weekly")
     qt_app, window = _window(database, monkeypatch)
     try:
         assert window._pages.count() == 3
         assert [button.text() for button in window._nav_buttons] == [
             "Goals", "Subjects", "Graphs",
         ]
+        assert database.get_setting("graph_grouping", "") == ""
+        assert window._recurring_timer.isActive()
         assert window._pages.currentIndex() == 1
         assert window._graph_stack.count() == 3
         assert not hasattr(window, "_tasks_nav_btn")
@@ -132,7 +141,53 @@ def test_clicking_goal_card_emits_open_request(service):
     card.close()
 
 
-def test_archived_goal_card_can_only_be_restored_from_detail(service):
+def test_check_button_gated_by_milestone_progress(service):
+    qt_app = _application()
+    tokens = {"TEXT_PRIMARY": "#fff", "TEXT_SECONDARY": "#aaa", "TEXT_DIMMED": "#777",
+              "ACCENT_GREEN": "#0f0", "BORDER_COLOR": "#333", "BG_SECONDARY": "#111",
+              "ACCENT": "#38f"}
+    goal = service.add_todo_task("Gated", "", None)
+
+    # 1/2 milestones done -> completion blocked; ✓ shakes, does not emit.
+    blocked = TodoTaskItemWidget(goal, tokens, progress=(1, 2))
+    fired = []
+    blocked.complete_requested.connect(fired.append)
+    blocked.show()
+    qt_app.processEvents()
+    blocked.check_btn.click()
+    assert fired == []
+    blocked.close()
+
+    # All milestones done -> ✓ emits completion.
+    ready = TodoTaskItemWidget(goal, tokens, progress=(2, 2))
+    fired_ok = []
+    ready.complete_requested.connect(fired_ok.append)
+    ready.show()
+    qt_app.processEvents()
+    ready.check_btn.click()
+    assert fired_ok == [goal.id]
+    ready.close()
+
+
+def test_goal_removal_fade_is_retained_until_completion():
+    qt_app = _application()
+    cards = ReorderableCardList()
+    card = QLabel("Completing")
+    card.setFixedHeight(60)
+    cards.add_card(1, card)
+    cards.resize(400, 180)
+    cards.show()
+    qt_app.processEvents()
+
+    cards.animate_remove(1)
+
+    assert 1 in cards._remove_anims
+    assert isinstance(card.graphicsEffect(), QGraphicsOpacityEffect)
+    cards._remove_anims[1].stop()
+    cards.close()
+
+
+def test_completed_goal_card_can_only_be_reopened_from_detail(service):
     qt_app = _application()
     goal = service.add_todo_task("Restore me", "", None)
     assert service.complete_goal(goal.id)
@@ -141,16 +196,15 @@ def test_archived_goal_card_can_only_be_restored_from_detail(service):
                                           "TEXT_DIMMED": "#777", "ACCENT_GREEN": "#0f0",
                                           "BORDER_COLOR": "#333", "BG_SECONDARY": "#111",
                                           "ACCENT": "#38f"})
-    reopened = []
-    card.reopen_requested.connect(reopened.append)
     card.show()
     qt_app.processEvents()
-    card.check_btn.click()
+    # Completed cards hide the check button entirely; clicking does nothing.
     assert card.check_btn.isHidden()
-    assert reopened == []
+    card.check_btn.click()
 
+    # Reopen is only reachable from the detail dialog (now labelled "Reopen Goal").
     detail = GoalDetailDialog(service, goal.id)
-    assert detail.complete_btn.text() == "Restore to Active"
+    assert detail.complete_btn.text() == "Reopen Goal"
     detail.complete_btn.click()
     assert not service.get_goal(goal.id).is_completed
     detail.close()
@@ -265,6 +319,42 @@ def test_template_manager_makes_selection_and_action_clear(service):
     assert manager._toggle_btn.text() == "Disable"
     assert template.title in manager._selection_label.text()
     manager.close()
+
+
+def test_template_dialog_edits_schedule_and_milestone_descriptions(service):
+    qt_app = _application()
+    template = service.add_goal_template(
+        "Weekly review",
+        "Reset priorities",
+        "weekly",
+        [{"title": "Review goals", "note": "Check what still matters."}],
+        recurrence_day=3,
+    )
+    dialog = TemplateDialog(template=template)
+    dialog.show()
+    qt_app.processEvents()
+
+    assert dialog.recurrence_combo.currentData() == "weekly"
+    assert dialog.schedule_combo.currentData() == 3
+    assert dialog._milestone_rows[0]["input"].text() == "Review goals"
+    assert (
+        dialog._milestone_rows[0]["note_input"].toPlainText()
+        == "Check what still matters."
+    )
+
+    dialog.recurrence_combo.setCurrentIndex(
+        dialog.recurrence_combo.findData("monthly")
+    )
+    dialog.schedule_combo.setCurrentIndex(
+        dialog.schedule_combo.findData(27)
+    )
+    data = dialog.get_data()
+    assert data["recurrence"] == "monthly"
+    assert data["recurrence_day"] == 27
+    assert data["milestones"] == [
+        {"title": "Review goals", "note": "Check what still matters."}
+    ]
+    dialog.close()
 
 
 def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():

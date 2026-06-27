@@ -83,3 +83,36 @@ def test_legacy_database_migrates_without_losing_rows(tmp_path):
         assert migrated.get_session(1).duration_seconds == 10
     finally:
         migrated.connection.close()
+
+
+def test_existing_templates_gain_default_schedule_days(tmp_path):
+    path = tmp_path / "legacy_templates.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE goal_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            recurrence TEXT NOT NULL DEFAULT 'daily',
+            milestones_json TEXT DEFAULT '[]',
+            last_generated TEXT,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO goal_templates (title, recurrence)
+            VALUES ('Daily', 'daily'), ('Weekly', 'weekly'), ('Monthly', 'monthly');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    migrated = Database(path)
+    try:
+        templates = {template.title: template for template in migrated.get_goal_templates()}
+        assert templates["Daily"].recurrence_day is None
+        assert templates["Weekly"].recurrence_day == 1
+        assert templates["Monthly"].recurrence_day == 1
+    finally:
+        migrated.connection.close()
