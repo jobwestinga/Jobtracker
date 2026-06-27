@@ -66,6 +66,16 @@ def test_legacy_database_migrates_without_losing_rows(tmp_path):
         assert {"note", "last_active_at"} <= session_columns
         assert "template_id" in goal_columns
         assert {"milestones", "goal_templates"} <= tables
+        indexes = {
+            row["name"]
+            for row in migrated.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        assert {
+            "idx_sessions_start_time",
+            "idx_sessions_task_start",
+        } <= indexes
         assert migrated.get_subject_by_name("Legacy subject") is not None
         assert migrated.get_todo_task(1).name == "Legacy task"
         # Migration is additive and no longer performs a destructive startup

@@ -18,6 +18,22 @@ def _with_alpha(hex_color: str, alpha: int) -> QColor:
     return c
 
 
+def _intensity_style(seconds: float) -> tuple[str, float]:
+    """Color/scale the total label by average tracked time per day."""
+    hours = max(0.0, float(seconds)) / 3600.0
+    if hours <= 1.0:
+        return "#737373", 0.8
+    if hours <= 2.5:
+        return "#86EFAC", 0.95
+    if hours <= 4.5:
+        return "#60A5FA", 1.0
+    if hours <= 7.0:
+        return "#A855F7", 1.05
+    if hours <= 10.0:
+        return "#FB923C", 1.15
+    return "#EF4444", 1.25
+
+
 class _GraphCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -137,26 +153,10 @@ class _GraphCanvas(QWidget):
             # Total hours label with dynamic shiny contour
             if bar_width > 20 and total_seconds > 0:
                 total_h = total_seconds / 3600.0
-                
-                # Determine contour color and font scale
-                if total_h <= 1.0:
-                    c_hex = "#737373" # grey
-                    s = 0.8
-                elif total_h <= 2.5:
-                    c_hex = "#86EFAC" # green (light)
-                    s = 0.95
-                elif total_h <= 4.5:
-                    c_hex = "#60A5FA" # blue
-                    s = 1.0
-                elif total_h <= 7.0:
-                    c_hex = "#A855F7" # purple
-                    s = 1.05
-                elif total_h <= 10.0:
-                    c_hex = "#FB923C" # orange
-                    s = 1.15
-                else:
-                    c_hex = "#EF4444" # fiery red
-                    s = 1.25
+                intensity_seconds = day_data.get(
+                    "intensity_seconds", total_seconds
+                )
+                c_hex, s = _intensity_style(intensity_seconds)
 
                 text = f"{total_h:.1f}h"
                 base_font_size = 9

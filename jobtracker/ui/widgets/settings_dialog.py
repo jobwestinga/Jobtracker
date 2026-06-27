@@ -49,6 +49,7 @@ class SettingsDialog(QDialog):
         fx_row.setSpacing(8)
         self._fx_btns: list[QPushButton] = []
         fx_labels = {
+            "Base": "Base",
             "Clean": "Clean",
             "Glow": "Aura",
             "Space": "Space",
@@ -74,7 +75,7 @@ class SettingsDialog(QDialog):
         palette_grid.setHorizontalSpacing(8)
         palette_grid.setVerticalSpacing(12)
         self._palette_btns: list[QPushButton] = []
-        max_cols = 5
+        max_cols = 6
         for idx, name in enumerate(PALETTE_NAMES):
             pal = PALETTES[name]
             btn = QPushButton()
@@ -139,6 +140,9 @@ class SettingsDialog(QDialog):
         import_btn = QPushButton("Import Backup")
         import_btn.setCursor(Qt.PointingHandCursor)
         import_btn.setMinimumHeight(36)
+        import_btn.setToolTip(
+            "Choose the exported .zip bundle, or a standalone JobTracker JSON backup"
+        )
         import_btn.clicked.connect(self._import)
         data_row.addWidget(import_btn)
 
@@ -209,9 +213,19 @@ class SettingsDialog(QDialog):
         for btn in self._palette_btns:
             name = btn.property("palette_name")
             pal = PALETTES[name]
-            ring = f"3px solid {text}" if name == self._palette else "3px solid transparent"
+            if name == "Dark":
+                swatch = "#090B0F"
+            elif name == "Light":
+                swatch = "#FFFFFF"
+            else:
+                swatch = pal["ACCENT"]
+            ring = (
+                f"3px solid {text}"
+                if name == self._palette
+                else "1px solid #94A3B8"
+            )
             btn.setStyleSheet(
-                f"background-color: {pal['ACCENT']}; border: {ring}; border-radius: 24px;"
+                f"background-color: {swatch}; border: {ring}; border-radius: 24px;"
             )
 
     def _apply_preview(self) -> None:
@@ -290,7 +304,10 @@ class SettingsDialog(QDialog):
 
     def _import(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import Backup", "", "Backup (*.json *.zip)"
+            self,
+            "Import Backup Bundle",
+            "",
+            "JobTracker backup bundle (*.zip *.json)",
         )
         if not path:
             return

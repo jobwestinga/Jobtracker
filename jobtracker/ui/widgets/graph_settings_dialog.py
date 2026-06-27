@@ -54,9 +54,9 @@ class GraphSettingsDialog(QDialog):
         layout.setSpacing(12)
 
         # ── Time Range ───────────────────────────────────────────────────
-        lbl_range = QLabel("Time Range")
-        lbl_range.setStyleSheet("font-weight: 600; font-size: 13px;")
-        layout.addWidget(lbl_range)
+        self._range_label = QLabel("Time Range")
+        self._range_label.setStyleSheet("font-weight: 600; font-size: 13px;")
+        layout.addWidget(self._range_label)
 
         self.range_btns = []
         range_row = QHBoxLayout()
@@ -94,6 +94,17 @@ class GraphSettingsDialog(QDialog):
         custom_row.addWidget(self.to_date)
         self._custom_row = custom_row
         layout.addLayout(custom_row)
+
+        self._heatmap_range_hint = QLabel(
+            "Heatmap always shows all history. It opens on the newest weeks; "
+            "scroll left for older days."
+        )
+        self._heatmap_range_hint.setWordWrap(True)
+        self._heatmap_range_hint.setStyleSheet(
+            "font-size: 11px; padding: 6px 0;"
+        )
+        self._heatmap_range_hint.hide()
+        layout.addWidget(self._heatmap_range_hint)
 
         # ── Grouping ─────────────────────────────────────────────────────
         self._group_label = QLabel("Grouping (Bar chart)")
@@ -217,10 +228,12 @@ class GraphSettingsDialog(QDialog):
         self._on_mode_changed()
 
     def _on_custom_toggled(self, checked: bool) -> None:
+        is_heatmap = VIEW_OPTIONS[self._selected_mode][1] == "heatmap"
         for i in range(self._custom_row.count()):
             w = self._custom_row.itemAt(i).widget()
             if w:
-                w.setEnabled(checked)
+                w.setVisible(not is_heatmap)
+                w.setEnabled(checked and not is_heatmap)
         if checked:
             # Visually clear preset selection while custom is active.
             self._restyle(self.range_btns, -1)
@@ -231,6 +244,13 @@ class GraphSettingsDialog(QDialog):
         mode = VIEW_OPTIONS[self._selected_mode][1]
         is_bar = mode == "bar"
         is_agenda = mode == "agenda"
+        is_heatmap = mode == "heatmap"
+        self._range_label.setVisible(not is_heatmap)
+        for btn in self.range_btns:
+            btn.setVisible(not is_heatmap)
+        self.custom_check.setVisible(not is_heatmap)
+        self._heatmap_range_hint.setVisible(is_heatmap)
+        self._on_custom_toggled(self.custom_check.isChecked())
         self._group_label.setVisible(is_bar)
         for btn in self.group_btns:
             btn.setVisible(is_bar)

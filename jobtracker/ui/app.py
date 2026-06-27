@@ -11,8 +11,7 @@ import logging
 import math
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QEvent, QTimer, Qt, QRect
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -43,7 +42,7 @@ from .widgets.agenda_view import AgendaViewWidget
 from .widgets.fx_background import FxBackgroundWidget
 from .widgets.graph_settings_dialog import GraphSettingsDialog
 from .widgets.graphs_view import WorkGraphWidget
-from .widgets.goal_dialog import GoalDetailDialog, GoalDialog
+from .widgets.goal_dialog import GoalDetailDialog, GoalDialog, apply_goal_edits
 from .widgets.heatmap_view import HeatmapWidget
 from .widgets.day_sessions_dialog import DaySessionsDialog
 from .widgets.manage_sessions_dialog import ManageSessionsDialog
@@ -53,49 +52,6 @@ from .widgets.subject_dialog import SubjectDialog
 from .widgets.subject_item import SubjectItemWidget
 from .widgets.template_dialog import TemplateManagerDialog
 from .widgets.todo_task_item import TodoTaskItemWidget
-
-
-# ── Badge button ─────────────────────────────────────────────────────────────
-
-class _BadgeNavButton(QPushButton):
-    """Navigation button with an optional numeric badge circle."""
-
-    def __init__(self, text: str, parent=None) -> None:
-        super().__init__(text, parent)
-        self._badge_count = 0
-
-    def set_badge_count(self, count: int) -> None:
-        self._badge_count = max(0, count)
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        super().paintEvent(event)
-        if self._badge_count <= 0:
-            return
-
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-
-        text = str(self._badge_count) if self._badge_count <= 99 else "99+"
-        font = QFont("SF Pro Text", 9, QFont.Bold)
-        p.setFont(font)
-        fm = p.fontMetrics()
-        text_width = fm.horizontalAdvance(text)
-        badge_h = max(18, fm.height() + 2)
-        badge_w = max(badge_h, text_width + 10)
-
-        x = self.width() - badge_w - 6
-        y = (self.height() - badge_h) // 2
-
-        # Draw badge circle / pill
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#EF4444"))
-        p.drawRoundedRect(QRect(x, y, badge_w, badge_h), badge_h // 2, badge_h // 2)
-
-        # Draw text
-        p.setPen(QColor("#FFFFFF"))
-        p.drawText(QRect(x, y, badge_w, badge_h), Qt.AlignCenter, text)
-        p.end()
 
 
 class MainWindow(QMainWindow):
@@ -239,12 +195,12 @@ class MainWindow(QMainWindow):
         self._pages = QStackedWidget()
         root.addWidget(self._pages, 1)
 
-        self._build_subjects_page()
         self._build_tasks_page()
+        self._build_subjects_page()
         self._build_graphs_page()
 
         root.addWidget(self._build_bottom_nav())
-        self._switch_page(0)
+        self._switch_page(1)
 
     def _build_subjects_page(self) -> None:
         page = QWidget()
@@ -319,9 +275,9 @@ class MainWindow(QMainWindow):
         lay.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Goals")
-        title.setObjectName("title")
-        header.addWidget(title)
+        self._goals_title = QLabel("Goals")
+        self._goals_title.setObjectName("title")
+        header.addWidget(self._goals_title)
         header.addStretch()
 
         add_btn = QPushButton("+ Goal")
@@ -349,7 +305,7 @@ class MainWindow(QMainWindow):
         templates_btn.clicked.connect(self._open_templates)
         tools.addWidget(templates_btn)
         tools.addStretch()
-        self._show_completed_btn = QPushButton("Show Completed")
+        self._show_completed_btn = QPushButton("Archived")
         self._show_completed_btn.setCursor(Qt.PointingHandCursor)
         self._show_completed_btn.setMinimumHeight(30)
         self._show_completed_btn.clicked.connect(self._toggle_completed_goals)
@@ -382,13 +338,6 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
 
-        graph_settings_btn = QPushButton("⚙ Graph Settings")
-        graph_settings_btn.setObjectName("primaryBtn")
-        graph_settings_btn.setMinimumHeight(34)
-        graph_settings_btn.setCursor(Qt.PointingHandCursor)
-        graph_settings_btn.clicked.connect(self._open_graph_settings)
-        header.addWidget(graph_settings_btn)
-
         gear_btn = QPushButton("⚙")
         gear_btn.setObjectName("gearBtn")
         gear_btn.setMinimumHeight(34)
@@ -398,6 +347,32 @@ class MainWindow(QMainWindow):
         header.addWidget(gear_btn)
 
         lay.addLayout(header)
+
+        view_controls = QHBoxLayout()
+        view_controls.setSpacing(7)
+
+        self._graph_mode_buttons: dict[str, QPushButton] = {}
+        for label, mode in (
+            ("Stacked Bar", "bar"),
+            ("Agenda", "agenda"),
+            ("Heatmap", "heatmap"),
+        ):
+            button = QPushButton(label)
+            button.setMinimumHeight(34)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip(f"Switch to {label}")
+            button.clicked.connect(
+                lambda _checked=False, selected=mode: self._set_graph_view_mode(selected)
+            )
+            view_controls.addWidget(button, 1)
+            self._graph_mode_buttons[mode] = button
+        self._graph_settings_btn = QPushButton("⚙ Graph Settings")
+        self._graph_settings_btn.setMinimumHeight(34)
+        self._graph_settings_btn.setCursor(Qt.PointingHandCursor)
+        self._graph_settings_btn.clicked.connect(self._open_graph_settings)
+        view_controls.addWidget(self._graph_settings_btn)
+        lay.addLayout(view_controls)
+        self._sync_graph_mode_buttons()
 
         self._graph_subtitle = QLabel("")
         self._graph_subtitle.setStyleSheet("font-size: 12px; font-weight: 500;")
@@ -434,15 +409,11 @@ class MainWindow(QMainWindow):
         nav.setContentsMargins(0, 0, 0, 0)
         nav.setSpacing(0)
 
-        labels = ["Subjects", "Goals", "Graphs"]
+        labels = ["Goals", "Subjects", "Graphs"]
         self._nav_buttons: list[QPushButton] = []
 
         for idx, label in enumerate(labels):
-            if label == "Goals":
-                btn = _BadgeNavButton(label)
-                self._tasks_nav_btn = btn
-            else:
-                btn = QPushButton(label)
+            btn = QPushButton(label)
             btn.setObjectName("navBtn")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -526,8 +497,6 @@ class MainWindow(QMainWindow):
 
     def _reload_tasks(self) -> None:
         self._todo_list.clear_cards()
-        active_count = self.service.get_incomplete_todo_count()
-        self._update_task_badge(active_count)
 
         goals = (
             self.service.get_completed_goals()
@@ -535,14 +504,17 @@ class MainWindow(QMainWindow):
             else self.service.get_active_goals()
         )
         self._show_completed_btn.setText(
-            "Show Active" if self._showing_completed_goals else "Show Completed"
+            "Back to Active" if self._showing_completed_goals else "Archived"
+        )
+        self._goals_title.setText(
+            "Archived Goals" if self._showing_completed_goals else "Goals"
         )
         self._todo_list.setDragEnabled(not self._showing_completed_goals)
         self._todo_list.setAcceptDrops(not self._showing_completed_goals)
 
         if not goals:
             self._todo_empty.setText(
-                "No completed goals yet."
+                "No archived goals yet."
                 if self._showing_completed_goals
                 else "No goals yet — click + Goal to add one."
             )
@@ -564,10 +536,6 @@ class MainWindow(QMainWindow):
             card.reopen_requested.connect(self._reopen_goal)
             self._todo_list.add_card(goal.id, card)
 
-    def _update_task_badge(self, count: int) -> None:
-        if hasattr(self, "_tasks_nav_btn"):
-            self._tasks_nav_btn.set_badge_count(count)
-
     def _reload_graphs(self) -> None:
         if self._graph_view_mode == "agenda":
             self._reload_agenda()
@@ -575,6 +543,22 @@ class MainWindow(QMainWindow):
             self._reload_heatmap()
         else:
             self._reload_bar_chart()
+
+    def _set_graph_view_mode(self, mode: str) -> None:
+        if mode not in {"bar", "agenda", "heatmap"}:
+            return
+        self._graph_view_mode = mode
+        db.set_setting("graph_view_mode", mode)
+        self._sync_graph_mode_buttons()
+        self._reload_graphs()
+
+    def _sync_graph_mode_buttons(self) -> None:
+        for mode, button in getattr(self, "_graph_mode_buttons", {}).items():
+            button.setObjectName(
+                "primaryBtn" if mode == self._graph_view_mode else ""
+            )
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _current_window(self) -> tuple[int | None, date | None, date | None]:
         """(days, start_date, end_date) for analytics: a custom range wins."""
@@ -675,16 +659,13 @@ class MainWindow(QMainWindow):
 
     def _reload_heatmap(self) -> None:
         self._graph_stack.setCurrentIndex(2)
-        days, start_day, end_day = self._current_window()
-        rows = self.service.get_heatmap_data(
-            days=days,
-            start_date=start_day,
-            end_date=end_day,
-        )
+        # Heatmap is intentionally always all-time. Its horizontal scroll keeps
+        # the newest weeks in view while preserving immediate access to history.
+        rows = self.service.get_heatmap_data(days=None)
         self._heatmap_view.set_data(rows)
         total_seconds = sum(row["total_seconds"] for row in rows)
         self._graph_subtitle.setText(
-            f"Heatmap · {self._range_label()} · {total_seconds / 3600:.1f}h"
+            f"Heatmap · All Time · {total_seconds / 3600:.1f}h"
         )
         self._graph_legend.hide()
 
@@ -699,7 +680,7 @@ class MainWindow(QMainWindow):
         self._reload_graphs()
 
     def _refresh_graphs_if_needed(self) -> None:
-        if self.service.active_session or self._pages.currentIndex() == 2:
+        if self.service.active_session and self._pages.currentIndex() == 2:
             self._reload_graphs()
 
     # ═══════════════════════════════════════════════════════════════════
@@ -727,6 +708,7 @@ class MainWindow(QMainWindow):
             self._graph_hour_end = s["hour_end"]
             self._graph_grouping = s["grouping"]
             self._graph_custom_range = s["custom_range"]
+            self._sync_graph_mode_buttons()
             self._reload_graphs()
 
     # ═══════════════════════════════════════════════════════════════════
@@ -853,25 +835,29 @@ class MainWindow(QMainWindow):
             if goal is None or goal.id is None:
                 QMessageBox.warning(self, "Validation", "Goal title cannot be empty.")
                 return
-            for title in d["milestones"]:
-                self.service.add_milestone(goal.id, title)
+            for milestone in d["milestones"]:
+                self.service.add_milestone(goal.id, milestone["title"])
             self._showing_completed_goals = False
             self._reload_tasks()
 
     def _open_goal(self, goal_id: int) -> None:
         if self.service.get_goal(goal_id) is None:
             return
-        GoalDetailDialog(self.service, goal_id, self).exec()
+        GoalDetailDialog(self.service, goal_id, self, tokens=self._tokens).exec()
         self._reload_tasks()
 
     def _edit_goal(self, goal_id: int) -> None:
         goal = self.service.get_goal(goal_id)
         if goal is None:
             return
-        dlg = GoalDialog(self, goal=goal)
+        dlg = GoalDialog(
+            self,
+            goal=goal,
+            milestones=self.service.get_goal_milestones(goal_id),
+            tokens=self._tokens,
+        )
         if dlg.exec():
-            d = dlg.get_data()
-            self.service.update_todo_task(goal_id, d["name"], d["notes"], None)
+            apply_goal_edits(self.service, goal_id, dlg.get_data())
             self._reload_tasks()
 
     def _delete_goal(self, goal_id: int) -> None:
@@ -892,7 +878,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Milestones remain",
-                "Finish all milestones before completing this goal.",
+                "Finish all milestones before archiving this goal.",
             )
             self._reload_tasks()
             return

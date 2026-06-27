@@ -2,8 +2,8 @@
 Theme engine for JobTracker.
 
 Two independent axes:
-  • FX style   — visual effects (Clean, Glow, Glassmorphism, Neon)
-  • Colour palette — base hues (Ocean, Emerald, Rose, Amber, Violet, Slate, Arctic, Sunset, Obsidian, Lagoon)
+  • FX style — Base plus optional visual treatments
+  • Colour palette — explicit Light/Dark modes plus hue-based palettes
 
 `get_tokens(fx, palette)` returns a flat dict of CSS-ready design tokens.
 """
@@ -29,6 +29,32 @@ def _rgba(hex_color: str, alpha: int) -> str:
 # ── Colour palettes ──────────────────────────────────────────────────────────
 
 PALETTES: Dict[str, Dict[str, str]] = {
+    "Dark": {
+        "BG_PRIMARY":    "#0E1117",
+        "BG_SECONDARY":  "#161B24",
+        "BG_TERTIARY":   "#202938",
+        "BORDER_COLOR":  "#303B4D",
+        "BORDER_FOCUS":  "#4C8DFF",
+        "TEXT_PRIMARY":  "#F1F5F9",
+        "TEXT_SECONDARY": "#AAB6C5",
+        "TEXT_DIMMED":   "#6F7D90",
+        "ACCENT":        "#4C8DFF",
+        "ACCENT_GREEN":  "#2CCB70",
+        "ACCENT_RED":    "#F0525D",
+    },
+    "Light": {
+        "BG_PRIMARY":    "#F5F7FA",
+        "BG_SECONDARY":  "#FFFFFF",
+        "BG_TERTIARY":   "#E8EDF4",
+        "BORDER_COLOR":  "#CBD4E1",
+        "BORDER_FOCUS":  "#2563EB",
+        "TEXT_PRIMARY":  "#172033",
+        "TEXT_SECONDARY": "#4D5C70",
+        "TEXT_DIMMED":   "#7A8798",
+        "ACCENT":        "#2563EB",
+        "ACCENT_GREEN":  "#168A48",
+        "ACCENT_RED":    "#D93645",
+    },
     "Ocean": {
         "BG_PRIMARY":    "#0B1120",
         "BG_SECONDARY":  "#131D2E",
@@ -165,6 +191,18 @@ PALETTES: Dict[str, Dict[str, str]] = {
 # Each FX style defines overrides for visual effects that work on top of any palette.
 
 FX_STYLES: Dict[str, Dict[str, str]] = {
+    "Base": {
+        "CARD_BORDER_STYLE": "1px solid {BORDER_COLOR}",
+        "CARD_BG":           "{BG_SECONDARY}",
+        "CARD_HOVER_BG":     "{BG_TERTIARY}",
+        "CARD_HOVER_BORDER": "1px solid {BORDER_FOCUS}",
+        "TIMER_BG":          "{BG_SECONDARY}",
+        "TIMER_BORDER":      "1px solid {BORDER_COLOR}",
+        "IDLE_BORDER":       "1px solid {BORDER_COLOR}",
+        "RADIUS":            "6px",
+        "SUBJECT_RADIUS":    "8px",
+        "TASK_RADIUS":       "8px",
+    },
     "Clean": {
         "CARD_BORDER_STYLE": "1px solid {BORDER_COLOR}",
         "CARD_BG":           "{BG_SECONDARY_A220}",

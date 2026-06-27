@@ -25,6 +25,7 @@ class FxBackgroundWidget(QWidget):
         self._tokens: dict = {}
         self._fx = "Glow"
         self._phase = 0.0
+        self._animation_requested = True
 
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAutoFillBackground(False)
@@ -36,12 +37,18 @@ class FxBackgroundWidget(QWidget):
     def apply_theme(self, tokens: dict, fx_name: str) -> None:
         self._tokens = tokens
         self._fx = fx_name
+        self._sync_timer()
         self.update()
 
     def set_animating(self, on: bool) -> None:
         """Start/stop the animation loop. Paused when the app is unfocused or
         minimized to avoid burning CPU/battery on an off-screen window."""
-        if on:
+        self._animation_requested = on
+        self._sync_timer()
+
+    def _sync_timer(self) -> None:
+        animated = self._animation_requested and self._fx in {"Glow", "Space"}
+        if animated:
             if not self._timer.isActive():
                 self._timer.start(40)
         else:
@@ -64,7 +71,9 @@ class FxBackgroundWidget(QWidget):
         h = max(1, self.height())
         t = self._tokens
 
-        if self._fx == "Clean":
+        if self._fx == "Base":
+            p.fillRect(self.rect(), QColor(t["BG_PRIMARY"]))
+        elif self._fx == "Clean":
             self._paint_clean(p, w, h, t)
         elif self._fx == "Space":
             self._paint_space(p, w, h, t)

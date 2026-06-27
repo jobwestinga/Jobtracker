@@ -148,6 +148,17 @@ class Database:
         if not self._column_exists("todo_tasks", "template_id"):
             cur.execute("ALTER TABLE todo_tasks ADD COLUMN template_id INTEGER")
 
+        # Main analytics/stat queries filter by start time and subject. These
+        # additive indexes keep graph switching responsive as history grows.
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_start_time "
+            "ON sessions(start_time)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_task_start "
+            "ON sessions(task_id, start_time)"
+        )
+
         # Ensure task rows have a deterministic manual order.
         cur.execute(
             "UPDATE tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"

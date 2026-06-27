@@ -3,6 +3,7 @@
 from datetime import date, datetime, time
 
 from jobtracker.core import timeutils
+from jobtracker.ui.widgets.agenda_view import _layout_session_blocks
 
 DAY_START = time(3, 0)
 
@@ -73,3 +74,40 @@ def test_normal_morning_day_stays_compact(service, subject):
     service.add_session(subject.id, datetime(2026, 6, 20, 6, 0), datetime(2026, 6, 20, 9, 0))
     _keys, sessions = service.get_agenda_data(date(2026, 6, 20), date(2026, 6, 20), DAY_START)
     assert min(s["start_h"] for s in sessions) >= 6.0
+
+
+def test_sessions_within_thirty_seconds_share_one_visual_block():
+    sessions = [
+        {"start_h": 9.0, "end_h": 10.0, "color": "#f00", "subject_name": "A"},
+        {
+            "start_h": 10.0 + 30 / 3600,
+            "end_h": 11.0,
+            "color": "#0f0",
+            "subject_name": "B",
+        },
+    ]
+    blocks = _layout_session_blocks(sessions, 6, 23)
+    assert blocks[0]["group"] == blocks[1]["group"]
+    assert blocks[1]["start_h"] == blocks[0]["end_h"]
+
+
+def test_sessions_more_than_thirty_seconds_apart_stay_separate():
+    sessions = [
+        {"start_h": 9.0, "end_h": 10.0},
+        {"start_h": 10.0 + 31 / 3600, "end_h": 11.0},
+    ]
+    blocks = _layout_session_blocks(sessions, 6, 23)
+    assert blocks[0]["group"] != blocks[1]["group"]
+
+
+def test_adjacent_blocks_keep_their_own_non_nested_time_spans():
+    sessions = [
+        {"start_h": 9.0, "end_h": 13.0, "color": "#f00"},
+        {"start_h": 13.0, "end_h": 15.0, "color": "#0f0"},
+    ]
+    blocks = _layout_session_blocks(sessions, 6, 23)
+    assert [(b["start_h"], b["end_h"]) for b in blocks] == [
+        (9.0, 13.0),
+        (13.0, 15.0),
+    ]
+    assert blocks[0]["group"] == blocks[1]["group"]

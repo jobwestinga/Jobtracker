@@ -3,6 +3,7 @@
 from datetime import date, datetime, time, timedelta
 
 from jobtracker.core import timeutils
+from jobtracker.ui.widgets.graphs_view import _intensity_style
 
 DAY_START = time(3, 0)
 
@@ -121,3 +122,74 @@ def test_live_session_in_weekly_grouping(service, subject):
     week_key = timeutils.week_start(logical).isoformat()
     totals = _totals(service.get_subject_breakdown(grouping="weekly", days=None))
     assert totals.get(week_key, 0) >= 540
+
+
+def test_weekly_presets_align_to_one_and_two_week_buckets(service, subject):
+    today = timeutils.logical_day(datetime.now(), DAY_START)
+    this_monday = timeutils.week_start(today)
+    previous_monday = this_monday - timedelta(days=7)
+    service.add_session(
+        subject.id,
+        datetime.combine(this_monday, time(10)),
+        datetime.combine(this_monday, time(11)),
+    )
+    service.add_session(
+        subject.id,
+        datetime.combine(previous_monday, time(10)),
+        datetime.combine(previous_monday, time(11)),
+    )
+
+    seven = service.get_subject_breakdown(
+        grouping="weekly", days=7, day_start=DAY_START
+    )
+    fourteen = service.get_subject_breakdown(
+        grouping="weekly", days=14, day_start=DAY_START
+    )
+    assert [row["date"] for row in seven] == [this_monday.isoformat()]
+    assert [row["date"] for row in fourteen] == [
+        previous_monday.isoformat(), this_monday.isoformat(),
+    ]
+
+
+def test_monthly_preset_aligns_to_current_month(service, subject):
+    today = timeutils.logical_day(datetime.now(), DAY_START)
+    month = timeutils.month_start(today)
+    service.add_session(
+        subject.id,
+        datetime.combine(month, time(10)),
+        datetime.combine(month, time(11)),
+    )
+    rows = service.get_subject_breakdown(
+        grouping="monthly", days=30, day_start=DAY_START
+    )
+    assert [row["date"] for row in rows] == [month.isoformat()]
+
+
+def test_weekly_and_monthly_intensity_is_daily_average(service, subject):
+    week_start = date(2026, 6, 15)
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        service.add_session(
+            subject.id,
+            datetime.combine(day, time(4)),
+            datetime.combine(day, time(14)),
+        )
+    weekly = service.get_subject_breakdown(
+        grouping="weekly",
+        day_start=DAY_START,
+        start_date=week_start,
+        end_date=week_start + timedelta(days=6),
+    )[0]
+    assert weekly["total_seconds"] == 70 * 3600
+    assert weekly["period_days"] == 7
+    assert weekly["intensity_seconds"] == 10 * 3600
+    assert _intensity_style(weekly["intensity_seconds"])[0] == "#FB923C"
+
+    monthly = service.get_subject_breakdown(
+        grouping="monthly",
+        day_start=DAY_START,
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 6, 30),
+    )[0]
+    assert monthly["period_days"] == 30
+    assert monthly["intensity_seconds"] == monthly["total_seconds"] / 30

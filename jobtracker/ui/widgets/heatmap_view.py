@@ -1,39 +1,50 @@
-"""
-GitHub-style contributions heatmap of tracked time per logical day.
-
-One cell per logical day (default boundary 03:00), laid out in week columns with
-weekday rows (Monday at top). Cell intensity scales with tracked hours. Clicking a
-cell emits the logical-day ISO date so the app can show that day's sessions.
-
-Only ONE metric: tracked seconds per logical day. No streaks/insights.
-"""
+"""Large, theme-aware heatmap of tracked time per logical day."""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QTimer, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
-# Tracked-hours thresholds -> intensity level 0..4.
-_LEVEL_THRESHOLDS_SECONDS = [0, 3600, 2 * 3600, 4 * 3600]  # >last => level 4
-_LEVEL_ALPHA = [38, 80, 130, 185, 235]
+MIN_CELL = 14
+MAX_CELL = 26
+GAP = 4
+TOP = 28
+LEFT = 42
+BOTTOM = 14
 
-CELL = 13
-GAP = 3
-TOP = 18
-LEFT = 30
+def _is_light(color: QColor) -> bool:
+    return (
+        0.2126 * color.red()
+        + 0.7152 * color.green()
+        + 0.0722 * color.blue()
+    ) > 150
 
 
-def _level(seconds: int) -> int:
-    if seconds <= 0:
-        return 0
-    level = 1
-    for threshold in _LEVEL_THRESHOLDS_SECONDS[1:]:
-        if seconds >= threshold:
-            level += 1
-    return min(level, 4)
+def _scale_colors(tokens: dict) -> tuple[QColor, QColor]:
+    """Return visually quiet zero and unmistakable best-day colors."""
+    background = QColor(tokens.get("BG_PRIMARY", "#0B1120"))
+    low = QColor(tokens.get("BG_TERTIARY", "#1A2640"))
+    high = QColor("#007A2F" if _is_light(background) else "#86FFB5")
+    return low, high
+
+
+def _intensity_ratio(seconds: int, scale_max_seconds: int) -> float:
+    """Continuous 0..1 daily intensity; the busiest visible day is always 1."""
+    if seconds <= 0 or scale_max_seconds <= 0:
+        return 0.0
+    return max(0.0, min(1.0, float(seconds) / float(scale_max_seconds)))
+
+
+def _mix_color(start: QColor, end: QColor, ratio: float) -> QColor:
+    ratio = max(0.0, min(1.0, ratio))
+    return QColor(
+        round(start.red() + (end.red() - start.red()) * ratio),
+        round(start.green() + (end.green() - start.green()) * ratio),
+        round(start.blue() + (end.blue() - start.blue()) * ratio),
+    )
 
 
 class _HeatmapCanvas(QWidget):
@@ -42,20 +53,23 @@ class _HeatmapCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(False)
+        self.setMouseTracking(True)
         self._data: dict[str, int] = {}
         self._first_monday: date | None = None
         self._first_day: date | None = None
         self._last_day: date | None = None
         self._weeks = 0
+        self._scale_max_seconds = 0
         self._tokens: dict = {}
-        self.setMinimumHeight(7 * (CELL + GAP) + TOP + 24)
+        self.setMinimumHeight(TOP + BOTTOM + 7 * MIN_CELL + 6 * GAP)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
         self.update()
 
     def set_data(self, rows: list[dict]) -> None:
-        self._data = {r["date"]: int(r.get("total_seconds", 0)) for r in rows}
+        self._data = {row["date"]: int(row.get("total_seconds", 0)) for row in rows}
+        self._scale_max_seconds = max(self._data.values(), default=0)
         if rows:
             try:
                 first = datetime.fromisoformat(rows[0]["date"]).date()
@@ -71,48 +85,95 @@ class _HeatmapCanvas(QWidget):
             self._first_day = None
             self._last_day = None
             self._weeks = 0
-        width = LEFT + max(1, self._weeks) * (CELL + GAP) + 10
-        self.setMinimumWidth(width)
+        self.setMinimumWidth(
+            LEFT + max(1, self._weeks) * (MAX_CELL + GAP) + 18
+        )
         self.update()
 
-    def _cell_date(self, col: int, row: int) -> date | None:
+    def _metrics(self) -> tuple[int, int, int]:
+        available = max(7 * MIN_CELL, self.height() - TOP - BOTTOM - 6 * GAP)
+        cell = max(MIN_CELL, min(MAX_CELL, available // 7))
+        stride = cell + GAP
+        grid_width = max(1, self._weeks) * stride - GAP
+        origin_x = LEFT
+        if grid_width + LEFT + 12 < self.width():
+            origin_x = max(LEFT, int((self.width() - grid_width) / 2))
+        grid_height = 7 * cell + 6 * GAP
+        origin_y = max(TOP, int((self.height() - grid_height) / 2))
+        return cell, origin_x, origin_y
+
+    def _cell_date(self, column: int, row: int) -> date | None:
         if self._first_monday is None:
             return None
-        return self._first_monday + timedelta(days=col * 7 + row)
+        return self._first_monday + timedelta(days=column * 7 + row)
+
+    def _cell_at(self, x: float, y: float) -> date | None:
+        if self._first_monday is None:
+            return None
+        cell, origin_x, origin_y = self._metrics()
+        stride = cell + GAP
+        local_x = x - origin_x
+        local_y = y - origin_y
+        if local_x < 0 or local_y < 0:
+            return None
+        column = int(local_x // stride)
+        row = int(local_y // stride)
+        if (
+            column >= self._weeks
+            or row > 6
+            or local_x % stride > cell
+            or local_y % stride > cell
+        ):
+            return None
+        cell_date = self._cell_date(column, row)
+        if (
+            cell_date is None
+            or self._first_day is None
+            or self._last_day is None
+            or not self._first_day <= cell_date <= self._last_day
+        ):
+            return None
+        return cell_date
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        t = self._tokens or {"ACCENT": "#3B82F6", "TEXT_DIMMED": "#475569",
-                             "BORDER_COLOR": "#1E3050", "BG_SECONDARY": "#131D2E"}
-        accent = t.get("ACCENT", "#3B82F6")
-        empty = QColor(t.get("BORDER_COLOR", "#1E3050"))
-        empty.setAlpha(45)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        tokens = self._tokens or {
+            "TEXT_DIMMED": "#64748B",
+            "BORDER_COLOR": "#263852",
+        }
 
         if self._first_monday is None:
-            p.setPen(QColor(t.get("TEXT_DIMMED", "#475569")))
-            p.drawText(self.rect(), Qt.AlignCenter, "No tracked data yet")
+            painter.setPen(QColor(tokens["TEXT_DIMMED"]))
+            painter.drawText(self.rect(), Qt.AlignCenter, "No tracked data yet")
             return
 
-        # Weekday labels (Mon/Wed/Fri).
-        p.setFont(QFont("SF Pro Text", 7))
-        p.setPen(QColor(t.get("TEXT_DIMMED", "#475569")))
-        for row, label in ((0, "Mon"), (2, "Wed"), (4, "Fri")):
-            y = TOP + row * (CELL + GAP) + CELL
-            p.drawText(QRectF(0, y - CELL, LEFT - 4, CELL), Qt.AlignRight | Qt.AlignVCenter, label)
+        cell, origin_x, origin_y = self._metrics()
+        stride = cell + GAP
+        low_color, high_color = _scale_colors(tokens)
 
-        for col in range(self._weeks):
-            # Month label at the top when a new month starts in this column.
-            col_date = self._first_monday + timedelta(days=col * 7)
-            if col == 0 or col_date.day <= 7:
-                p.setPen(QColor(t.get("TEXT_DIMMED", "#475569")))
-                p.drawText(
-                    QRectF(LEFT + col * (CELL + GAP), 0, 3 * (CELL + GAP), TOP - 2),
+        painter.setFont(QFont("SF Pro Text", 8))
+        painter.setPen(QColor(tokens["TEXT_DIMMED"]))
+        for row, label in ((0, "Mon"), (2, "Wed"), (4, "Fri"), (6, "Sun")):
+            y = origin_y + row * stride
+            painter.drawText(
+                QRectF(0, y, origin_x - 7, cell),
+                Qt.AlignRight | Qt.AlignVCenter,
+                label,
+            )
+
+        for column in range(self._weeks):
+            column_date = self._first_monday + timedelta(days=column * 7)
+            if column == 0 or column_date.day <= 7:
+                painter.setPen(QColor(tokens["TEXT_DIMMED"]))
+                painter.drawText(
+                    QRectF(origin_x + column * stride, origin_y - 24, 3 * stride, 18),
                     Qt.AlignLeft | Qt.AlignVCenter,
-                    col_date.strftime("%b"),
+                    column_date.strftime("%b"),
                 )
+
             for row in range(7):
-                cell_date = self._cell_date(col, row)
+                cell_date = self._cell_date(column, row)
                 if (
                     cell_date is None
                     or self._first_day is None
@@ -122,41 +183,40 @@ class _HeatmapCanvas(QWidget):
                 ):
                     continue
                 seconds = self._data.get(cell_date.isoformat(), 0)
-                x = LEFT + col * (CELL + GAP)
-                y = TOP + row * (CELL + GAP)
-                rect = QRectF(x, y, CELL, CELL)
-                if seconds > 0:
-                    c = QColor(accent)
-                    c.setAlpha(_LEVEL_ALPHA[_level(seconds)])
-                else:
-                    c = empty
-                p.setPen(Qt.NoPen)
-                p.setBrush(c)
-                p.drawRoundedRect(rect, 2.5, 2.5)
+                x = origin_x + column * stride
+                y = origin_y + row * stride
+                rect = QRectF(x, y, cell, cell)
+                ratio = _intensity_ratio(seconds, self._scale_max_seconds)
+                color = _mix_color(low_color, high_color, ratio)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(color)
+                radius = min(7.0, cell * 0.22)
+                painter.drawRoundedRect(rect, radius, radius)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        cell_date = self._cell_at(event.position().x(), event.position().y())
+        if cell_date is None:
+            self.setToolTip("")
+        else:
+            seconds = self._data.get(cell_date.isoformat(), 0)
+            suffix = (
+                " · Best day in this view"
+                if seconds > 0 and seconds == self._scale_max_seconds
+                else ""
+            )
+            self.setToolTip(
+                f"{cell_date.isoformat()} · {seconds / 3600:.1f} tracked hours{suffix}"
+            )
+        super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        if self._first_monday is None:
-            return
-        x = event.position().x() - LEFT
-        y = event.position().y() - TOP
-        if x < 0 or y < 0:
-            return
-        col = int(x // (CELL + GAP))
-        row = int(y // (CELL + GAP))
-        if row > 6 or col >= self._weeks:
-            return
-        cell_date = self._cell_date(col, row)
-        if (
-            cell_date is not None
-            and self._first_day is not None
-            and self._last_day is not None
-            and self._first_day <= cell_date <= self._last_day
-        ):
+        cell_date = self._cell_at(event.position().x(), event.position().y())
+        if cell_date is not None:
             self.day_clicked.emit(cell_date.isoformat())
 
 
 class HeatmapWidget(QWidget):
-    """Scrollable heatmap + intensity legend."""
+    """Full-height scrollable heatmap with intensity legend."""
 
     day_clicked = Signal(str)
 
@@ -172,20 +232,22 @@ class HeatmapWidget(QWidget):
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.viewport().setStyleSheet("background: transparent;")
-        self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self._scroll.setMaximumHeight(180)
+        self._scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
 
         self._legend_canvas = _LegendCanvas()
-        self._hint = QLabel("Click a day to inspect or edit its sessions.")
+        self._hint = QLabel(
+            "Click a day to inspect its sessions. Scroll horizontally for older history."
+        )
         self._hint.setStyleSheet("font-size: 11px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.addWidget(self._scroll)
+        layout.addWidget(self._scroll, 1)
         layout.addWidget(self._legend_canvas)
         layout.addWidget(self._hint)
-        layout.addStretch(1)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
@@ -197,7 +259,9 @@ class HeatmapWidget(QWidget):
 
     def set_data(self, rows: list[dict]) -> None:
         self._canvas.set_data(rows)
-        # All-history views are most useful at the recent end.
+        self._legend_canvas.set_scale_max(
+            max((int(row.get("total_seconds", 0)) for row in rows), default=0)
+        )
         QTimer.singleShot(
             0,
             lambda: self._scroll.horizontalScrollBar().setValue(
@@ -210,27 +274,41 @@ class _LegendCanvas(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._tokens: dict = {}
-        self.setFixedHeight(20)
+        self._scale_max_seconds = 0
+        self.setFixedHeight(24)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
         self.update()
 
+    def set_scale_max(self, seconds: int) -> None:
+        self._scale_max_seconds = max(0, int(seconds))
+        self.update()
+
     def paintEvent(self, event) -> None:  # noqa: N802
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        t = self._tokens or {"ACCENT": "#3B82F6", "TEXT_DIMMED": "#475569"}
-        accent = t.get("ACCENT", "#3B82F6")
-        p.setFont(QFont("SF Pro Text", 8))
-        p.setPen(QColor(t.get("TEXT_DIMMED", "#475569")))
-        p.drawText(QRectF(0, 0, 34, 18), Qt.AlignVCenter | Qt.AlignRight, "Less")
-        x = 40
-        for level in range(5):
-            c = QColor(accent)
-            c.setAlpha(_LEVEL_ALPHA[level])
-            p.setPen(Qt.NoPen)
-            p.setBrush(c)
-            p.drawRoundedRect(QRectF(x, 4, 11, 11), 2.5, 2.5)
-            x += 14
-        p.setPen(QColor(t.get("TEXT_DIMMED", "#475569")))
-        p.drawText(QRectF(x + 2, 0, 100, 18), Qt.AlignVCenter | Qt.AlignLeft, "More (0–4h+)")
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        tokens = self._tokens or {
+            "TEXT_DIMMED": "#64748B",
+            "BORDER_COLOR": "#263852",
+        }
+        painter.setFont(QFont("SF Pro Text", 8))
+        painter.setPen(QColor(tokens["TEXT_DIMMED"]))
+        painter.drawText(QRectF(0, 0, 28, 20), Qt.AlignVCenter | Qt.AlignRight, "0h")
+        x = 35
+        width = 132
+        low_color, high_color = _scale_colors(tokens)
+        gradient = QLinearGradient(x, 0, x + width, 0)
+        gradient.setColorAt(0.0, low_color)
+        gradient.setColorAt(1.0, high_color)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(QRectF(x, 4, width, 14), 4, 4)
+        hours = self._scale_max_seconds / 3600
+        best_label = f"Best day · {hours:.1f}h" if hours else "Best day"
+        painter.setPen(QColor(tokens["TEXT_DIMMED"]))
+        painter.drawText(
+            QRectF(x + width + 8, 0, 140, 20),
+            Qt.AlignVCenter | Qt.AlignLeft,
+            best_label,
+        )

@@ -14,6 +14,7 @@ database so they never touch real user data.
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 from datetime import date, datetime, time, timedelta
@@ -256,6 +257,7 @@ class TrackerService:
         days: int | None,
         start_date: date | None,
         end_date: date | None,
+        grouping: str = "daily",
     ) -> tuple[date, date]:
         """Resolve the [start_day, end_day] logical-day window for analytics."""
         today = timeutils.logical_day(datetime.now(), day_start)
@@ -263,6 +265,20 @@ class TrackerService:
             start_day, end_day = start_date, end_date
             if end_day < start_day:
                 start_day, end_day = end_day, start_day
+        elif days is not None and grouping == "weekly":
+            # Presets represent whole visible buckets: 7 days -> one week,
+            # 14 days -> two weeks. This avoids a rolling seven-day window
+            # producing two partial weekly bars.
+            periods = max(1, (days + 6) // 7)
+            end_day = today
+            start_day = timeutils.week_start(today) - timedelta(weeks=periods - 1)
+        elif days is not None and grouping == "monthly":
+            # Likewise, short rolling ranges should not straddle two month bars.
+            periods = max(1, (days + 29) // 30)
+            end_day = today
+            start_day = timeutils.month_start(today)
+            for _ in range(periods - 1):
+                start_day = (start_day - timedelta(days=1)).replace(day=1)
         elif days is not None:
             end_day = today
             start_day = today - timedelta(days=max(1, days) - 1)
@@ -304,7 +320,7 @@ class TrackerService:
         now = datetime.now()
 
         start_day, end_day = self._resolve_logical_window(
-            day_start, days, start_date, end_date
+            day_start, days, start_date, end_date, grouping
         )
 
         # Ordered, de-duplicated bucket keys spanning the window.
@@ -368,14 +384,28 @@ class TrackerService:
                         }
                     )
 
-        return [
-            {
-                "date": key,
-                "total_seconds": sum(seg["seconds"] for seg in buckets[key]),
-                "segments": buckets[key],
-            }
-            for key in bucket_keys
-        ]
+        result = []
+        for key in bucket_keys:
+            total_seconds = sum(segment["seconds"] for segment in buckets[key])
+            bucket_date = date.fromisoformat(key)
+            if grouping == "weekly":
+                period_days = 7
+            elif grouping == "monthly":
+                period_days = calendar.monthrange(
+                    bucket_date.year, bucket_date.month
+                )[1]
+            else:
+                period_days = 1
+            result.append(
+                {
+                    "date": key,
+                    "total_seconds": total_seconds,
+                    "intensity_seconds": total_seconds / period_days,
+                    "period_days": period_days,
+                    "segments": buckets[key],
+                }
+            )
+        return result
 
     def get_agenda_data(
         self,

@@ -197,8 +197,8 @@ class TodoTaskItemWidget(QFrame):
         done, total = self._progress
         if self.todo_task.is_completed:
             progress_text = (
-                f"Completed · {done}/{total} milestones"
-                if total > 0 else "Completed"
+                f"Archived · {done}/{total} milestones"
+                if total > 0 else "Archived"
             )
             progress_color = t["ACCENT_GREEN"]
         elif total > 0:
@@ -240,8 +240,7 @@ class TodoTaskItemWidget(QFrame):
 
         self.check_btn = _CheckButton(self)
         if self.todo_task.is_completed:
-            self.check_btn.setText("↺")
-            self.check_btn.setToolTip("Reopen goal")
+            self.check_btn.hide()
         self.check_btn.clicked.connect(self._on_check_clicked)
         layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
 
@@ -265,7 +264,6 @@ class TodoTaskItemWidget(QFrame):
         if self._completing or self.todo_task.id is None:
             return
         if self.todo_task.is_completed:
-            self.reopen_requested.emit(self.todo_task.id)
             return
 
         self._completing = True
@@ -309,11 +307,6 @@ class TodoTaskItemWidget(QFrame):
         open_action = QAction("Open Goal", self)
         open_action.triggered.connect(lambda: self.open_requested.emit(self.todo_task.id))
         menu.addAction(open_action)
-
-        if self.todo_task.is_completed:
-            reopen = QAction("Reopen Goal", self)
-            reopen.triggered.connect(lambda: self.reopen_requested.emit(self.todo_task.id))
-            menu.addAction(reopen)
 
         edit = QAction("Edit Goal", self)
         edit.triggered.connect(lambda: self.edit_requested.emit(self.todo_task.id))

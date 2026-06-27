@@ -19,11 +19,65 @@ from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 from ...core.timeutils import agenda_hour_label
 
+ADJACENT_MARGIN_HOURS = 30 / 3600
+
 
 def _with_alpha(hex_color: str, alpha: int) -> QColor:
     c = QColor(hex_color)
     c.setAlpha(max(0, min(255, alpha)))
     return c
+
+
+def _layout_session_blocks(
+    sessions: list[dict],
+    hour_start: float,
+    hour_end: float,
+) -> list[dict]:
+    """Place sessions and group transitions separated by at most 30 seconds."""
+    blocks: list[dict] = []
+    for session in sessions:
+        start_h = max(hour_start, min(hour_end, float(session.get("start_h", 0))))
+        end_h = max(hour_start, min(hour_end, float(session.get("end_h", 0))))
+        if end_h <= start_h:
+            continue
+        blocks.append(
+            {
+                "start_h": start_h,
+                "end_h": end_h,
+                "color": session.get("color", "#3B82F6"),
+                "name": session.get("subject_name", ""),
+            }
+        )
+
+    blocks.sort(key=lambda block: (block["start_h"], block["end_h"]))
+    current_bottom = hour_start
+    group_id = -1
+    previous: dict | None = None
+    placed: list[dict] = []
+    for block in blocks:
+        duration = block["end_h"] - block["start_h"]
+        join_previous = bool(
+            previous
+            and abs(block["start_h"] - previous["end_h"]) <= ADJACENT_MARGIN_HOURS
+        )
+        if join_previous and previous is not None:
+            # Fill or trim a sub-30-second seam so both colors share one shape.
+            block["start_h"] = previous["end_h"]
+            block["end_h"] = max(block["end_h"], block["start_h"] + 1 / 3600)
+            block["group"] = previous["group"]
+        else:
+            group_id += 1
+            if block["start_h"] < current_bottom:
+                block["start_h"] = current_bottom
+                block["end_h"] = min(hour_end, current_bottom + duration)
+            block["group"] = group_id
+
+        if block["end_h"] <= block["start_h"]:
+            continue
+        current_bottom = max(current_bottom, block["end_h"])
+        previous = block
+        placed.append(block)
+    return placed
 
 
 class _AgendaCanvas(QWidget):
@@ -167,59 +221,54 @@ class _AgendaCanvas(QWidget):
             p.setBrush(_with_alpha(t["BG_SECONDARY"], 60))
             p.drawRoundedRect(col_rect, 5, 5)
 
-            # Build placement rects from precomputed agenda hours.
-            sess_rects: list[dict] = []
-            for sess in day_sessions[day_key]:
-                start_h = max(self._hour_start, min(self._hour_end, float(sess.get("start_h", 0))))
-                end_h = max(self._hour_start, min(self._hour_end, float(sess.get("end_h", 0))))
-                if end_h <= start_h:
-                    continue
-                sess_rects.append(
-                    {
-                        "top_frac": (start_h - self._hour_start) / hour_count,
-                        "bot_frac": (end_h - self._hour_start) / hour_count,
-                        "color": sess.get("color", "#3B82F6"),
-                        "name": sess.get("subject_name", ""),
-                    }
-                )
-
-            # Push overlaps downward so they stay visible.
-            sess_rects.sort(key=lambda x: x["top_frac"])
-            current_bottom = 0.0
+            sess_rects = _layout_session_blocks(
+                day_sessions[day_key], self._hour_start, self._hour_end
+            )
             for sr in sess_rects:
-                if sr["top_frac"] < current_bottom:
-                    dur = sr["bot_frac"] - sr["top_frac"]
-                    sr["top_frac"] = current_bottom
-                    sr["bot_frac"] = current_bottom + dur
-                current_bottom = sr["bot_frac"]
+                sr["top_frac"] = (
+                    sr["start_h"] - self._hour_start
+                ) / hour_count
+                sr["bot_frac"] = (
+                    sr["end_h"] - self._hour_start
+                ) / hour_count
 
-            for sr in sess_rects:
-                sy = chart.top() + sr["top_frac"] * chart.height()
-                sh = max(2, (sr["bot_frac"] - sr["top_frac"]) * chart.height())
+            groups: dict[int, list[dict]] = {}
+            for session_rect in sess_rects:
+                groups.setdefault(session_rect["group"], []).append(session_rect)
 
-                rect = QRectF(col_x + 1, sy, col_width - 2, sh)
+            for group in groups.values():
+                group_top = min(sr["top_frac"] for sr in group)
+                group_bottom = max(sr["bot_frac"] for sr in group)
+                group_y = chart.top() + group_top * chart.height()
+                group_h = max(2, (group_bottom - group_top) * chart.height())
+                group_rect = QRectF(col_x + 1, group_y, col_width - 2, group_h)
                 clip = QPainterPath()
-                clip.addRoundedRect(rect, 3, 3)
-
+                clip.addRoundedRect(group_rect, 3, 3)
                 p.save()
                 p.setClipPath(clip)
-                color = QColor(sr["color"])
-                color.setAlpha(200)
-                p.setPen(Qt.NoPen)
-                p.setBrush(color)
-                p.drawRect(rect)
+                for sr in group:
+                    sy = chart.top() + sr["top_frac"] * chart.height()
+                    sh = max(
+                        2,
+                        (sr["bot_frac"] - sr["top_frac"]) * chart.height(),
+                    )
+                    rect = QRectF(col_x + 1, sy, col_width - 2, sh)
+                    color = QColor(sr["color"])
+                    color.setAlpha(210)
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(color)
+                    p.drawRect(rect)
 
-                if sh > 16 and col_width > 24:
-                    p.setPen(QColor("#FFFFFF"))
-                    p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
-                    text_rect = rect.adjusted(2, 1, -2, -1)
-                    p.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, sr["name"])
-
+                    if sh > 16 and col_width > 24:
+                        p.setPen(QColor("#FFFFFF"))
+                        p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
+                        text_rect = rect.adjusted(2, 1, -2, -1)
+                        p.drawText(
+                            text_rect,
+                            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                            sr["name"],
+                        )
                 p.restore()
-
-                p.setPen(QPen(_with_alpha(sr["color"], 220), 0.8))
-                p.setBrush(Qt.NoBrush)
-                p.drawRoundedRect(rect, 3, 3)
 
 
 class AgendaViewWidget(QWidget):
