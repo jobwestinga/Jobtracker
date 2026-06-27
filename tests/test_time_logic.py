@@ -163,6 +163,12 @@ def test_all_time_preset_has_no_fixed_window():
     assert timeutils.graph_preset_window("all", date(2026, 6, 27)) is None
 
 
+def test_year_preset_starts_january_first_of_current_year():
+    assert timeutils.graph_preset_window(
+        "year", date(2026, 6, 27)
+    ) == (date(2026, 1, 1), date(2026, 6, 27))
+
+
 def test_bucket_key_daily_weekly_monthly():
     day = date(2026, 6, 18)
     assert timeutils.bucket_key(day, "daily") == day

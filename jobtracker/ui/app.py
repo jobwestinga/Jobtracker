@@ -177,7 +177,11 @@ class MainWindow(QMainWindow):
             "30": "months",
         }
         resolved = legacy_ranges.get(raw, raw)
-        return resolved if resolved in {"weeks", "months", "all"} else "weeks"
+        return (
+            resolved
+            if resolved in {"weeks", "months", "year", "all"}
+            else "weeks"
+        )
 
     # ═══════════════════════════════════════════════════════════════════
     #  UI
@@ -589,6 +593,7 @@ class MainWindow(QMainWindow):
         return {
             "weeks": "Weeks",
             "months": "Months",
+            "year": "Year",
             "all": "All Time",
         }.get(self._graph_range_preset, "Weeks")
 

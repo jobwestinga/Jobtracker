@@ -27,6 +27,26 @@ from ..core import timeutils, recovery
 logger = logging.getLogger("jobtracker")
 
 
+def _threshold_period_days(
+    grouping: str,
+    bucket_date: date,
+    today: date,
+) -> int:
+    """Days used only for a bar's color threshold, not its displayed total."""
+    if grouping == "weekly":
+        if bucket_date == timeutils.week_start(today):
+            return today.weekday() + 1
+        return 7
+    if grouping == "monthly":
+        if (
+            bucket_date.year == today.year
+            and bucket_date.month == today.month
+        ):
+            return today.day
+        return calendar.monthrange(bucket_date.year, bucket_date.month)[1]
+    return 1
+
+
 class TrackerService:
     def __init__(self, database: Optional[Database] = None) -> None:
         self.db: Database = database if database is not None else _global_db
@@ -396,6 +416,11 @@ class TrackerService:
                 )[1]
             else:
                 period_days = 1
+            threshold_days = _threshold_period_days(
+                grouping,
+                bucket_date,
+                timeutils.logical_day(now, day_start),
+            )
             threshold_factor = {
                 "weekly": 0.85,
                 "monthly": 0.70,
@@ -407,9 +432,10 @@ class TrackerService:
                     # Weekly labels reach each daily intensity tier at 85% of
                     # the straight seven-day threshold; monthly labels at 70%.
                     "intensity_seconds": (
-                        total_seconds / (period_days * threshold_factor)
+                        total_seconds / (threshold_days * threshold_factor)
                     ),
                     "period_days": period_days,
+                    "threshold_days": threshold_days,
                     "threshold_factor": threshold_factor,
                     "segments": buckets[key],
                 }

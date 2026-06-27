@@ -20,6 +20,7 @@ from ...core.database import db
 RANGE_OPTIONS = [
     ("Weeks", "weeks"),
     ("Months", "months"),
+    ("Year", "year"),
     ("All Time", "all"),
 ]
 
@@ -71,6 +72,8 @@ class GraphSettingsDialog(QDialog):
                 btn.setToolTip("Previous Monday through today")
             elif label == "Months":
                 btn.setToolTip("First day of the previous month through today")
+            elif label == "Year":
+                btn.setToolTip("January 1 of the current year through today")
             range_row.addWidget(btn)
             self.range_btns.append(btn)
         layout.addLayout(range_row)

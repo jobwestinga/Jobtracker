@@ -3,6 +3,7 @@
 from datetime import date, datetime, time, timedelta
 
 from jobtracker.core import timeutils
+from jobtracker.services.tracker_service import _threshold_period_days
 from jobtracker.ui.widgets.graphs_view import _intensity_style
 
 DAY_START = time(3, 0)
@@ -166,7 +167,7 @@ def test_monthly_preset_aligns_to_current_month(service, subject):
 
 
 def test_weekly_and_monthly_intensity_is_daily_average(service, subject):
-    week_start = date(2026, 6, 15)
+    week_start = date(2025, 6, 16)
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         service.add_session(
@@ -189,9 +190,27 @@ def test_weekly_and_monthly_intensity_is_daily_average(service, subject):
     monthly = service.get_subject_breakdown(
         grouping="monthly",
         day_start=DAY_START,
-        start_date=date(2026, 6, 1),
-        end_date=date(2026, 6, 30),
+        start_date=date(2025, 6, 1),
+        end_date=date(2025, 6, 30),
     )[0]
     assert monthly["period_days"] == 30
     assert monthly["threshold_factor"] == 0.70
     assert monthly["intensity_seconds"] == monthly["total_seconds"] / (30 * 0.70)
+
+
+def test_current_partial_week_and_month_use_elapsed_days_for_color_only():
+    wednesday = date(2026, 6, 24)
+    assert _threshold_period_days(
+        "weekly", date(2026, 6, 22), wednesday
+    ) == 3
+    assert _threshold_period_days(
+        "weekly", date(2026, 6, 15), wednesday
+    ) == 7
+
+    mid_month = date(2026, 6, 15)
+    assert _threshold_period_days(
+        "monthly", date(2026, 6, 1), mid_month
+    ) == 15
+    assert _threshold_period_days(
+        "monthly", date(2026, 5, 1), mid_month
+    ) == 31

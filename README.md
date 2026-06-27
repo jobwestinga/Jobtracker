@@ -100,9 +100,9 @@ unfinished instances are left untouched.
 ## Graphs
 
 The stacked-bar and agenda views offer calendar-aligned **Weeks** (previous
-Monday through today), **Months** (the previous month through today), **All
-Time**, and custom ranges. Stacked bars can be grouped daily, by ISO week
-number, or by calendar month.
+Monday through today), **Months** (the previous month through today), **Year**
+(January 1 of the current year through today), **All Time**, and custom ranges.
+Stacked bars can be grouped daily, by ISO week number, or by calendar month.
 
 The **Heatmap** always includes all history and opens on the newest weeks;
 scroll left for older days. Its continuous cell intensity represents tracked

@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 MIN_CELL = 14
-MAX_CELL = 26
+MAX_CELL = 28
 GAP = 4
 TOP = 28
 LEFT = 42
@@ -66,13 +66,25 @@ class _HeatmapCanvas(QWidget):
         self._weeks = 0
         self._scale_max_seconds = 0
         self._tokens: dict = {}
+        self._hover_card = QLabel(self)
+        self._hover_card.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._hover_card.setTextFormat(Qt.RichText)
+        self._hover_card.setContentsMargins(10, 7, 10, 7)
+        self._hover_card.hide()
         self.setMinimumHeight(TOP + BOTTOM + 7 * MIN_CELL + 6 * GAP)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
+        self._hover_card.setStyleSheet(
+            f"QLabel {{ background-color: {tokens.get('BG_SECONDARY', '#131D2E')};"
+            f" color: {tokens.get('TEXT_PRIMARY', '#E2E8F0')};"
+            f" border: 1px solid {tokens.get('BORDER_FOCUS', tokens.get('ACCENT', '#3B82F6'))};"
+            " border-radius: 8px; font-size: 11px; }"
+        )
         self.update()
 
     def set_data(self, rows: list[dict]) -> None:
+        self._hover_card.hide()
         self._data = {row["date"]: int(row.get("total_seconds", 0)) for row in rows}
         self._scale_max_seconds = max(self._data.values(), default=0)
         if rows:
@@ -205,18 +217,36 @@ class _HeatmapCanvas(QWidget):
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         cell_date = self._cell_at(event.position().x(), event.position().y())
         if cell_date is None:
-            self.setToolTip("")
+            self._hover_card.hide()
         else:
             seconds = self._data.get(cell_date.isoformat(), 0)
-            suffix = (
-                " · Best day in this view"
+            best = (
+                "<br><span style='color:#22C55E;'>Busiest day in this view</span>"
                 if seconds > 0 and seconds == self._scale_max_seconds
                 else ""
             )
-            self.setToolTip(
-                f"{cell_date.isoformat()} · {seconds / 3600:.1f} tracked hours{suffix}"
+            self._hover_card.setText(
+                f"<b>{cell_date.strftime('%A, %d %B %Y')}</b>"
+                f"<br>{seconds / 3600:.1f} tracked hours{best}"
             )
+            self._hover_card.adjustSize()
+            visible = self.visibleRegion().boundingRect()
+            if visible.isEmpty():
+                visible = self.rect()
+            x = int(event.position().x()) + 14
+            y = int(event.position().y()) - self._hover_card.height() // 2
+            if x + self._hover_card.width() > visible.right():
+                x = int(event.position().x()) - self._hover_card.width() - 14
+            x = max(visible.left() + 4, min(x, visible.right() - self._hover_card.width() - 4))
+            y = max(visible.top() + 4, min(y, visible.bottom() - self._hover_card.height() - 4))
+            self._hover_card.move(x, y)
+            self._hover_card.show()
+            self._hover_card.raise_()
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hover_card.hide()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         cell_date = self._cell_at(event.position().x(), event.position().y())

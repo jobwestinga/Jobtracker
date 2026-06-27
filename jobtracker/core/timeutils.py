@@ -166,6 +166,8 @@ def graph_preset_window(preset: str, today: date) -> tuple[date, date] | None:
     if preset == "months":
         previous_month_end = month_start(today) - timedelta(days=1)
         return month_start(previous_month_end), today
+    if preset == "year":
+        return today.replace(month=1, day=1), today
     return None
 
 

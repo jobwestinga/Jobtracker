@@ -7,7 +7,7 @@ an isolated database.
 
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
@@ -298,6 +298,16 @@ def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
     assert _visual_ratio(0.25) > 0.25
     assert _visual_ratio(1) == 1
     assert high == QColor("#4DFF88")
+
+    cell, origin_x, origin_y = heatmap._canvas._metrics()
+    QTest.mouseMove(
+        heatmap._canvas,
+        QPoint(origin_x + cell // 2, origin_y + 6 * (cell + GAP) + cell // 2),
+    )
+    qt_app.processEvents()
+    assert heatmap._canvas._hover_card.isVisible()
+    assert "Sunday, 21 June 2026" in heatmap._canvas._hover_card.text()
+    assert "8.0 tracked hours" in heatmap._canvas._hover_card.text()
     heatmap.close()
 
 
@@ -318,12 +328,13 @@ def test_graph_ranges_are_calendar_presets_with_custom_still_available():
     assert RANGE_OPTIONS == [
         ("Weeks", "weeks"),
         ("Months", "months"),
+        ("Year", "year"),
         ("All Time", "all"),
     ]
     dialog = GraphSettingsDialog()
     dialog._select_mode(0)
     assert [button.text() for button in dialog.range_btns] == [
-        "Weeks", "Months", "All Time",
+        "Weeks", "Months", "Year", "All Time",
     ]
     assert not dialog.custom_check.isHidden()
     dialog.close()
