@@ -10,17 +10,26 @@ Tables:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
+from pathlib import Path
 
 from .config import DB_PATH
 from .models import Subject, Session, TodoTask
 
+logger = logging.getLogger("jobtracker")
+
 
 class Database:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    def __init__(self, db_path: Optional[Union[str, Path]] = None) -> None:
+        # ``db_path`` lets tests / tooling use an isolated database. Production
+        # code uses the module-level ``db`` singleton, which defaults to the
+        # configured DB_PATH (see config.py, also overridable via env var).
+        path = str(db_path) if db_path is not None else str(DB_PATH)
+        self.db_path = path
+        self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
         self._init_db()
@@ -90,6 +99,13 @@ class Database:
         # Migration for tasks.is_archived
         if not self._column_exists("tasks", "is_archived"):
             cur.execute("ALTER TABLE tasks ADD COLUMN is_archived INTEGER DEFAULT 0")
+
+        # Migration for sessions.last_active_at — a single nullable timestamp per
+        # session, heartbeated ~once/minute while the session is active. This is
+        # additive and reversible (the column can be ignored or dropped without
+        # affecting any existing read path; historical rows simply hold NULL).
+        if not self._column_exists("sessions", "last_active_at"):
+            cur.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
 
         # Ensure task rows have a deterministic manual order.
         cur.execute(
@@ -263,12 +279,28 @@ class Database:
             raise ValueError(f"Cannot start session for missing subject id {subject_id}")
         cur = self.connection.cursor()
         start_time = datetime.now().isoformat()
+        # Seed last_active_at with the start time so a session is always
+        # "known active" from the moment it begins.
         cur.execute(
-            "INSERT INTO sessions (task_id, start_time) VALUES (?, ?)",
-            (subject_id, start_time),
+            "INSERT INTO sessions (task_id, start_time, last_active_at) VALUES (?, ?, ?)",
+            (subject_id, start_time, start_time),
         )
         self.connection.commit()
         return self.get_session(cur.lastrowid)
+
+    def touch_active_session(self, session_id: int, when_iso: Optional[str] = None) -> None:
+        """Update the 'last known active' timestamp for an open session.
+
+        No-op if the session is already closed (``end_time`` set). This is the
+        heartbeat write — one cheap UPDATE, no new rows, no history.
+        """
+        when_iso = when_iso or datetime.now().isoformat()
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE sessions SET last_active_at = ? WHERE id = ? AND end_time IS NULL",
+            (when_iso, session_id),
+        )
+        self.connection.commit()
 
     def stop_session(
         self, session_id: int, end_time: datetime, duration_seconds: int, note: Optional[str] = None
@@ -540,6 +572,10 @@ class Database:
         cur.execute("SELECT * FROM todo_tasks")
         todo_tasks = [dict(row) for row in cur.fetchall()]
 
+        logger.info(
+            "Exported %d subjects, %d sessions, %d todo tasks",
+            len(subjects), len(sessions), len(todo_tasks),
+        )
         return {
             "subjects": subjects,
             "sessions": sessions,
@@ -636,7 +672,12 @@ class Database:
             )
 
         self.connection.commit()
+        logger.info(
+            "Imported backup: %d subject(s), %d session(s), %d todo(s) in source payload",
+            len(subjects), len(data.get("sessions", [])), len(data.get("todo_tasks", [])),
+        )
 
 
-# Shared singleton
+# Shared singleton — production code imports this. Tests construct their own
+# Database(tmp_path) instead and never rely on this object.
 db = Database()

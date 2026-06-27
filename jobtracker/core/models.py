@@ -32,6 +32,10 @@ class Session:
     end_time: Optional[str]
     duration_seconds: int
     note: Optional[str] = None
+    # Last time the app confirmed this session was still legitimately running.
+    # Heartbeated ~once per minute while active; used by future crash/ghost-time
+    # recovery. None for historical rows and for imported backups.
+    last_active_at: Optional[str] = None
 
     @property
     def subject_id(self) -> int:

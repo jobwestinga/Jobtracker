@@ -7,6 +7,7 @@ Main application window with 3 environments:
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 from PySide6.QtCore import QTimer, Qt, QRect
@@ -27,7 +28,10 @@ from PySide6.QtWidgets import (
 
 from ..core.database import db
 from ..core.themes import get_tokens
+from ..core.timeutils import parse_iso
 from ..services.tracker_service import TrackerService
+
+logger = logging.getLogger("jobtracker")
 from .styles import build_stylesheet
 from .widgets.active_timer import ActiveTimerWidget
 from .widgets.agenda_view import AgendaViewWidget
@@ -118,6 +122,20 @@ class MainWindow(QMainWindow):
         self._graph_live_timer.setInterval(2000)
         self._graph_live_timer.timeout.connect(self._refresh_graphs_if_needed)
         self._graph_live_timer.start()
+
+        # Heartbeat: record that the active session is still legitimately running
+        # roughly once a minute. One cheap UPDATE, no history rows. Used by future
+        # crash / ghost-time recovery so we know when the app was last alive.
+        self._heartbeat_timer = QTimer(self)
+        self._heartbeat_timer.setInterval(60_000)
+        self._heartbeat_timer.timeout.connect(self._heartbeat)
+        self._heartbeat_timer.start()
+
+    def _heartbeat(self) -> None:
+        try:
+            self.service.heartbeat_active_session()
+        except Exception:
+            logger.exception("Heartbeat failed")
 
     def _load_graph_range(self) -> int | None:
         raw = db.get_setting("graph_range", "7")
@@ -494,13 +512,8 @@ class MainWindow(QMainWindow):
         today = date.today()
         if self._graph_range_days is None:
             earliest_iso = db.get_earliest_session_date()
-            if earliest_iso:
-                try:
-                    start_day = __import__("datetime").datetime.fromisoformat(earliest_iso).date()
-                except ValueError:
-                    start_day = today
-            else:
-                start_day = today
+            parsed = parse_iso(earliest_iso) if earliest_iso else None
+            start_day = parsed.date() if parsed else today
         else:
             start_day = today - timedelta(days=max(1, self._graph_range_days) - 1)
 
@@ -538,7 +551,7 @@ class MainWindow(QMainWindow):
                     hour_start = min_h
                     hour_end = max_h
             except Exception:
-                pass # fallback to user settings
+                logger.exception("Agenda auto-fit hour calculation failed; using configured hours")
 
         fit_width = db.get_setting("graph_fit_horizontal", "1") == "1"
         self._agenda_view.set_data(

@@ -53,6 +53,30 @@ python main.py
 ```
 *(In development mode, your database is safely isolated at `./data/jobtracker.db`)*
 
+## Running the Tests
+
+The core logic (database, time/day calculations, sessions, import/export) is
+covered by a headless pytest suite that never touches your real database.
+
+```bash
+# Install dev dependencies (pytest) on top of the runtime requirements
+pip install -r requirements-dev.txt
+
+# Run the suite
+python -m pytest
+```
+
+Each test uses its own temporary SQLite database, so running the tests is always
+safe and will not modify `data/jobtracker.db`.
+
+## How Days Are Counted
+
+Tracked time is grouped by a **logical day** that starts at **03:00** by default,
+not midnight — for most people a day "ends" when they sleep. So a session from
+23:00 to 02:00 is counted on the day it started. This boundary is stored as the
+`day_start_time` setting (currently configurable in the database; a settings
+control may be added later).
+
 ## Building the macOS App
 
 You can package JobTracker into a standalone macOS `.app` bundle. This encapsulates the Python environment and creates a clean executable you can move to your `/Applications` folder.
