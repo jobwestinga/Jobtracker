@@ -13,18 +13,28 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QEasingCurve, QEvent, QTimer, QVariantAnimation, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
+    QLineEdit,
     QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QStackedLayout,
     QStackedWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from ..core import timeutils
 from ..core.themes import get_tokens
 from ..services.tracker_service import TrackerService
 from .styles import build_stylesheet
@@ -68,12 +78,19 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
         self._showing_archived: bool = False
         self._showing_completed_goals: bool = False
+        self._undo_callback = None
+        self._shortcut_feedback_anims: list[QVariantAnimation] = []
 
-        self.app_instance.aboutToQuit.connect(self._on_close)
         # Pause expensive background animation when the app is not in front.
         self.app_instance.applicationStateChanged.connect(self._on_app_state_changed)
 
         self._build_ui()
+        self._active_indicator_timer = QTimer(self)
+        self._active_indicator_timer.setInterval(500)
+        self._active_indicator_timer.timeout.connect(
+            self._update_active_session_indicator
+        )
+        self._install_shortcuts()
         self._apply_theme()
         self._generate_due_goals(reload=False)
         self._reload()
@@ -130,6 +147,169 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             self._fx_bg.set_animating(not minimized)
         super().changeEvent(event)
 
+    def _install_shortcuts(self) -> None:
+        self._shortcuts: list[QShortcut] = []
+        for sequence, callback in (
+            ("Left", lambda: self._navigate_pages(-1)),
+            ("Right", lambda: self._navigate_pages(1)),
+            ("Escape", self._handle_escape_shortcut),
+            ("W", lambda: self._handle_graph_range_shortcut("weeks")),
+            ("M", lambda: self._handle_graph_range_shortcut("months")),
+            ("Y", lambda: self._handle_graph_range_shortcut("year")),
+            ("A", lambda: self._handle_graph_range_shortcut("all")),
+        ):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(callback)
+            self._shortcuts.append(shortcut)
+
+        undo_sequences = [QKeySequence.Undo, QKeySequence("Ctrl+Z")]
+        seen_undo: set[str] = set()
+        for sequence in undo_sequences:
+            key = QKeySequence(sequence).toString()
+            if not key or key in seen_undo:
+                continue
+            seen_undo.add(key)
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(self._perform_undo)
+            self._shortcuts.append(shortcut)
+
+        for number in range(1, 10):
+            shortcut = QShortcut(QKeySequence(str(number)), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(
+                lambda selected=number: self._handle_number_shortcut(selected)
+            )
+            self._shortcuts.append(shortcut)
+
+    @staticmethod
+    def _shortcut_focus_allows_navigation() -> bool:
+        if (
+            QApplication.activePopupWidget() is not None
+            or QApplication.activeModalWidget() is not None
+        ):
+            return False
+        focus = QApplication.focusWidget()
+        return not isinstance(
+            focus,
+            (
+                QLineEdit,
+                QTextEdit,
+                QPlainTextEdit,
+                QAbstractSpinBox,
+                QComboBox,
+            ),
+        )
+
+    def _navigate_pages(self, delta: int) -> None:
+        if not self._shortcut_focus_allows_navigation():
+            return
+        current = self._pages.currentIndex()
+        target = max(0, min(self._pages.count() - 1, current + int(delta)))
+        if target != current:
+            self._switch_page(target)
+
+    def _handle_number_shortcut(self, number: int) -> None:
+        if not self._shortcut_focus_allows_navigation():
+            return
+        row = int(number) - 1
+        page = self._pages.currentIndex()
+        if page == 0:
+            if row >= self._todo_list.count():
+                return
+            goal_id = self._todo_list.item(row).data(Qt.UserRole)
+            if goal_id is not None:
+                goal_id = int(goal_id)
+                self._todo_list.pulse_card(goal_id)
+                QTimer.singleShot(
+                    140, lambda selected=goal_id: self._open_goal(selected)
+                )
+            return
+        if page == 1:
+            # Number shortcuts may only START tracking. They never stop or
+            # switch an active session, and archived subjects cannot be started.
+            if (
+                self._showing_archived
+                or self.service.active_session is not None
+                or row >= self._subjects_list.count()
+            ):
+                return
+            subject_id = self._subjects_list.item(row).data(Qt.UserRole)
+            if subject_id is not None:
+                self._start_tracking(
+                    int(subject_id), shortcut_feedback=True
+                )
+            return
+        if page == 2 and 1 <= number <= 3:
+            mode = ("bar", "agenda", "heatmap")[number - 1]
+            self._set_graph_view_mode(mode)
+            self._pulse_widget(self._graph_mode_buttons[mode])
+
+    def _handle_escape_shortcut(self) -> None:
+        if not self._shortcut_focus_allows_navigation():
+            return
+        if self._pages.currentIndex() == 0 and self._showing_completed_goals:
+            self._toggle_completed_goals()
+        elif self._pages.currentIndex() == 1 and self._showing_archived:
+            self._toggle_archived_view()
+
+    def _handle_graph_range_shortcut(self, preset: str) -> None:
+        if (
+            not self._shortcut_focus_allows_navigation()
+            or self._pages.currentIndex() != 2
+            or preset not in {"weeks", "months", "year", "all"}
+        ):
+            return
+        self._graph_range_preset = preset
+        self._graph_custom_range = None
+        self.service.set_setting("graph_range", preset)
+        self._reload_graphs()
+        self._pulse_widget(self._graph_settings_btn)
+
+    def _pulse_widget(self, widget: QWidget, duration_ms: int = 180) -> None:
+        if widget.graphicsEffect() is not None:
+            return
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        anim = QVariantAnimation(self)
+        anim.setDuration(max(120, int(duration_ms)))
+        anim.setKeyValueAt(0.0, 1.0)
+        anim.setKeyValueAt(0.45, 0.62)
+        anim.setKeyValueAt(1.0, 1.0)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
+        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+
+        def finish() -> None:
+            try:
+                if widget.graphicsEffect() is effect:
+                    widget.setGraphicsEffect(None)
+            except RuntimeError:
+                pass
+            if anim in self._shortcut_feedback_anims:
+                self._shortcut_feedback_anims.remove(anim)
+
+        anim.finished.connect(finish)
+        self._shortcut_feedback_anims.append(anim)
+        anim.start()
+
+    def _register_undo(self, callback) -> None:
+        """Keep one intentionally small, in-memory reversible action."""
+        self._undo_callback = callback
+
+    def _perform_undo(self, force: bool = False) -> None:
+        if not force and not self._shortcut_focus_allows_navigation():
+            return
+        callback = self._undo_callback
+        if callback is None:
+            return
+        self._undo_callback = None
+        callback()
+        self._reload()
+
     def _heartbeat(self) -> None:
         try:
             self.service.heartbeat_active_session()
@@ -180,6 +360,18 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._build_subjects_page()
         self._build_graphs_page()
 
+        self._active_session_indicator = QPushButton()
+        self._active_session_indicator.setMinimumHeight(38)
+        self._active_session_indicator.setCursor(Qt.PointingHandCursor)
+        self._active_session_indicator.setToolTip(
+            "Return to Subjects. This does not stop tracking."
+        )
+        self._active_session_indicator.clicked.connect(
+            lambda: self._switch_page(1)
+        )
+        self._active_session_indicator.hide()
+        root.addWidget(self._active_session_indicator)
+
         root.addWidget(self._build_bottom_nav())
         self._switch_page(1)
 
@@ -216,6 +408,53 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             self._generate_due_goals()
         elif index == 2:
             self._reload_graphs()
+        self._sync_active_session_indicator()
+
+    def _sync_active_session_indicator(self) -> None:
+        if not hasattr(self, "_active_session_indicator"):
+            return
+        show = bool(
+            self.service.active_session
+            and self.service.active_subject
+            and self._pages.currentIndex() != 1
+        )
+        self._active_session_indicator.setVisible(show)
+        if not show:
+            if hasattr(self, "_active_indicator_timer"):
+                self._active_indicator_timer.stop()
+            return
+
+        subject = self.service.active_subject
+        color = subject.color
+        self._active_session_indicator.setStyleSheet(
+            f"QPushButton {{ background: {self._tokens.get('CARD_BG', self._tokens['BG_SECONDARY'])};"
+            f" border: 1.4px solid {color}; border-left: 5px solid {color};"
+            f" border-radius: 10px; color: {self._tokens['TEXT_PRIMARY']};"
+            " font-size: 12px; font-weight: 700; text-align: left;"
+            " padding: 7px 12px; }"
+            f"QPushButton:hover {{ background: {self._tokens.get('CARD_HOVER_BG', self._tokens['BG_TERTIARY'])}; }}"
+        )
+        self._update_active_session_indicator()
+        if (
+            hasattr(self, "_active_indicator_timer")
+            and not self._active_indicator_timer.isActive()
+        ):
+            self._active_indicator_timer.start()
+
+    def _update_active_session_indicator(self) -> None:
+        session = self.service.active_session
+        subject = self.service.active_subject
+        if session is None or subject is None:
+            self._sync_active_session_indicator()
+            return
+        started = timeutils.parse_iso(session.start_time)
+        elapsed = timeutils.duration_seconds(started, datetime.now())
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self._active_session_indicator.setText(
+            f"●  Tracking: {subject.name}  ·  "
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}   ›"
+        )
 
     # ═══════════════════════════════════════════════════════════════════
     #  THEME / RELOAD
@@ -228,6 +467,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._agenda_view.set_tokens(self._tokens)
         self._heatmap_view.set_tokens(self._tokens)
         self._fx_bg.apply_theme(self._tokens, self._fx)
+        self._sync_active_session_indicator()
 
     def _reload(self) -> None:
         self._reload_subjects()
@@ -253,6 +493,21 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     # ═══════════════════════════════════════════════════════════════════
     #  CLOSE
     # ═══════════════════════════════════════════════════════════════════
-    def _on_close(self) -> None:
+    def closeEvent(self, event) -> None:  # noqa: N802
         if self.service.active_session:
-            self.service.stop_active_subject()
+            event.ignore()
+            self.showNormal()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            self._switch_page(1)
+            self._timer.pulse_stop_button()
+            QMessageBox.information(
+                self,
+                "Session Still Active",
+                "JobTracker cannot quit while a session is active.\n\n"
+                "Use the red Stop Tracking button first.",
+            )
+            self._timer.pulse_stop_button()
+            return
+        super().closeEvent(event)

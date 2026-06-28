@@ -13,8 +13,10 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QFrame,
     QGraphicsOpacityEffect,
     QLabel,
+    QLineEdit,
     QMessageBox,
 )
 
@@ -117,6 +119,400 @@ def test_startup_generates_due_template_once(database, monkeypatch):
         assert window.service.get_goal_progress(goals[0].id) == (0, 2)
         window._generate_due_goals()
         assert len(window.service.get_active_goals()) == 1
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_left_right_arrows_switch_main_pages_but_not_text_cursor(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+        assert window._pages.currentIndex() == 1
+
+        QTest.keyClick(window, Qt.Key_Left)
+        assert window._pages.currentIndex() == 0
+        QTest.keyClick(window, Qt.Key_Right)
+        QTest.keyClick(window, Qt.Key_Right)
+        assert window._pages.currentIndex() == 2
+
+        editor = QLineEdit(window)
+        editor.setText("abc")
+        editor.show()
+        editor.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(editor, Qt.Key_Left)
+        assert window._pages.currentIndex() == 2
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_number_shortcuts_are_context_sensitive_and_never_switch_sessions(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        first_subject = window.service.add_subject("First", "#111111", "")
+        second_subject = window.service.add_subject("Second", "#222222", "")
+        window._reload_subjects()
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+
+        QTest.keyClick(window, Qt.Key_1)
+        assert window.service.active_subject.id == first_subject.id
+        active_session_id = window.service.active_session.id
+
+        # A different number cannot stop or switch the running session.
+        QTest.keyClick(window, Qt.Key_2)
+        assert window.service.active_subject.id == first_subject.id
+        assert window.service.active_session.id == active_session_id
+        assert len(window.service.db.get_open_sessions()) == 1
+
+        started = datetime.fromisoformat(window.service.active_session.start_time)
+        window.service.stop_active_subject(started + timedelta(seconds=31))
+        window._reload_subjects()
+
+        # Archived subjects are never startable through number shortcuts.
+        window.service.archive_subject(second_subject.id)
+        window._showing_archived = True
+        window._reload_subjects()
+        QTest.keyClick(window, Qt.Key_1)
+        assert window.service.active_session is None
+
+        window._showing_archived = False
+        first_goal = window.service.add_todo_task("First goal", "", None)
+        second_goal = window.service.add_todo_task("Second goal", "", None)
+        window._switch_page(0)
+        window._reload_tasks()
+        opened = []
+        window._open_goal = opened.append
+        QTest.keyClick(window, Qt.Key_2)
+        QTest.qWait(160)
+        assert opened == [second_goal.id]
+        assert first_goal.id != second_goal.id
+
+        window._switch_page(2)
+        for key, mode in (
+            (Qt.Key_1, "bar"),
+            (Qt.Key_2, "agenda"),
+            (Qt.Key_3, "heatmap"),
+        ):
+            QTest.keyClick(window, key)
+            assert window._graph_view_mode == mode
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_active_session_blocks_quit_and_indicator_only_returns_to_subjects(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    messages = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args: messages.append((args[1], args[2])),
+    )
+    try:
+        subject = window.service.add_subject("Protected", "#22C55E", "")
+        assert window.service.start_subject(subject.id)
+        session_id = window.service.active_session.id
+        window._reload_subjects()
+
+        window._switch_page(0)
+        qt_app.processEvents()
+        assert window._active_session_indicator.isVisible()
+        assert "Protected" in window._active_session_indicator.text()
+
+        window._active_session_indicator.click()
+        assert window._pages.currentIndex() == 1
+        assert window.service.active_session.id == session_id
+
+        window._switch_page(2)
+        assert not window.close()
+        qt_app.processEvents()
+        assert window.isVisible()
+        assert window._pages.currentIndex() == 1
+        assert window.service.active_session.id == session_id
+        assert window.service.db.get_session(session_id).end_time is None
+        assert messages and messages[-1][0] == "Session Still Active"
+
+        started = datetime.fromisoformat(window.service.active_session.start_time)
+        window.service.stop_active_subject(started + timedelta(seconds=31))
+        window._reload_subjects()
+        assert window.close()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        if window.service.active_session:
+            window.service.stop_active_subject(
+                datetime.fromisoformat(window.service.active_session.start_time)
+                + timedelta(seconds=31)
+            )
+        window.close()
+        qt_app.processEvents()
+
+
+def test_escape_graph_ranges_and_shortcut_badges(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("First subject", "#123456", "")
+        goal = window.service.add_todo_task("First goal", "", None)
+        window._reload_subjects()
+        window._reload_tasks()
+
+        subject_card = window._subjects_list.itemWidget(
+            window._subjects_list.item(0)
+        )
+        assert any(
+            label.text() == "1"
+            for label in subject_card.findChildren(QLabel)
+        )
+        goal_card = window._todo_list.itemWidget(window._todo_list.item(0))
+        assert any(
+            label.text() == "1"
+            for label in goal_card.findChildren(QLabel)
+        )
+        assert window._graph_mode_buttons["bar"].text().startswith("1")
+        assert subject.id is not None and goal.id is not None
+
+        window._switch_page(1)
+        window._toggle_archived_view()
+        assert window._showing_archived
+        QTest.keyClick(window, Qt.Key_Escape)
+        assert not window._showing_archived
+
+        window._switch_page(0)
+        window._toggle_completed_goals()
+        assert window._showing_completed_goals
+        QTest.keyClick(window, Qt.Key_Escape)
+        assert not window._showing_completed_goals
+
+        window._switch_page(2)
+        for key, preset in (
+            (Qt.Key_W, "weeks"),
+            (Qt.Key_M, "months"),
+            (Qt.Key_Y, "year"),
+            (Qt.Key_A, "all"),
+        ):
+            QTest.keyClick(window, key)
+            assert window._graph_range_preset == preset
+            assert database.get_setting("graph_range") == preset
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_one_level_undo_restores_subject_archive_order_and_milestone(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        first = window.service.add_subject("First", "#111111", "")
+        second = window.service.add_subject("Second", "#222222", "")
+        window._archive_subject(first.id)
+        assert [s.id for s in window.service.get_all_subjects()] == [second.id]
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(window, Qt.Key_Z, Qt.ControlModifier)
+        assert [s.id for s in window.service.get_all_subjects()] == [
+            first.id,
+            second.id,
+        ]
+
+        window._on_subject_order_changed([second.id, first.id])
+        assert [s.id for s in window.service.get_all_subjects()] == [
+            second.id,
+            first.id,
+        ]
+        window._perform_undo(force=True)
+        assert [s.id for s in window.service.get_all_subjects()] == [
+            first.id,
+            second.id,
+        ]
+
+        goal = window.service.add_todo_task("Undo goal", "", None)
+        milestone = window.service.add_milestone(goal.id, "Undo milestone")
+        detail = GoalDetailDialog(window.service, goal.id, window)
+        detail.show()
+        detail.activateWindow()
+        detail.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(detail, Qt.Key_1)
+        assert window.service.db.get_milestone(milestone.id).is_done == 1
+        QTest.keyClick(detail, Qt.Key_Z, Qt.ControlModifier)
+        assert window.service.db.get_milestone(milestone.id).is_done == 0
+        detail.close()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_reorderable_list_restores_scroll_and_selection_after_rebuild():
+    qt_app = _application()
+    card_list = ReorderableCardList(spacing=6)
+    card_list.resize(360, 180)
+
+    def populate():
+        for item_id in range(1, 13):
+            card = QFrame()
+            card.setFixedHeight(50)
+            card_list.add_card(item_id, card)
+
+    populate()
+    card_list.show()
+    qt_app.processEvents()
+    card_list.setCurrentRow(8)
+    card_list.verticalScrollBar().setValue(
+        card_list.verticalScrollBar().maximum() // 2
+    )
+    qt_app.processEvents()
+    state = card_list.capture_view_state()
+
+    card_list.clear_cards()
+    populate()
+    card_list.restore_view_state(state)
+    qt_app.processEvents()
+
+    assert card_list.currentItem().data(Qt.UserRole) == 9
+    assert card_list.verticalScrollBar().value() == state["scroll"]
+    card_list.close()
+
+
+def test_goal_detail_number_shortcuts_toggle_matching_milestones(service):
+    qt_app = _application()
+    goal = service.add_todo_task("Keyboard goal", "", None)
+    first = service.add_milestone(goal.id, "First")
+    second = service.add_milestone(goal.id, "Second")
+    detail = GoalDetailDialog(service, goal.id)
+    detail.show()
+    detail.activateWindow()
+    detail.setFocus()
+    qt_app.processEvents()
+
+    QTest.keyClick(detail, Qt.Key_2)
+    assert service.db.get_milestone(first.id).is_done == 0
+    assert service.db.get_milestone(second.id).is_done == 1
+    QTest.qWait(350)
+    qt_app.processEvents()
+
+    QTest.keyClick(detail, Qt.Key_2)
+    assert service.db.get_milestone(second.id).is_done == 0
+    detail.close()
+
+    service.set_milestone_done(first.id, True)
+    service.set_milestone_done(second.id, True)
+    assert service.complete_goal(goal.id)
+    completed_detail = GoalDetailDialog(service, goal.id)
+    completed_detail.show()
+    completed_detail.activateWindow()
+    qt_app.processEvents()
+    QTest.keyClick(completed_detail, Qt.Key_1)
+    assert service.db.get_milestone(first.id).is_done == 1
+    assert service.get_goal(goal.id).is_completed == 1
+    completed_detail.close()
+
+
+def test_reorderable_list_uses_floating_drag_and_live_reflow():
+    qt_app = _application()
+    card_list = ReorderableCardList(spacing=6)
+    card_list.resize(360, 260)
+    for item_id in (1, 2, 3):
+        card = QFrame()
+        card.setFixedHeight(58)
+        card_list.add_card(item_id, card)
+    card_list.show()
+    qt_app.processEvents()
+
+    emitted = []
+    card_list.order_changed.connect(emitted.append)
+    widget = card_list.itemWidget(card_list.item(2))
+    center = widget.rect().center()
+    QTest.mousePress(widget, Qt.LeftButton, pos=center)
+    QTest.mouseMove(
+        widget,
+        QPoint(center.x(), center.y() - 140),
+        delay=30,
+    )
+    qt_app.processEvents()
+    assert card_list._drag_overlay is not None
+    assert card_list._wobble_timer.isActive()
+    assert card_list._auto_scroll_timer.isActive()
+    assert card_list.ordered_ids() == [3, 1, 2]
+    QTest.qWait(120)
+    qt_app.processEvents()
+    assert card_list._drag_overlay.width() < widget.width()
+
+    QTest.mouseRelease(
+        card_list.viewport(),
+        Qt.LeftButton,
+        pos=QPoint(card_list.viewport().width() // 2, 5),
+    )
+    QTest.qWait(180)
+    qt_app.processEvents()
+    assert emitted == [[3, 1, 2]]
+    assert card_list._drag_overlay is None
+    card_list.close()
+
+
+def test_reorderable_list_auto_scrolls_while_dragging_at_an_edge():
+    qt_app = _application()
+    card_list = ReorderableCardList(spacing=6)
+    card_list.resize(360, 180)
+    for item_id in range(1, 13):
+        card = QFrame()
+        card.setFixedHeight(50)
+        card_list.add_card(item_id, card)
+    card_list.show()
+    qt_app.processEvents()
+
+    scroll_bar = card_list.verticalScrollBar()
+    scroll_bar.setValue(scroll_bar.maximum())
+    qt_app.processEvents()
+    widget = card_list.itemWidget(card_list.item(11))
+    card_list._begin_drag(12, widget.mapToGlobal(widget.rect().center()))
+    card_list._drag_global_pos = card_list.viewport().mapToGlobal(QPoint(20, 0))
+    before = scroll_bar.value()
+    card_list._tick_auto_scroll()
+    assert scroll_bar.value() < before
+    card_list._cancel_drag()
+    card_list.close()
+
+
+def test_completed_goals_and_archived_subjects_remain_reorderable(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        goal = window.service.add_todo_task("Done", "", None)
+        window.service.complete_goal(goal.id)
+        window._showing_completed_goals = True
+        window._reload_tasks()
+        assert window._todo_list.dragEnabled()
+
+        subject = window.service.add_subject("Archived", "#123456", "")
+        window.service.archive_subject(subject.id)
+        window._showing_archived = True
+        window._reload_subjects()
+        assert window._subjects_list.dragEnabled()
     finally:
         window._graph_live_timer.stop()
         window._heartbeat_timer.stop()

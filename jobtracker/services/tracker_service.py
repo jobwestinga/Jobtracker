@@ -165,8 +165,10 @@ class TrackerService:
     def move_subject(self, subject_id: int, direction: int) -> None:
         self.db.move_subject(subject_id, direction)
 
-    def set_subject_order(self, ordered_ids: list[int]) -> None:
-        self.db.set_subject_order(ordered_ids)
+    def set_subject_order(
+        self, ordered_ids: list[int], archived: bool = False
+    ) -> None:
+        self.db.set_subject_order(ordered_ids, archived=archived)
 
     def archive_subject(self, subject_id: int) -> None:
         if self.active_subject and self.active_subject.id == subject_id:
@@ -652,8 +654,10 @@ class TrackerService:
     def move_todo_task(self, todo_task_id: int, direction: int) -> None:
         self.db.move_todo_task(todo_task_id, direction)
 
-    def set_todo_task_order(self, ordered_ids: list[int]) -> None:
-        self.db.set_todo_task_order(ordered_ids)
+    def set_todo_task_order(
+        self, ordered_ids: list[int], completed: bool = False
+    ) -> None:
+        self.db.set_todo_task_order(ordered_ids, completed=completed)
 
     def sort_todo_tasks_by_deadline(self) -> None:
         self.db.sort_todo_tasks_by_deadline()

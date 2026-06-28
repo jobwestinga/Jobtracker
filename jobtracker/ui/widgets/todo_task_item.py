@@ -153,12 +153,19 @@ class TodoTaskItemWidget(QFrame):
     complete_requested = Signal(int)
     open_requested = Signal(int)
 
-    def __init__(self, todo_task: TodoTask, tokens: dict, progress: tuple = (0, 0)) -> None:
+    def __init__(
+        self,
+        todo_task: TodoTask,
+        tokens: dict,
+        progress: tuple = (0, 0),
+        shortcut_number: int | None = None,
+    ) -> None:
         super().__init__()
         self.todo_task = todo_task
         self._t = tokens
         self._completing = False
         self._progress = progress  # (done, total) milestones
+        self._shortcut_number = shortcut_number
         self._suppress_click_once = False
         self._press_pos = QPoint()
 
@@ -176,6 +183,18 @@ class TodoTaskItemWidget(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 8, 12, 8)
         layout.setSpacing(8)
+
+        if self._shortcut_number is not None:
+            shortcut = QLabel(str(self._shortcut_number))
+            shortcut.setAlignment(Qt.AlignCenter)
+            shortcut.setFixedSize(22, 22)
+            shortcut.setToolTip(f"Press {self._shortcut_number} to open this goal")
+            shortcut.setStyleSheet(
+                f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
+                f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
+                f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
+            )
+            layout.addWidget(shortcut, 0, Qt.AlignTop)
 
         info = QVBoxLayout()
         info.setSpacing(3)

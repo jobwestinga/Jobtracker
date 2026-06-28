@@ -61,3 +61,34 @@ def test_delete_active_subject_stops_timer_first(service):
     service.delete_subject(s.id)
     assert service.active_session is None
     assert service.db.get_open_sessions() == []
+
+
+def test_active_and_archived_subject_orders_are_independent(service):
+    first = service.add_subject("First", "#111111", "")
+    second = service.add_subject("Second", "#222222", "")
+    old_first = service.add_subject("Old first", "#333333", "")
+    old_second = service.add_subject("Old second", "#444444", "")
+    service.archive_subject(old_first.id)
+    service.archive_subject(old_second.id)
+
+    service.set_subject_order(
+        [old_second.id, old_first.id], archived=True
+    )
+    assert [subject.id for subject in service.get_all_subjects(archived=True)] == [
+        old_second.id,
+        old_first.id,
+    ]
+    assert [subject.id for subject in service.get_all_subjects(archived=False)] == [
+        first.id,
+        second.id,
+    ]
+
+    service.set_subject_order([second.id, first.id], archived=False)
+    assert [subject.id for subject in service.get_all_subjects(archived=False)] == [
+        second.id,
+        first.id,
+    ]
+    assert [subject.id for subject in service.get_all_subjects(archived=True)] == [
+        old_second.id,
+        old_first.id,
+    ]

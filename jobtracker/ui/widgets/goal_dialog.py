@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import QDate, QPoint, QTimer, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QDateEdit,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.themes import DEFAULT_TOKENS
+from .reorderable_list import ReorderableCardList
 from .todo_task_item import _StarBurstOverlay
 
 
@@ -317,9 +318,12 @@ class GoalDetailDialog(QDialog):
         self.service = service
         self.goal_id = goal_id
         self._tokens = _tokens_from(parent, tokens)
+        self._milestone_checks: list[QCheckBox] = []
+        self._number_shortcuts: list[QShortcut] = []
         self.setWindowTitle("Goal")
         self.setMinimumSize(520, 600)
         self._build_ui()
+        self._install_number_shortcuts()
         self._reload()
 
     def _build_ui(self) -> None:
@@ -350,17 +354,17 @@ class GoalDetailDialog(QDialog):
         progress_row.addWidget(self.progress_lbl)
         layout.addLayout(progress_row)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self._ms_host = QWidget()
-        self._ms_host.setStyleSheet("background: transparent;")
-        self._ms_layout = QVBoxLayout(self._ms_host)
-        self._ms_layout.setContentsMargins(0, 2, 0, 2)
-        self._ms_layout.setSpacing(8)
-        self._ms_layout.addStretch()
-        scroll.setWidget(self._ms_host)
-        layout.addWidget(scroll, 1)
+        self._ms_list = ReorderableCardList(spacing=8)
+        self._ms_list.order_changed.connect(self._milestone_order_changed)
+        layout.addWidget(self._ms_list, 1)
+
+        self._ms_empty = QLabel("No milestones yet. Use Edit Goal to add them.")
+        self._ms_empty.setAlignment(Qt.AlignCenter)
+        self._ms_empty.setStyleSheet(
+            f"color: {self._tokens['TEXT_DIMMED']}; font-style: italic; padding: 28px;"
+        )
+        self._ms_empty.hide()
+        layout.addWidget(self._ms_empty)
 
         btn_row = QHBoxLayout()
         close_btn = QPushButton("Close")
@@ -391,26 +395,26 @@ class GoalDetailDialog(QDialog):
         self.setWindowTitle(goal.name)
         self.desc_lbl.setText(goal.notes or "No description yet.")
 
-        while self._ms_layout.count() > 1:
-            item = self._ms_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+        view_state = self._ms_list.capture_view_state()
+        self._ms_list.clear_cards()
+        self._milestone_checks.clear()
 
         milestones = self.service.get_goal_milestones(self.goal_id)
         if milestones:
-            for milestone in milestones:
-                self._ms_layout.insertWidget(
-                    self._ms_layout.count() - 1,
-                    self._milestone_row(milestone),
+            self._ms_empty.hide()
+            self._ms_list.show()
+            for index, milestone in enumerate(milestones, start=1):
+                self._ms_list.add_card(
+                    milestone.id,
+                    self._milestone_row(
+                        milestone,
+                        shortcut_number=index if index <= 9 else None,
+                    ),
                 )
+            self._ms_list.restore_view_state(view_state)
         else:
-            empty = QLabel("No milestones yet. Use Edit Goal to add them.")
-            empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet(
-                f"color: {self._tokens['TEXT_DIMMED']}; font-style: italic; padding: 28px;"
-            )
-            self._ms_layout.insertWidget(0, empty)
+            self._ms_list.hide()
+            self._ms_empty.show()
 
         done, total = self.service.get_goal_progress(self.goal_id)
         self.progress_lbl.setText(f"{done} / {total} complete" if total else "No milestones")
@@ -422,7 +426,9 @@ class GoalDetailDialog(QDialog):
             self.complete_btn.setText("Mark Complete")
             self.complete_btn.setEnabled(self.service.can_complete_goal(self.goal_id))
 
-    def _milestone_row(self, milestone) -> QFrame:
+    def _milestone_row(
+        self, milestone, shortcut_number: int | None = None
+    ) -> QFrame:
         frame = QFrame()
         frame.setMinimumHeight(52)
         frame.setStyleSheet(
@@ -432,6 +438,24 @@ class GoalDetailDialog(QDialog):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(13, 9, 13, 9)
         layout.setSpacing(3)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+        if shortcut_number is not None:
+            shortcut = QLabel(str(shortcut_number))
+            shortcut.setAlignment(Qt.AlignCenter)
+            shortcut.setFixedSize(22, 22)
+            shortcut.setToolTip(
+                f"Press {shortcut_number} to toggle this milestone"
+            )
+            shortcut.setStyleSheet(
+                f"background: {self._tokens.get('BG_TERTIARY', self._tokens['BG_SECONDARY'])};"
+                f" border: 1px solid {self._tokens['BORDER_COLOR']};"
+                f" border-radius: 6px; color: {self._tokens['TEXT_SECONDARY']};"
+                " font-size: 10px; font-weight: 750;"
+            )
+            title_row.addWidget(shortcut, 0, Qt.AlignTop)
 
         check = QCheckBox(milestone.title)
         check.setChecked(bool(milestone.is_done))
@@ -458,7 +482,9 @@ class GoalDetailDialog(QDialog):
                 milestone_id, checked, source
             )
         )
-        layout.addWidget(check)
+        self._milestone_checks.append(check)
+        title_row.addWidget(check, 1)
+        layout.addLayout(title_row)
 
         if milestone.note:
             note = QLabel(milestone.note)
@@ -469,6 +495,59 @@ class GoalDetailDialog(QDialog):
             )
             layout.addWidget(note)
         return frame
+
+    def _milestone_order_changed(self, ordered_ids: list[int]) -> None:
+        previous = [
+            milestone.id
+            for milestone in self.service.get_goal_milestones(self.goal_id)
+            if milestone.id is not None
+        ]
+        if previous == ordered_ids:
+            return
+        self.service.set_milestone_order(self.goal_id, ordered_ids)
+        owner = self.parent()
+        if hasattr(owner, "_register_undo"):
+            owner._register_undo(
+                lambda old=previous, service=self.service, goal_id=self.goal_id: (
+                    service.set_milestone_order(
+                        goal_id, old
+                    )
+                )
+            )
+
+    def _install_number_shortcuts(self) -> None:
+        for number in range(1, 10):
+            shortcut = QShortcut(QKeySequence(str(number)), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(
+                lambda index=number - 1: self._toggle_milestone_by_number(index)
+            )
+            self._number_shortcuts.append(shortcut)
+        undo_sequences = [QKeySequence.Undo, QKeySequence("Ctrl+Z")]
+        seen: set[str] = set()
+        for sequence in undo_sequences:
+            key = QKeySequence(sequence).toString()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(self._perform_undo)
+            self._number_shortcuts.append(shortcut)
+
+    def _perform_undo(self) -> None:
+        owner = self.parent()
+        if hasattr(owner, "_perform_undo"):
+            owner._perform_undo(force=True)
+            self._reload()
+
+    def _toggle_milestone_by_number(self, index: int) -> None:
+        if 0 <= index < len(self._milestone_checks):
+            checkbox = self._milestone_checks[index]
+            if checkbox.isEnabled():
+                checkbox.click()
 
     def _star_colors(self) -> list:
         t = self._tokens
@@ -486,6 +565,13 @@ class GoalDetailDialog(QDialog):
         source: QCheckBox,
     ) -> None:
         self.service.set_milestone_done(milestone_id, checked)
+        owner = self.parent()
+        if hasattr(owner, "_register_undo"):
+            owner._register_undo(
+                lambda mid=milestone_id, old=not checked, service=self.service: (
+                    service.set_milestone_done(mid, old)
+                )
+            )
         if checked:
             # QCheckBox spans the full milestone row; its visual indicator is
             # the 18px circle at the left, not the widget's geometric center.

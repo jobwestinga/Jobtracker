@@ -135,3 +135,46 @@ def test_milestone_description_is_stored_on_create(service):
         "Get feedback from two reviewers before publishing.",
     )
     assert created.note == "Get feedback from two reviewers before publishing."
+
+
+def test_active_and_completed_goal_orders_are_independent(service):
+    active_first = _goal(service, "Active first")
+    active_second = _goal(service, "Active second")
+    done_first = _goal(service, "Done first")
+    done_second = _goal(service, "Done second")
+    service.complete_goal(done_first.id)
+    service.complete_goal(done_second.id)
+
+    service.set_todo_task_order(
+        [done_second.id, done_first.id], completed=True
+    )
+    assert [goal.id for goal in service.get_completed_goals()] == [
+        done_second.id,
+        done_first.id,
+    ]
+
+    service.set_todo_task_order(
+        [active_second.id, active_first.id], completed=False
+    )
+    assert [goal.id for goal in service.get_active_goals()] == [
+        active_second.id,
+        active_first.id,
+    ]
+    assert [goal.id for goal in service.get_completed_goals()] == [
+        done_second.id,
+        done_first.id,
+    ]
+
+
+def test_milestone_order_is_persisted(service):
+    goal = _goal(service)
+    first = service.add_milestone(goal.id, "First")
+    second = service.add_milestone(goal.id, "Second")
+    third = service.add_milestone(goal.id, "Third")
+
+    service.set_milestone_order(
+        goal.id, [third.id, first.id, second.id]
+    )
+    assert [
+        milestone.id for milestone in service.get_goal_milestones(goal.id)
+    ] == [third.id, first.id, second.id]

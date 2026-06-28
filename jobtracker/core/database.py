@@ -224,6 +224,47 @@ class Database:
             )
         self.connection.commit()
 
+    def _set_filtered_order(
+        self,
+        table: str,
+        id_column: str,
+        ordered_ids: list[int],
+        where_clause: str,
+        where_params: tuple,
+    ) -> None:
+        """Persist an order inside one filtered view without disturbing peers."""
+        normalized_ids: list[int] = []
+        seen: set[int] = set()
+        for raw_id in ordered_ids:
+            try:
+                row_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if row_id not in seen:
+                seen.add(row_id)
+                normalized_ids.append(row_id)
+        if not normalized_ids:
+            return
+
+        cur = self.connection.cursor()
+        cur.execute(
+            f"SELECT {id_column} FROM {table} WHERE {where_clause} "
+            f"ORDER BY sort_order ASC, {id_column} ASC",
+            where_params,
+        )
+        existing_ids = [int(row[id_column]) for row in cur.fetchall()]
+        final_ids = (
+            [row_id for row_id in normalized_ids if row_id in existing_ids]
+            + [row_id for row_id in existing_ids if row_id not in normalized_ids]
+        )
+        for idx, row_id in enumerate(final_ids, start=1):
+            cur.execute(
+                f"UPDATE {table} SET sort_order = ? "
+                f"WHERE {id_column} = ? AND {where_clause}",
+                (idx, row_id, *where_params),
+            )
+        self.connection.commit()
+
     # ── Settings ─────────────────────────────────────────────────────────
     def get_setting(self, key: str, default: str = "") -> str:
         cur = self.connection.cursor()
@@ -329,10 +370,18 @@ class Database:
         ids[idx], ids[target] = ids[target], ids[idx]
         self._set_order("tasks", "id", ids)
 
-    def set_subject_order(self, ordered_ids: list[int]) -> None:
+    def set_subject_order(
+        self, ordered_ids: list[int], archived: bool = False
+    ) -> None:
         if not ordered_ids:
             return
-        self._set_order("tasks", "id", ordered_ids)
+        self._set_filtered_order(
+            "tasks",
+            "id",
+            ordered_ids,
+            "is_archived = ?",
+            (1 if archived else 0,),
+        )
 
     # ── Sessions ─────────────────────────────────────────────────────────
     def start_session(self, subject_id: int) -> Session:
@@ -630,7 +679,7 @@ class Database:
         cur = self.connection.cursor()
         cur.execute(
             "SELECT * FROM todo_tasks WHERE is_completed = 1 "
-            "ORDER BY created_at DESC, id DESC"
+            "ORDER BY sort_order ASC, created_at ASC, id ASC"
         )
         return [TodoTask(**dict(row)) for row in cur.fetchall()]
 
@@ -686,11 +735,21 @@ class Database:
         ids[idx], ids[target] = ids[target], ids[idx]
         self._set_order("todo_tasks", "id", ids)
 
-    def set_todo_task_order(self, ordered_ids: list[int]) -> None:
+    def set_todo_task_order(
+        self, ordered_ids: list[int], completed: bool = False
+    ) -> None:
         if not ordered_ids:
             return
-        self.set_setting("todo_order_mode", "manual")
-        self._set_order("todo_tasks", "id", ordered_ids)
+        if not completed:
+            self._ensure_manual_todo_order()
+            self.set_setting("todo_order_mode", "manual")
+        self._set_filtered_order(
+            "todo_tasks",
+            "id",
+            ordered_ids,
+            "is_completed = ?",
+            (1 if completed else 0,),
+        )
 
     # ── Milestones ───────────────────────────────────────────────────────
     def add_milestone(self, goal_id: int, title: str, note: str = "") -> Optional[Milestone]:

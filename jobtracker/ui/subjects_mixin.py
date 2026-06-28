@@ -87,11 +87,21 @@ class SubjectsMixin:
         self._subjects_list = ReorderableCardList(spacing=8)
         self._subjects_list.order_changed.connect(self._on_subject_order_changed)
         lay.addWidget(self._subjects_list, 1)
+        self._subject_view_states = {False: None, True: None}
+        self._subjects_rendered_view = False
 
         self._pages.addWidget(page)
 
     def _reload_subjects(self) -> None:
+        rendered_view = getattr(
+            self, "_subjects_rendered_view", self._showing_archived
+        )
+        self._subject_view_states[rendered_view] = (
+            self._subjects_list.capture_view_state()
+        )
+        restore_state = self._subject_view_states.get(self._showing_archived)
         self._subjects_list.clear_cards()
+        self._subjects_rendered_view = self._showing_archived
 
         is_tracking = self.service.active_session is not None
         if is_tracking and self.service.active_subject:
@@ -103,12 +113,14 @@ class SubjectsMixin:
         if not subjects:
             self._subjects_empty.show()
             self._subjects_list.hide()
+            if hasattr(self, "_sync_active_session_indicator"):
+                self._sync_active_session_indicator()
             return
         self._subjects_empty.hide()
         self._subjects_list.show()
 
         filter_type = self._filter.currentText()
-        for subject in subjects:
+        for index, subject in enumerate(subjects, start=1):
             if subject.id is None:
                 continue
             total = self.service.get_subject_stats(subject.id, filter_type)
@@ -126,6 +138,11 @@ class SubjectsMixin:
                 is_dimmed=dimmed,
                 is_active=is_active,
                 is_archived=bool(subject.is_archived),
+                shortcut_number=(
+                    index
+                    if not self._showing_archived and index <= 9
+                    else None
+                ),
             )
             card.start_requested.connect(self._start_tracking)
             card.edit_requested.connect(self._edit_subject)
@@ -134,6 +151,9 @@ class SubjectsMixin:
             card.archive_requested.connect(self._archive_subject)
             card.unarchive_requested.connect(self._unarchive_subject)
             self._subjects_list.add_card(subject.id, card)
+        self._subjects_list.restore_view_state(restore_state)
+        if hasattr(self, "_sync_active_session_indicator"):
+            self._sync_active_session_indicator()
 
     # ── Subject actions ─────────────────────────────────────────────────
     def _new_subject(self) -> None:
@@ -171,11 +191,19 @@ class SubjectsMixin:
 
     def _archive_subject(self, subject_id: int) -> None:
         self.service.archive_subject(subject_id)
+        if hasattr(self, "_register_undo"):
+            self._register_undo(
+                lambda sid=subject_id: self.service.unarchive_subject(sid)
+            )
         self._reload_subjects()
         self._reload_graphs()
 
     def _unarchive_subject(self, subject_id: int) -> None:
         self.service.unarchive_subject(subject_id)
+        if hasattr(self, "_register_undo"):
+            self._register_undo(
+                lambda sid=subject_id: self.service.archive_subject(sid)
+            )
         self._reload_subjects()
         self._reload_graphs()
 
@@ -238,8 +266,25 @@ class SubjectsMixin:
         self._reload_graphs()
 
     def _on_subject_order_changed(self, ordered_ids: list[int]) -> None:
-        self.service.set_subject_order(ordered_ids)
-        self._reload_subjects()
+        archived = self._showing_archived
+        previous = [
+            subject.id
+            for subject in self.service.get_all_subjects(archived=archived)
+            if subject.id is not None
+        ]
+        if previous == ordered_ids:
+            return
+        self.service.set_subject_order(
+            ordered_ids, archived=archived
+        )
+        if hasattr(self, "_register_undo"):
+            self._register_undo(
+                lambda old=previous, archived_view=archived: (
+                    self.service.set_subject_order(
+                        old, archived=archived_view
+                    )
+                )
+            )
 
     def _manage_sessions(self, subject_id: int) -> None:
         ManageSessionsDialog(subject_id, self.service, self).exec()
@@ -247,9 +292,13 @@ class SubjectsMixin:
         self._reload_graphs()
 
     # ── Timer ───────────────────────────────────────────────────────────
-    def _start_tracking(self, subject_id: int) -> None:
+    def _start_tracking(
+        self, subject_id: int, shortcut_feedback: bool = False
+    ) -> None:
         if self.service.start_subject(subject_id):
             self._reload_subjects()
+            if shortcut_feedback:
+                self._subjects_list.pulse_card(subject_id)
             self._reload_graphs()
 
     def _stop_tracking(self) -> None:

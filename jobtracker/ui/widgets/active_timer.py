@@ -8,9 +8,9 @@ Uses QStackedWidget and a fixed height so switching states never shifts the layo
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QStackedWidget,
+    QFrame, QGraphicsOpacityEffect, QStackedWidget,
 )
-from PySide6.QtCore import QTimer, Signal, Qt
+from PySide6.QtCore import QEasingCurve, QTimer, QVariantAnimation, Signal, Qt
 from datetime import datetime
 from ...core.models import Session, Subject
 from ...core import timeutils
@@ -142,6 +142,30 @@ class ActiveTimerWidget(QFrame):
         self.subject = None
         self.session = None
         self._show_idle()
+
+    def pulse_stop_button(self) -> None:
+        """Draw attention to the only control allowed to end a session."""
+        if self.subject is None:
+            return
+        effect = QGraphicsOpacityEffect(self._stop_btn)
+        self._stop_btn.setGraphicsEffect(effect)
+        anim = QVariantAnimation(self)
+        anim.setDuration(420)
+        anim.setKeyValueAt(0.0, 1.0)
+        anim.setKeyValueAt(0.25, 0.45)
+        anim.setKeyValueAt(0.5, 1.0)
+        anim.setKeyValueAt(0.75, 0.45)
+        anim.setKeyValueAt(1.0, 1.0)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
+        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+
+        def finish() -> None:
+            if self._stop_btn.graphicsEffect() is effect:
+                self._stop_btn.setGraphicsEffect(None)
+
+        anim.finished.connect(finish)
+        self._stop_pulse_anim = anim
+        anim.start()
 
     # ── Private ──────────────────────────────────────────────────────────
     def _show_idle(self) -> None:

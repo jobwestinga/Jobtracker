@@ -1,23 +1,22 @@
-"""
-Reorderable list for subject/task cards.
-
-Uses QListWidget internal move for smooth drag and drop, while still allowing
-fully custom QWidget cards as list items.
-"""
+"""Animated, auto-scrolling reorderable list for application cards."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QModelIndex,
     QPoint,
     QPropertyAnimation,
+    QRect,
     QSize,
+    QTimer,
     QVariantAnimation,
     Qt,
     Signal,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QAbstractItemView,
     QFrame,
@@ -37,9 +36,31 @@ class ReorderableCardList(QListWidget):
         super().__init__(parent)
         self._press_pos = QPoint()
         self._press_id: int | None = None
-        self._overlay_anim: QPropertyAnimation | None = None
-        self._overlay_label: QLabel | None = None
+        self._drag_id: int | None = None
+        self._drag_widget: QWidget | None = None
+        self._drag_overlay: QLabel | None = None
+        self._drag_pixmap = None
+        self._drag_scaled_pixmap = None
+        self._drag_scaled_size = QSize()
+        self._drag_cursor_offset = QPoint()
+        self._drag_global_pos = QPoint()
+        self._drag_initial_order: list[int] = []
+        self._drag_scale = 1.0
+        self._wobble_offset = 0
+        self._wobble_phase = 1
+        self._scale_anim: QVariantAnimation | None = None
+        self._drop_anim: QPropertyAnimation | None = None
+        self._reflow_anims: list[QPropertyAnimation] = []
+        self._reflow_overlays: list[QLabel] = []
         self._remove_anims: dict[int, QVariantAnimation] = {}
+        self._pulse_anims: dict[int, QVariantAnimation] = {}
+
+        self._wobble_timer = QTimer(self)
+        self._wobble_timer.setInterval(70)
+        self._wobble_timer.timeout.connect(self._tick_wobble)
+        self._auto_scroll_timer = QTimer(self)
+        self._auto_scroll_timer.setInterval(16)
+        self._auto_scroll_timer.timeout.connect(self._tick_auto_scroll)
 
         self.setFrameShape(QFrame.NoFrame)
         self.setSpacing(spacing)
@@ -52,6 +73,8 @@ class ReorderableCardList(QListWidget):
         self.setDropIndicatorShown(True)
         self.setDefaultDropAction(Qt.MoveAction)
         self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setAutoScroll(True)
+        self.setAutoScrollMargin(58)
 
     def add_card(self, item_id: int, widget: QWidget) -> None:
         item = QListWidgetItem()
@@ -64,6 +87,7 @@ class ReorderableCardList(QListWidget):
         self._install_drag_filters(widget)
 
     def clear_cards(self) -> None:
+        self._cancel_drag()
         self.clear()
         self._press_id = None
 
@@ -76,91 +100,68 @@ class ReorderableCardList(QListWidget):
                 ids.append(int(row_id))
         return ids
 
+    def capture_view_state(self) -> dict:
+        """Return enough transient UI state to survive a card-list rebuild."""
+        selected_id = None
+        current = self.currentItem()
+        if current is not None and current.data(Qt.UserRole) is not None:
+            selected_id = int(current.data(Qt.UserRole))
+        return {
+            "scroll": self.verticalScrollBar().value(),
+            "selected_id": selected_id,
+        }
+
+    def restore_view_state(self, state: dict | None) -> None:
+        """Restore selection and pixel scroll position after cards are rebuilt."""
+        if not state:
+            return
+
+        def apply_state() -> None:
+            selected_id = state.get("selected_id")
+            if selected_id is not None:
+                row = self._row_for_id(int(selected_id))
+                if row >= 0:
+                    self.setCurrentRow(row)
+            self.verticalScrollBar().setValue(int(state.get("scroll", 0)))
+
+        # QListWidget updates its scroll range after the event loop lays out the
+        # newly installed index widgets.
+        QTimer.singleShot(0, apply_state)
+
+    def pulse_card(self, item_id: int, duration_ms: int = 180) -> None:
+        """Give one card a restrained opacity pulse as shortcut feedback."""
+        row = self._row_for_id(item_id)
+        if row < 0:
+            return
+        widget = self.itemWidget(self.item(row))
+        if widget is None or widget.graphicsEffect() is not None:
+            return
+
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        effect.setOpacity(1.0)
+        anim = QVariantAnimation(self)
+        anim.setDuration(max(120, int(duration_ms)))
+        anim.setKeyValueAt(0.0, 1.0)
+        anim.setKeyValueAt(0.45, 0.68)
+        anim.setKeyValueAt(1.0, 1.0)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
+        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+
+        def finish() -> None:
+            self._pulse_anims.pop(int(item_id), None)
+            try:
+                if widget.graphicsEffect() is effect:
+                    widget.setGraphicsEffect(None)
+            except RuntimeError:
+                pass
+
+        anim.finished.connect(finish)
+        self._pulse_anims[int(item_id)] = anim
+        anim.start()
+
     def contains_id(self, item_id: int) -> bool:
         return self._row_for_id(item_id) >= 0
-
-    def animate_reorder(
-        self,
-        item_id: int,
-        new_order_ids: list[int],
-        on_finished=None,
-        duration_ms: int = 260,
-        emit_order_changed: bool = False,
-    ) -> None:
-        current_ids = self.ordered_ids()
-        if set(current_ids) != set(new_order_ids) or item_id not in current_ids:
-            if on_finished:
-                on_finished()
-            return
-
-        source_row = current_ids.index(item_id)
-        target_row = new_order_ids.index(item_id)
-        if source_row == target_row:
-            if on_finished:
-                on_finished()
-            return
-
-        source_item = self.item(source_row)
-        if source_item is None:
-            if on_finished:
-                on_finished()
-            return
-
-        if not self.isVisible() or not self.viewport().isVisible():
-            self._move_item_rows(source_row, target_row)
-            if emit_order_changed:
-                self.order_changed.emit(self.ordered_ids())
-            if on_finished:
-                on_finished()
-            return
-
-        source_widget = self.itemWidget(source_item)
-        if source_widget is None:
-            self._move_item_rows(source_row, target_row)
-            if emit_order_changed:
-                self.order_changed.emit(self.ordered_ids())
-            if on_finished:
-                on_finished()
-            return
-
-        start_rect = source_widget.geometry()
-        pix = source_widget.grab()
-
-        self.removeItemWidget(source_item)
-        moved_item = self.takeItem(source_row)
-        self.insertItem(target_row, moved_item)
-        self.setItemWidget(moved_item, source_widget)
-        source_widget.hide()
-        QApplication.processEvents()
-
-        end_rect = source_widget.geometry()
-
-        overlay = QLabel(self.viewport())
-        overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        overlay.setPixmap(pix)
-        overlay.setGeometry(start_rect)
-        overlay.show()
-
-        anim = QPropertyAnimation(overlay, b"geometry", self)
-        anim.setDuration(max(80, int(duration_ms)))
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.setStartValue(start_rect)
-        anim.setEndValue(end_rect)
-
-        def _finish() -> None:
-            source_widget.show()
-            overlay.deleteLater()
-            self._overlay_anim = None
-            self._overlay_label = None
-            if emit_order_changed:
-                self.order_changed.emit(self.ordered_ids())
-            if on_finished:
-                on_finished()
-
-        anim.finished.connect(_finish)
-        self._overlay_anim = anim
-        self._overlay_label = overlay
-        anim.start()
 
     def animate_remove(
         self,
@@ -234,23 +235,23 @@ class ReorderableCardList(QListWidget):
         anim.start()
 
     def _move_item_rows(self, source_row: int, target_row: int) -> None:
-        item = self.item(source_row)
-        if item is None:
+        if (
+            source_row == target_row
+            or source_row < 0
+            or target_row < 0
+            or source_row >= self.count()
+            or target_row >= self.count()
+        ):
             return
-        widget = self.itemWidget(item)
-        if widget is not None:
-            self.removeItemWidget(item)
-        moved_item = self.takeItem(source_row)
-        self.insertItem(target_row, moved_item)
-        if widget is not None:
-            self.setItemWidget(moved_item, widget)
-
-    def dropEvent(self, event) -> None:
-        before = self.ordered_ids()
-        super().dropEvent(event)
-        after = self.ordered_ids()
-        if before != after:
-            self.order_changed.emit(after)
+        # Moving through the model preserves the QListWidgetItem's index widget.
+        # takeItem()/insertItem() can cause Qt to destroy that widget later.
+        destination = target_row if target_row < source_row else target_row + 1
+        self.model().moveRow(
+            QModelIndex(),
+            source_row,
+            QModelIndex(),
+            destination,
+        )
 
     def eventFilter(self, watched, event) -> bool:
         if not isinstance(watched, QWidget):
@@ -265,35 +266,355 @@ class ReorderableCardList(QListWidget):
             return super().eventFilter(watched, event)
 
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if self._drag_id is not None:
+                return True
             self._press_id = int(item_id)
             self._press_pos = event.globalPosition().toPoint()
             return super().eventFilter(watched, event)
 
         if (
             event.type() == QEvent.MouseMove
-            and self._press_id is not None
-            and int(item_id) == self._press_id
+            and (self._press_id is not None or self._drag_id is not None)
             and (event.buttons() & Qt.LeftButton)
         ):
-            distance = (event.globalPosition().toPoint() - self._press_pos).manhattanLength()
-            if distance >= QApplication.startDragDistance():
+            global_pos = event.globalPosition().toPoint()
+            if self._drag_id is not None:
+                self._update_drag(global_pos)
+                return True
+            if int(item_id) == self._press_id:
+                distance = (global_pos - self._press_pos).manhattanLength()
+            else:
+                distance = 0
+            if distance >= QApplication.startDragDistance() and self.dragEnabled():
+                drag_id = int(item_id)
                 self._press_id = None
                 if hasattr(root, "suppress_next_click"):
                     root.suppress_next_click()
-                self._start_drag_for_id(int(item_id))
+                self._begin_drag(drag_id, global_pos)
                 return True
 
-        if event.type() == QEvent.MouseButtonRelease:
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            if self._drag_id is not None:
+                self._finish_drag()
+                return True
             self._press_id = None
 
         return super().eventFilter(watched, event)
 
-    def _start_drag_for_id(self, item_id: int) -> None:
+    def _begin_drag(self, item_id: int, global_pos: QPoint) -> None:
         row = self._row_for_id(item_id)
         if row < 0:
             return
-        self.setCurrentRow(row)
-        self.startDrag(Qt.MoveAction)
+        item = self.item(row)
+        widget = self.itemWidget(item)
+        if item is None or widget is None:
+            return
+
+        self._drag_id = item_id
+        self._drag_widget = widget
+        self._drag_initial_order = self.ordered_ids()
+        self._drag_global_pos = global_pos
+        self._drag_pixmap = widget.grab()
+        self._drag_scaled_pixmap = self._drag_pixmap
+        self._drag_scaled_size = self._drag_pixmap.size()
+        self._drag_scale = 1.0
+        self._wobble_offset = 0
+        self._wobble_phase = 1
+
+        widget_top_left = widget.mapToGlobal(QPoint(0, 0))
+        self._drag_cursor_offset = global_pos - widget_top_left
+
+        overlay = QLabel(self.viewport())
+        overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        overlay.setStyleSheet("background: transparent;")
+        overlay.setPixmap(self._drag_pixmap)
+        overlay.setGeometry(widget.geometry())
+        overlay.raise_()
+        overlay.show()
+        self._drag_overlay = overlay
+        self.viewport().grabMouse()
+        for button in widget.findChildren(QAbstractButton):
+            button.setDown(False)
+        widget.hide()
+
+        self._scale_anim = QVariantAnimation(self)
+        self._scale_anim.setDuration(105)
+        self._scale_anim.setStartValue(1.0)
+        self._scale_anim.setEndValue(0.965)
+        self._scale_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._scale_anim.valueChanged.connect(self._set_drag_scale)
+        self._scale_anim.start()
+        self._wobble_timer.start()
+        self._auto_scroll_timer.start()
+        self._update_drag(global_pos)
+
+    def _set_drag_scale(self, value) -> None:
+        try:
+            self._drag_scale = float(value)
+        except (TypeError, ValueError):
+            return
+        self._position_drag_overlay()
+
+    def _update_drag(self, global_pos: QPoint) -> None:
+        if self._drag_id is None:
+            return
+        self._drag_global_pos = global_pos
+        self._position_drag_overlay()
+        self._live_reorder_at(global_pos)
+
+    def _position_drag_overlay(self) -> None:
+        if (
+            self._drag_overlay is None
+            or self._drag_pixmap is None
+            or self._drag_id is None
+        ):
+            return
+        cursor = self.viewport().mapFromGlobal(self._drag_global_pos)
+        source_size = self._drag_pixmap.size()
+        width = max(1, int(source_size.width() * self._drag_scale))
+        height = max(1, int(source_size.height() * self._drag_scale))
+        requested_size = QSize(width, height)
+        if requested_size != self._drag_scaled_size:
+            self._drag_scaled_pixmap = self._drag_pixmap.scaled(
+                width,
+                height,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self._drag_scaled_size = requested_size
+            self._drag_overlay.setPixmap(self._drag_scaled_pixmap)
+        scaled = self._drag_scaled_pixmap
+        offset_x = int(self._drag_cursor_offset.x() * self._drag_scale)
+        offset_y = int(self._drag_cursor_offset.y() * self._drag_scale)
+        x = cursor.x() - offset_x + self._wobble_offset
+        y = cursor.y() - offset_y
+        self._drag_overlay.setGeometry(x, y, scaled.width(), scaled.height())
+        self._drag_overlay.raise_()
+
+    def _tick_wobble(self) -> None:
+        if self._drag_id is None:
+            self._wobble_timer.stop()
+            return
+        self._wobble_offset = self._wobble_phase
+        self._wobble_phase *= -1
+        self._position_drag_overlay()
+
+    def _tick_auto_scroll(self) -> None:
+        if self._drag_id is None:
+            self._auto_scroll_timer.stop()
+            return
+        cursor = self.viewport().mapFromGlobal(self._drag_global_pos)
+        margin = min(64, max(36, self.viewport().height() // 7))
+        delta = 0
+        if cursor.y() < margin:
+            delta = -max(2, int((margin - cursor.y()) / 3))
+        elif cursor.y() > self.viewport().height() - margin:
+            delta = max(
+                2,
+                int((cursor.y() - (self.viewport().height() - margin)) / 3),
+            )
+        if not delta:
+            return
+        bar = self.verticalScrollBar()
+        old_value = bar.value()
+        bar.setValue(old_value + delta)
+        if bar.value() != old_value:
+            self._position_drag_overlay()
+            self._live_reorder_at(self._drag_global_pos)
+
+    def _live_reorder_at(self, global_pos: QPoint) -> None:
+        if self._drag_id is None or self.count() < 2:
+            return
+        cursor = self.viewport().mapFromGlobal(global_pos)
+        source_row = self._row_for_id(self._drag_id)
+        if source_row < 0:
+            return
+
+        target_item = self.itemAt(QPoint(self.viewport().width() // 2, cursor.y()))
+        if target_item is None:
+            if cursor.y() < 0:
+                target_row = 0
+            elif cursor.y() > self.viewport().height():
+                target_row = self.count() - 1
+            else:
+                return
+        else:
+            target_row = self.row(target_item)
+            target_rect = self.visualItemRect(target_item)
+            if source_row < target_row and cursor.y() < target_rect.center().y():
+                target_row -= 1
+            elif source_row > target_row and cursor.y() > target_rect.center().y():
+                target_row += 1
+
+        target_row = max(0, min(self.count() - 1, target_row))
+        if target_row == source_row:
+            return
+        self._animate_live_move(source_row, target_row)
+
+    def _animate_live_move(self, source_row: int, target_row: int) -> None:
+        self._clear_reflow_animations()
+        old_rects: dict[int, QRect] = {}
+        old_pixmaps = {}
+        first_affected = min(source_row, target_row)
+        last_affected = max(source_row, target_row)
+        for row in range(first_affected, last_affected + 1):
+            item = self.item(row)
+            row_id = item.data(Qt.UserRole)
+            widget = self.itemWidget(item)
+            if row_id is None or widget is None or int(row_id) == self._drag_id:
+                continue
+            old_rects[int(row_id)] = self.visualItemRect(item)
+            old_pixmaps[int(row_id)] = widget.grab()
+
+        self._move_item_rows(source_row, target_row)
+        self.doItemsLayout()
+        if self._drag_widget is not None:
+            self._drag_widget.hide()
+
+        for row_id, old_rect in old_rects.items():
+            new_row = self._row_for_id(row_id)
+            if new_row < 0:
+                continue
+            item = self.item(new_row)
+            new_rect = self.visualItemRect(item)
+            if old_rect == new_rect:
+                continue
+            widget = self.itemWidget(item)
+            if widget is None:
+                continue
+            widget.hide()
+            overlay = QLabel(self.viewport())
+            overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            overlay.setPixmap(old_pixmaps[row_id])
+            overlay.setGeometry(old_rect)
+            overlay.show()
+
+            anim = QPropertyAnimation(overlay, b"geometry", self)
+            anim.setDuration(135)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.setStartValue(old_rect)
+            anim.setEndValue(new_rect)
+
+            def finish(
+                current_widget=widget,
+                current_overlay=overlay,
+                current_anim=anim,
+            ) -> None:
+                if current_widget is not self._drag_widget:
+                    current_widget.show()
+                current_overlay.deleteLater()
+                if current_anim in self._reflow_anims:
+                    self._reflow_anims.remove(current_anim)
+                if current_overlay in self._reflow_overlays:
+                    self._reflow_overlays.remove(current_overlay)
+
+            anim.finished.connect(finish)
+            self._reflow_anims.append(anim)
+            self._reflow_overlays.append(overlay)
+            anim.start()
+        if self._drag_overlay is not None:
+            self._drag_overlay.raise_()
+
+    def _clear_reflow_animations(self) -> None:
+        for anim in self._reflow_anims:
+            anim.stop()
+        self._reflow_anims.clear()
+        for overlay in self._reflow_overlays:
+            overlay.deleteLater()
+        self._reflow_overlays.clear()
+        for row in range(self.count()):
+            widget = self.itemWidget(self.item(row))
+            if widget is not None and widget is not self._drag_widget:
+                widget.show()
+
+    def _finish_drag(self) -> None:
+        if self._drag_id is None:
+            return
+        final_order = self.ordered_ids()
+        changed = final_order != self._drag_initial_order
+        self._wobble_timer.stop()
+        self._auto_scroll_timer.stop()
+        if QWidget.mouseGrabber() is self.viewport():
+            self.viewport().releaseMouse()
+        if self._scale_anim is not None:
+            self._scale_anim.stop()
+            self._scale_anim = None
+        self._clear_reflow_animations()
+
+        row = self._row_for_id(self._drag_id)
+        target_rect = self.visualItemRect(self.item(row)) if row >= 0 else QRect()
+        overlay = self._drag_overlay
+        widget = self._drag_widget
+
+        def cleanup() -> None:
+            if widget is not None:
+                try:
+                    widget.show()
+                except RuntimeError:
+                    pass
+            if overlay is not None:
+                overlay.deleteLater()
+            self._reset_drag_state()
+            if changed:
+                self.order_changed.emit(final_order)
+
+        if overlay is None or target_rect.isNull():
+            cleanup()
+            return
+        self._drop_anim = QPropertyAnimation(overlay, b"geometry", self)
+        self._drop_anim.setDuration(125)
+        self._drop_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._drop_anim.setStartValue(overlay.geometry())
+        self._drop_anim.setEndValue(target_rect)
+        self._drop_anim.finished.connect(cleanup)
+        self._drop_anim.start()
+
+    def _cancel_drag(self) -> None:
+        if self._drag_id is None:
+            return
+        self._wobble_timer.stop()
+        self._auto_scroll_timer.stop()
+        if self._scale_anim is not None:
+            self._scale_anim.stop()
+            self._scale_anim = None
+        if self._drop_anim is not None:
+            self._drop_anim.stop()
+            self._drop_anim = None
+        self._clear_reflow_animations()
+        if self._drag_widget is not None:
+            self._drag_widget.show()
+        if self._drag_overlay is not None:
+            self._drag_overlay.deleteLater()
+        self._reset_drag_state()
+
+    def _reset_drag_state(self) -> None:
+        if QWidget.mouseGrabber() is self.viewport():
+            self.viewport().releaseMouse()
+        self._drag_id = None
+        self._drag_widget = None
+        self._drag_overlay = None
+        self._drag_pixmap = None
+        self._drag_scaled_pixmap = None
+        self._drag_scaled_size = QSize()
+        self._drag_initial_order = []
+        self._drag_scale = 1.0
+        self._wobble_offset = 0
+        self._drop_anim = None
+        self._press_id = None
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_id is not None and (event.buttons() & Qt.LeftButton):
+            self._update_drag(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._drag_id is not None and event.button() == Qt.LeftButton:
+            self._finish_drag()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _row_for_id(self, item_id: int) -> int:
         for i in range(self.count()):

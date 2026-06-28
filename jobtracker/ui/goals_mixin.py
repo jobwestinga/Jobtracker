@@ -78,6 +78,8 @@ class GoalsMixin:
         self._todo_list = ReorderableCardList(spacing=8)
         self._todo_list.order_changed.connect(self._on_todo_order_changed)
         lay.addWidget(self._todo_list, 1)
+        self._goal_view_states = {False: None, True: None}
+        self._goals_rendered_view = False
 
         self._pages.addWidget(page)
 
@@ -92,7 +94,17 @@ class GoalsMixin:
             self._reload_tasks()
 
     def _reload_tasks(self) -> None:
+        rendered_view = getattr(
+            self, "_goals_rendered_view", self._showing_completed_goals
+        )
+        self._goal_view_states[rendered_view] = (
+            self._todo_list.capture_view_state()
+        )
+        restore_state = self._goal_view_states.get(
+            self._showing_completed_goals
+        )
         self._todo_list.clear_cards()
+        self._goals_rendered_view = self._showing_completed_goals
 
         goals = (
             self.service.get_completed_goals()
@@ -105,8 +117,8 @@ class GoalsMixin:
         self._goals_title.setText(
             "Completed Goals" if self._showing_completed_goals else "Goals"
         )
-        self._todo_list.setDragEnabled(not self._showing_completed_goals)
-        self._todo_list.setAcceptDrops(not self._showing_completed_goals)
+        self._todo_list.setDragEnabled(True)
+        self._todo_list.setAcceptDrops(True)
 
         if not goals:
             self._todo_empty.setText(
@@ -120,16 +132,22 @@ class GoalsMixin:
         self._todo_empty.hide()
         self._todo_list.show()
 
-        for goal in goals:
+        for index, goal in enumerate(goals, start=1):
             if goal.id is None:
                 continue
             progress = self.service.get_goal_progress(goal.id)
-            card = TodoTaskItemWidget(goal, self._tokens, progress=progress)
+            card = TodoTaskItemWidget(
+                goal,
+                self._tokens,
+                progress=progress,
+                shortcut_number=index if index <= 9 else None,
+            )
             card.open_requested.connect(self._open_goal)
             card.edit_requested.connect(self._edit_goal)
             card.delete_requested.connect(self._delete_goal)
             card.complete_requested.connect(self._complete_goal)
             self._todo_list.add_card(goal.id, card)
+        self._todo_list.restore_view_state(restore_state)
 
     # ── Goal actions ────────────────────────────────────────────────────
     def _new_goal(self) -> None:
@@ -208,7 +226,23 @@ class GoalsMixin:
         self._reload_tasks()
 
     def _on_todo_order_changed(self, ordered_ids: list[int]) -> None:
-        if self._showing_completed_goals:
+        completed = self._showing_completed_goals
+        goals = (
+            self.service.get_completed_goals()
+            if completed
+            else self.service.get_active_goals()
+        )
+        previous = [goal.id for goal in goals if goal.id is not None]
+        if previous == ordered_ids:
             return
-        self.service.set_todo_task_order(ordered_ids)
-        self._reload_tasks()
+        self.service.set_todo_task_order(
+            ordered_ids, completed=completed
+        )
+        if hasattr(self, "_register_undo"):
+            self._register_undo(
+                lambda old=previous, completed_view=completed: (
+                    self.service.set_todo_task_order(
+                        old, completed=completed_view
+                    )
+                )
+            )
