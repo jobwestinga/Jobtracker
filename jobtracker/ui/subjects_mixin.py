@@ -140,7 +140,7 @@ class SubjectsMixin:
                 is_archived=bool(subject.is_archived),
                 shortcut_number=(
                     index
-                    if not self._showing_archived and index <= 9
+                    if not self._showing_archived
                     else None
                 ),
             )

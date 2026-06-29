@@ -225,9 +225,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             if goal_id is not None:
                 goal_id = int(goal_id)
                 self._todo_list.pulse_card(goal_id)
-                QTimer.singleShot(
-                    140, lambda selected=goal_id: self._open_goal(selected)
-                )
+                self._open_goal_after_shortcut_feedback(goal_id)
             return
         if page == 1:
             # Number shortcuts may only START tracking. They never stop or
@@ -248,6 +246,16 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             mode = ("bar", "agenda", "heatmap")[number - 1]
             self._set_graph_view_mode(mode)
             self._pulse_widget(self._graph_mode_buttons[mode])
+
+    def _open_goal_after_shortcut_feedback(self, goal_id: int) -> None:
+        if hasattr(self, "_goal_shortcut_timer"):
+            self._goal_shortcut_timer.stop()
+        self._goal_shortcut_timer = QTimer(self)
+        self._goal_shortcut_timer.setSingleShot(True)
+        self._goal_shortcut_timer.timeout.connect(
+            lambda selected=goal_id: self._open_goal(selected)
+        )
+        self._goal_shortcut_timer.start(140)
 
     def _handle_escape_shortcut(self) -> None:
         if not self._shortcut_focus_allows_navigation():
@@ -281,7 +289,15 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         anim.setKeyValueAt(0.45, 0.62)
         anim.setKeyValueAt(1.0, 1.0)
         anim.setEasingCurve(QEasingCurve.InOutCubic)
-        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+        def set_opacity(value) -> None:
+            try:
+                effect.setOpacity(float(value))
+            except RuntimeError:
+                anim.stop()
+                if anim in self._shortcut_feedback_anims:
+                    self._shortcut_feedback_anims.remove(anim)
+
+        anim.valueChanged.connect(set_opacity)
 
         def finish() -> None:
             try:

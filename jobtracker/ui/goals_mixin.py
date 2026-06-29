@@ -140,7 +140,7 @@ class GoalsMixin:
                 goal,
                 self._tokens,
                 progress=progress,
-                shortcut_number=index if index <= 9 else None,
+                shortcut_number=index,
             )
             card.open_requested.connect(self._open_goal)
             card.edit_requested.connect(self._edit_goal)

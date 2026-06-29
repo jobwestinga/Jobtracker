@@ -146,7 +146,16 @@ class ReorderableCardList(QListWidget):
         anim.setKeyValueAt(0.45, 0.68)
         anim.setKeyValueAt(1.0, 1.0)
         anim.setEasingCurve(QEasingCurve.InOutCubic)
-        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+        def set_opacity(value) -> None:
+            try:
+                effect.setOpacity(float(value))
+            except RuntimeError:
+                # The card may be rebuilt while the brief feedback animation is
+                # still running. Its Qt effect is then already destroyed.
+                anim.stop()
+                self._pulse_anims.pop(int(item_id), None)
+
+        anim.valueChanged.connect(set_opacity)
 
         def finish() -> None:
             self._pulse_anims.pop(int(item_id), None)
@@ -162,6 +171,36 @@ class ReorderableCardList(QListWidget):
 
     def contains_id(self, item_id: int) -> bool:
         return self._row_for_id(item_id) >= 0
+
+    def _renumber_shortcut_badges(self) -> None:
+        """Keep visible 1–9 keycaps aligned with the current live row order."""
+        for row in range(self.count()):
+            widget = self.itemWidget(self.item(row))
+            if widget is None:
+                continue
+            number = row + 1
+            for badge in widget.findChildren(QLabel):
+                if not badge.property("_jt_shortcut_badge"):
+                    continue
+                badge.setText(str(number))
+                template = badge.property("_jt_shortcut_tooltip")
+                if template:
+                    badge.setToolTip(
+                        str(template).format(number=number)
+                    )
+                badge.setVisible(number <= 9)
+
+    def _refresh_drag_pixmap(self) -> None:
+        """Repaint the floating card after its live shortcut number changes."""
+        if self._drag_widget is None or self._drag_overlay is None:
+            return
+        pixmap = self._drag_widget.grab()
+        if pixmap.isNull():
+            return
+        self._drag_pixmap = pixmap
+        self._drag_scaled_pixmap = pixmap
+        self._drag_scaled_size = QSize()
+        self._position_drag_overlay()
 
     def animate_remove(
         self,
@@ -454,7 +493,6 @@ class ReorderableCardList(QListWidget):
     def _animate_live_move(self, source_row: int, target_row: int) -> None:
         self._clear_reflow_animations()
         old_rects: dict[int, QRect] = {}
-        old_pixmaps = {}
         first_affected = min(source_row, target_row)
         last_affected = max(source_row, target_row)
         for row in range(first_affected, last_affected + 1):
@@ -464,10 +502,11 @@ class ReorderableCardList(QListWidget):
             if row_id is None or widget is None or int(row_id) == self._drag_id:
                 continue
             old_rects[int(row_id)] = self.visualItemRect(item)
-            old_pixmaps[int(row_id)] = widget.grab()
 
         self._move_item_rows(source_row, target_row)
+        self._renumber_shortcut_badges()
         self.doItemsLayout()
+        self._refresh_drag_pixmap()
         if self._drag_widget is not None:
             self._drag_widget.hide()
 
@@ -482,10 +521,13 @@ class ReorderableCardList(QListWidget):
             widget = self.itemWidget(item)
             if widget is None:
                 continue
+            updated_pixmap = widget.grab()
             widget.hide()
             overlay = QLabel(self.viewport())
             overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            overlay.setPixmap(old_pixmaps[row_id])
+            # Grab after renumbering so the moving card displays its new
+            # shortcut number throughout the reflow animation.
+            overlay.setPixmap(updated_pixmap)
             overlay.setGeometry(old_rect)
             overlay.show()
 

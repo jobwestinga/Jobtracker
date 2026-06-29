@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -202,6 +203,9 @@ def test_number_shortcuts_are_context_sensitive_and_never_switch_sessions(
         assert first_goal.id != second_goal.id
 
         window._switch_page(2)
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
         for key, mode in (
             (Qt.Key_1, "bar"),
             (Qt.Key_2, "agenda"),
@@ -414,6 +418,9 @@ def test_goal_detail_number_shortcuts_toggle_matching_milestones(service):
     QTest.qWait(350)
     qt_app.processEvents()
 
+    detail.activateWindow()
+    detail.setFocus()
+    qt_app.processEvents()
     QTest.keyClick(detail, Qt.Key_2)
     assert service.db.get_milestone(second.id).is_done == 0
     detail.close()
@@ -470,6 +477,48 @@ def test_reorderable_list_uses_floating_drag_and_live_reflow():
     qt_app.processEvents()
     assert emitted == [[3, 1, 2]]
     assert card_list._drag_overlay is None
+    card_list.close()
+
+
+def test_live_reorder_immediately_renumbers_badges_across_top_nine_boundary():
+    qt_app = _application()
+    card_list = ReorderableCardList(spacing=4)
+    card_list.resize(360, 620)
+    badges = {}
+    for item_id in range(1, 11):
+        card = QFrame()
+        card.setFixedHeight(50)
+        layout = QHBoxLayout(card)
+        badge = QLabel(str(item_id))
+        badge.setProperty("_jt_shortcut_badge", True)
+        badge.setProperty(
+            "_jt_shortcut_tooltip", "Press {number} to open"
+        )
+        badge.setVisible(item_id <= 9)
+        layout.addWidget(badge)
+        layout.addStretch()
+        badges[item_id] = badge
+        card_list.add_card(item_id, card)
+
+    card_list.show()
+    qt_app.processEvents()
+    dragged = card_list.itemWidget(card_list.item(9))
+    card_list._begin_drag(
+        10, dragged.mapToGlobal(dragged.rect().center())
+    )
+    old_pixmap_key = card_list._drag_pixmap.cacheKey()
+
+    card_list._animate_live_move(9, 0)
+
+    assert card_list.ordered_ids()[0] == 10
+    assert badges[10].text() == "1"
+    assert not badges[10].isHidden()
+    assert badges[10].toolTip() == "Press 1 to open"
+    assert badges[9].text() == "10"
+    assert badges[9].isHidden()
+    assert card_list._drag_pixmap.cacheKey() != old_pixmap_key
+
+    card_list._cancel_drag()
     card_list.close()
 
 
@@ -786,6 +835,8 @@ def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
     assert high == QColor("#4DFF88")
 
     cell, origin_x, origin_y = heatmap._canvas._metrics()
+    heatmap.activateWindow()
+    qt_app.processEvents()
     QTest.mouseMove(
         heatmap._canvas,
         QPoint(origin_x + cell // 2, origin_y + 6 * (cell + GAP) + cell // 2),

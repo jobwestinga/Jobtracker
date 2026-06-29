@@ -408,7 +408,7 @@ class GoalDetailDialog(QDialog):
                     milestone.id,
                     self._milestone_row(
                         milestone,
-                        shortcut_number=index if index <= 9 else None,
+                        shortcut_number=index,
                     ),
                 )
             self._ms_list.restore_view_state(view_state)
@@ -444,6 +444,11 @@ class GoalDetailDialog(QDialog):
         title_row.setSpacing(8)
         if shortcut_number is not None:
             shortcut = QLabel(str(shortcut_number))
+            shortcut.setProperty("_jt_shortcut_badge", True)
+            shortcut.setProperty(
+                "_jt_shortcut_tooltip",
+                "Press {number} to toggle this milestone",
+            )
             shortcut.setAlignment(Qt.AlignCenter)
             shortcut.setFixedSize(22, 22)
             shortcut.setToolTip(
@@ -455,6 +460,7 @@ class GoalDetailDialog(QDialog):
                 f" border-radius: 6px; color: {self._tokens['TEXT_SECONDARY']};"
                 " font-size: 10px; font-weight: 750;"
             )
+            shortcut.setVisible(1 <= shortcut_number <= 9)
             title_row.addWidget(shortcut, 0, Qt.AlignTop)
 
         check = QCheckBox(milestone.title)
@@ -543,6 +549,11 @@ class GoalDetailDialog(QDialog):
             owner._perform_undo(force=True)
             self._reload()
 
+    def done(self, result: int) -> None:
+        if hasattr(self, "_milestone_reload_timer"):
+            self._milestone_reload_timer.stop()
+        super().done(result)
+
     def _toggle_milestone_by_number(self, index: int) -> None:
         if 0 <= index < len(self._milestone_checks):
             checkbox = self._milestone_checks[index]
@@ -579,7 +590,12 @@ class GoalDetailDialog(QDialog):
             origin = source.mapTo(self, indicator_center)
             burst = _StarBurstOverlay(self, origin, count=12, colors=self._star_colors())
             burst.start()
-            QTimer.singleShot(320, self._reload)
+            if hasattr(self, "_milestone_reload_timer"):
+                self._milestone_reload_timer.stop()
+            self._milestone_reload_timer = QTimer(self)
+            self._milestone_reload_timer.setSingleShot(True)
+            self._milestone_reload_timer.timeout.connect(self._reload)
+            self._milestone_reload_timer.start(320)
         else:
             self._reload()
 

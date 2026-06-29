@@ -186,6 +186,11 @@ class TodoTaskItemWidget(QFrame):
 
         if self._shortcut_number is not None:
             shortcut = QLabel(str(self._shortcut_number))
+            shortcut.setProperty("_jt_shortcut_badge", True)
+            shortcut.setProperty(
+                "_jt_shortcut_tooltip",
+                "Press {number} to open this goal",
+            )
             shortcut.setAlignment(Qt.AlignCenter)
             shortcut.setFixedSize(22, 22)
             shortcut.setToolTip(f"Press {self._shortcut_number} to open this goal")
@@ -194,6 +199,7 @@ class TodoTaskItemWidget(QFrame):
                 f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
                 f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
             )
+            shortcut.setVisible(1 <= self._shortcut_number <= 9)
             layout.addWidget(shortcut, 0, Qt.AlignTop)
 
         info = QVBoxLayout()
