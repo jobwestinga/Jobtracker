@@ -7,17 +7,19 @@ an isolated database.
 
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt
+from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
 )
 
@@ -157,6 +159,92 @@ def test_left_right_arrows_switch_main_pages_but_not_text_cursor(
         qt_app.processEvents()
 
 
+def test_latest_up_down_direction_ignores_stale_opposite_auto_repeat(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    menu = QListWidget()
+    menu.addItems([f"Item {index}" for index in range(10)])
+    menu.setCurrentRow(4)
+    menu.show()
+    menu.activateWindow()
+    menu.setFocus()
+    qt_app.processEvents()
+    try:
+        # Hold Down, then reverse to Up before the old repeat queue is empty.
+        QTest.keyPress(menu, Qt.Key_Down)
+        assert menu.currentRow() == 5
+        QTest.keyPress(menu, Qt.Key_Up)
+        assert menu.currentRow() == 4
+
+        stale_down = QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_Down,
+            Qt.NoModifier,
+            "",
+            True,
+            1,
+        )
+        QApplication.sendEvent(menu, stale_down)
+        assert menu.currentRow() == 4
+
+        # Repeat belonging to the newly selected direction still works.
+        current_up = QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_Up,
+            Qt.NoModifier,
+            "",
+            True,
+            1,
+        )
+        QApplication.sendEvent(menu, current_up)
+        assert menu.currentRow() == 3
+    finally:
+        QTest.keyRelease(menu, Qt.Key_Up)
+        QTest.keyRelease(menu, Qt.Key_Down)
+        menu.close()
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_arrow_reversal_scrolls_viewport_on_first_opposite_step(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    menu = QListWidget()
+    menu.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+    menu.setSpacing(2)
+    for index in range(12):
+        menu.addItem(f"Item {index}")
+        menu.item(index).setSizeHint(QSize(220, 34))
+    menu.resize(260, 125)
+    menu.setCurrentRow(0)
+    menu.show()
+    menu.activateWindow()
+    menu.setFocus()
+    qt_app.processEvents()
+    try:
+        for _ in range(6):
+            QTest.keyClick(menu, Qt.Key_Down)
+            qt_app.processEvents()
+        before_reverse = menu.verticalScrollBar().value()
+        assert before_reverse > 0
+
+        QTest.keyClick(menu, Qt.Key_Up)
+        qt_app.processEvents()
+
+        assert menu.currentRow() == 5
+        assert menu.verticalScrollBar().value() < before_reverse
+    finally:
+        menu.close()
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
 def test_number_shortcuts_are_context_sensitive_and_never_switch_sessions(
     database, monkeypatch
 ):
@@ -270,6 +358,44 @@ def test_active_session_blocks_quit_and_indicator_only_returns_to_subjects(
         qt_app.processEvents()
 
 
+def test_tracking_transitions_defer_widget_rebuild_and_skip_hidden_graphs(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("Deferred", "#22C55E", "")
+        window._reload_subjects()
+        calls = []
+        original_reload_subjects = window._reload_subjects
+        original_reload_graphs = window._reload_graphs
+        window._reload_subjects = lambda: calls.append("subjects")
+        window._reload_graphs = lambda: calls.append("graphs")
+
+        window._start_tracking(subject.id)
+        assert window.service.active_session is not None
+        assert window._tracking_refresh_timer.isActive()
+        assert calls == []
+
+        qt_app.processEvents()
+        assert calls == ["subjects"]
+
+        calls.clear()
+        window._stop_tracking()
+        assert window.service.active_session is None
+        assert window._tracking_refresh_timer.isActive()
+        assert calls == []
+
+        qt_app.processEvents()
+        assert calls == ["subjects"]
+        window._reload_subjects = original_reload_subjects
+        window._reload_graphs = original_reload_graphs
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
 def test_escape_graph_ranges_and_shortcut_badges(database, monkeypatch):
     qt_app, window = _window(database, monkeypatch)
     try:
@@ -370,7 +496,7 @@ def test_one_level_undo_restores_subject_archive_order_and_milestone(
         qt_app.processEvents()
 
 
-def test_reorderable_list_restores_scroll_and_selection_after_rebuild():
+def test_reorderable_list_restores_scroll_without_task_selection():
     qt_app = _application()
     card_list = ReorderableCardList(spacing=6)
     card_list.resize(360, 180)
@@ -384,7 +510,10 @@ def test_reorderable_list_restores_scroll_and_selection_after_rebuild():
     populate()
     card_list.show()
     qt_app.processEvents()
-    card_list.setCurrentRow(8)
+    assert (
+        card_list.selectionMode()
+        == QAbstractItemView.NoSelection
+    )
     card_list.verticalScrollBar().setValue(
         card_list.verticalScrollBar().maximum() // 2
     )
@@ -396,8 +525,34 @@ def test_reorderable_list_restores_scroll_and_selection_after_rebuild():
     card_list.restore_view_state(state)
     qt_app.processEvents()
 
-    assert card_list.currentItem().data(Qt.UserRole) == 9
     assert card_list.verticalScrollBar().value() == state["scroll"]
+    card_list.close()
+
+
+def test_reorderable_list_arrows_scroll_one_card_from_first_press():
+    qt_app = _application()
+    card_list = ReorderableCardList(spacing=6)
+    card_list.resize(360, 180)
+    for item_id in range(1, 9):
+        card = QFrame()
+        card.setFixedHeight(50)
+        card_list.add_card(item_id, card)
+        card_list.item(card_list.count() - 1).setSizeHint(QSize(300, 50))
+    card_list.show()
+    card_list.activateWindow()
+    card_list.setFocus()
+    qt_app.processEvents()
+
+    assert card_list.verticalScrollBar().value() == 0
+    QTest.keyClick(card_list, Qt.Key_Down)
+    qt_app.processEvents()
+    assert card_list.verticalScrollBar().value() == 56
+    assert card_list.selectedItems() == []
+
+    QTest.keyClick(card_list, Qt.Key_Up)
+    qt_app.processEvents()
+    assert card_list.verticalScrollBar().value() == 0
+    assert card_list.selectedItems() == []
     card_list.close()
 
 

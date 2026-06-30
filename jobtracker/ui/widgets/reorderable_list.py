@@ -65,7 +65,8 @@ class ReorderableCardList(QListWidget):
         self.setFrameShape(QFrame.NoFrame)
         self.setSpacing(spacing)
         self.setMovement(QListView.Static)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setSelectionMode(QAbstractItemView.NoSelection)
+        self.setProperty("_jt_direct_arrow_scroll", True)
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setDragEnabled(True)
@@ -101,15 +102,8 @@ class ReorderableCardList(QListWidget):
         return ids
 
     def capture_view_state(self) -> dict:
-        """Return enough transient UI state to survive a card-list rebuild."""
-        selected_id = None
-        current = self.currentItem()
-        if current is not None and current.data(Qt.UserRole) is not None:
-            selected_id = int(current.data(Qt.UserRole))
-        return {
-            "scroll": self.verticalScrollBar().value(),
-            "selected_id": selected_id,
-        }
+        """Return transient scroll state to survive a card-list rebuild."""
+        return {"scroll": self.verticalScrollBar().value()}
 
     def restore_view_state(self, state: dict | None) -> None:
         """Restore selection and pixel scroll position after cards are rebuilt."""
@@ -117,16 +111,44 @@ class ReorderableCardList(QListWidget):
             return
 
         def apply_state() -> None:
-            selected_id = state.get("selected_id")
-            if selected_id is not None:
-                row = self._row_for_id(int(selected_id))
-                if row >= 0:
-                    self.setCurrentRow(row)
             self.verticalScrollBar().setValue(int(state.get("scroll", 0)))
 
         # QListWidget updates its scroll range after the event loop lays out the
         # newly installed index widgets.
         QTimer.singleShot(0, apply_state)
+
+    def scroll_one_card(self, key: int) -> None:
+        """Move the viewport exactly one task card without changing selection."""
+        if key not in (Qt.Key_Up, Qt.Key_Down) or self.count() == 0:
+            return
+        center_x = max(0, self.viewport().width() // 2)
+        first = self.itemAt(QPoint(center_x, 1))
+        if first is None:
+            for row in range(self.count()):
+                candidate = self.item(row)
+                if self.visualItemRect(candidate).bottom() >= 0:
+                    first = candidate
+                    break
+        if first is None:
+            return
+
+        row = self.row(first)
+        step_row = row if key == Qt.Key_Down else max(0, row - 1)
+        step_item = self.item(step_row)
+        height = step_item.sizeHint().height()
+        if height <= 0:
+            height = self.visualItemRect(step_item).height()
+        step = max(1, height + self.spacing())
+        direction = -1 if key == Qt.Key_Up else 1
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.value() + direction * step)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
+            self.scroll_one_card(event.key())
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def pulse_card(self, item_id: int, duration_ms: int = 180) -> None:
         """Give one card a restrained opacity pulse as shortcut feedback."""

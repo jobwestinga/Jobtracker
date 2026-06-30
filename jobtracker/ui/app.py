@@ -11,18 +11,28 @@ settings dialog, animation/state wiring, recovery prompt, and close handling.
 from __future__ import annotations
 
 import logging
+import weakref
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QEasingCurve, QEvent, QTimer, QVariantAnimation, Qt
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QTimer,
+    QVariantAnimation,
+    Qt,
+)
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLineEdit,
+    QListView,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -46,6 +56,121 @@ from .widgets.recovery_dialog import RecoveryDialog
 from .widgets.settings_dialog import SettingsDialog
 
 logger = logging.getLogger("jobtracker")
+
+
+class _LatestArrowDirectionFilter(QObject):
+    """Prevent stale key-repeat events from delaying Up/Down reversal.
+
+    macOS can leave repeat events from one held arrow in Qt's input queue after
+    the opposite arrow is pressed. Native menus then appear to keep travelling
+    in the old direction. The latest physical press owns repeat until another
+    physical press changes direction.
+    """
+
+    _DIRECTION_KEYS = {Qt.Key_Up, Qt.Key_Down}
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._held: set[int] = set()
+        self._preferred: int | None = None
+        self._view_states = weakref.WeakKeyDictionary()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        event_type = event.type()
+        if event_type == QEvent.ApplicationDeactivate:
+            self._held.clear()
+            self._view_states.clear()
+            return False
+        view = self._item_view_for(watched)
+        if view is not None and event_type in (
+            QEvent.FocusIn,
+            QEvent.MouseButtonPress,
+            QEvent.Wheel,
+        ):
+            self._view_states.pop(view, None)
+        if event_type not in (QEvent.KeyPress, QEvent.KeyRelease):
+            return False
+
+        key = event.key()
+        if key not in self._DIRECTION_KEYS:
+            if view is not None and event_type == QEvent.KeyPress:
+                self._view_states.pop(view, None)
+            return False
+
+        if event_type == QEvent.KeyPress:
+            if event.isAutoRepeat():
+                if key not in self._held or key != self._preferred:
+                    return True
+            else:
+                self._held.add(key)
+                self._preferred = key
+            if view is not None:
+                if view.property("_jt_direct_arrow_scroll"):
+                    view.scroll_one_card(key)
+                    return True
+                self._follow_view_scroll_after_key(view, key)
+            return False
+
+        if not event.isAutoRepeat():
+            self._held.discard(key)
+        return False
+
+    @staticmethod
+    def _item_view_for(watched) -> QAbstractItemView | None:
+        current = watched if isinstance(watched, QWidget) else None
+        while current is not None:
+            if isinstance(current, QAbstractItemView):
+                return current
+            current = current.parentWidget()
+        return None
+
+    def _follow_view_scroll_after_key(
+        self, view: QAbstractItemView, key: int
+    ) -> None:
+        try:
+            before = view.verticalScrollBar().value()
+            view_ref = weakref.ref(view)
+        except RuntimeError:
+            return
+
+        def adjust() -> None:
+            current_view = view_ref()
+            if current_view is None:
+                return
+            try:
+                bar = current_view.verticalScrollBar()
+                after = bar.value()
+                state = self._view_states.setdefault(
+                    current_view, {"following": False}
+                )
+                if after != before:
+                    state["following"] = True
+                    return
+                if not state["following"] or bar.maximum() <= bar.minimum():
+                    return
+
+                if (
+                    current_view.verticalScrollMode()
+                    == QAbstractItemView.ScrollPerPixel
+                ):
+                    rect = current_view.visualRect(
+                        current_view.currentIndex()
+                    )
+                    step = max(1, rect.height())
+                    if isinstance(current_view, QListView):
+                        step += current_view.spacing()
+                else:
+                    step = 1
+
+                direction = -1 if key == Qt.Key_Up else 1
+                bar.setValue(before + direction * step)
+                if bar.value() == before:
+                    state["following"] = False
+            except RuntimeError:
+                return
+
+        # Run after the native view has moved its current selection.
+        QTimer.singleShot(0, adjust)
 
 
 class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
@@ -90,6 +215,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._active_indicator_timer.timeout.connect(
             self._update_active_session_indicator
         )
+        self._install_arrow_direction_filter()
         self._install_shortcuts()
         self._apply_theme()
         self._generate_due_goals(reload=False)
@@ -117,6 +243,15 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
         # After the window is up, offer recovery for any unfinished session.
         QTimer.singleShot(0, self._maybe_prompt_recovery)
+
+    def _install_arrow_direction_filter(self) -> None:
+        arrow_filter = getattr(
+            self.app_instance, "_jobtracker_arrow_direction_filter", None
+        )
+        if arrow_filter is None:
+            arrow_filter = _LatestArrowDirectionFilter(self.app_instance)
+            self.app_instance.installEventFilter(arrow_filter)
+            self.app_instance._jobtracker_arrow_direction_filter = arrow_filter
 
     # ── state / animation wiring ────────────────────────────────────────
     def _maybe_prompt_recovery(self) -> None:

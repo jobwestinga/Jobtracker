@@ -8,7 +8,7 @@ window: ``self.service``, ``self._tokens``, ``self._pages``, ``self._reload_grap
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
@@ -89,6 +89,12 @@ class SubjectsMixin:
         lay.addWidget(self._subjects_list, 1)
         self._subject_view_states = {False: None, True: None}
         self._subjects_rendered_view = False
+        self._pending_tracking_feedback_id: int | None = None
+        self._tracking_refresh_timer = QTimer(self)
+        self._tracking_refresh_timer.setSingleShot(True)
+        self._tracking_refresh_timer.timeout.connect(
+            self._apply_tracking_refresh
+        )
 
         self._pages.addWidget(page)
 
@@ -296,12 +302,33 @@ class SubjectsMixin:
         self, subject_id: int, shortcut_feedback: bool = False
     ) -> None:
         if self.service.start_subject(subject_id):
-            self._reload_subjects()
-            if shortcut_feedback:
-                self._subjects_list.pulse_card(subject_id)
-            self._reload_graphs()
+            self._pending_tracking_feedback_id = (
+                subject_id if shortcut_feedback else None
+            )
+            # Let the originating mouse/key event finish before rebuilding the
+            # card list. Destroying or hiding the event source synchronously can
+            # make a fullscreen macOS window lose activation.
+            self._tracking_refresh_timer.start(0)
 
     def _stop_tracking(self) -> None:
         self.service.stop_active_subject()
+        self._pending_tracking_feedback_id = None
+        # The Stop button sits on the timer page that the refresh hides. Defer
+        # that page switch until its click event has returned to Qt.
+        self._tracking_refresh_timer.start(0)
+
+    def _apply_tracking_refresh(self) -> None:
         self._reload_subjects()
-        self._reload_graphs()
+        feedback_id = self._pending_tracking_feedback_id
+        self._pending_tracking_feedback_id = None
+        if (
+            feedback_id is not None
+            and self.service.active_subject is not None
+            and self.service.active_subject.id == feedback_id
+        ):
+            self._subjects_list.pulse_card(feedback_id)
+
+        # Starting/stopping is only available from Subjects. Avoid redrawing a
+        # hidden chart; entering Graphs already performs a fresh reload.
+        if self._pages.currentIndex() == 2:
+            self._reload_graphs()
