@@ -6,18 +6,14 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from html import escape
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 from ...core.themes import DEFAULT_TOKENS
-
-
-def _with_alpha(hex_color: str, alpha: int) -> QColor:
-    c = QColor(hex_color)
-    c.setAlpha(max(0, min(255, alpha)))
-    return c
+from .paint_utils import HoverCard, with_alpha as _with_alpha
 
 
 def _intensity_style(seconds: float) -> tuple[str, float]:
@@ -72,17 +68,22 @@ def _merge_adjacent_segments(segments: list[dict]) -> list[dict]:
 
 
 class _GraphCanvas(QWidget):
+    day_clicked = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(False)
+        self.setMouseTracking(True)
         self._data: list[dict] = []
         self._tokens: dict = {}
         self._fit_width: bool = True
         self._grouping: str = "daily"
+        self._hover_card = HoverCard(self)
         self.setMinimumHeight(360)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
+        self._hover_card.apply_tokens(tokens)
         self.update()
 
     def set_data(
@@ -91,10 +92,11 @@ class _GraphCanvas(QWidget):
         fit_width: bool,
         grouping: str = "daily",
     ) -> None:
+        self._hover_card.hide()
         self._data = data
         self._fit_width = fit_width
         self._grouping = grouping
-        
+
         bar_count = max(1, len(self._data))
         gap = 10
         min_bar_width = 12
@@ -109,8 +111,43 @@ class _GraphCanvas(QWidget):
             self.setMinimumWidth(max(max(400, min_canvas_width), required_width))
         else:
             self.setMinimumWidth(100)
-            
+
         self.update()
+
+    # ── geometry shared by painting and mouse hit-testing ────────────────
+    def _chart_rect(self) -> QRectF:
+        return QRectF(
+            44, 26, max(80, self.width() - 66), max(120, self.height() - 70)
+        )
+
+    def _bar_layout(self) -> tuple[float, float]:
+        """(bar_width, gap) for the current data and canvas width."""
+        chart = self._chart_rect()
+        bar_count = max(1, len(self._data))
+        gap = 10
+        if self._fit_width and bar_count > 15:
+            gap = 4
+        total_gap = gap * (bar_count - 1)
+        bar_width = (chart.width() - total_gap) / bar_count
+        if not self._fit_width:
+            return max(12, bar_width), gap
+        return max(2, bar_width), gap
+
+    def _bar_index_at(self, x: float, y: float) -> int | None:
+        if not self._data:
+            return None
+        chart = self._chart_rect()
+        if not (chart.top() <= y <= chart.bottom()):
+            return None
+        bar_width, gap = self._bar_layout()
+        local = x - chart.left()
+        if local < 0:
+            return None
+        stride = bar_width + gap
+        idx = int(local // stride)
+        if idx >= len(self._data) or (local % stride) > bar_width:
+            return None
+        return idx
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
@@ -123,7 +160,7 @@ class _GraphCanvas(QWidget):
         p.setBrush(_with_alpha(t["BG_SECONDARY"], 120))
         p.drawRoundedRect(outer, 12, 12)
 
-        chart = QRectF(44, 26, max(80, self.width() - 66), max(120, self.height() - 70))
+        chart = self._chart_rect()
 
         if not self._data:
             p.setPen(QColor(t["TEXT_DIMMED"]))
@@ -147,16 +184,8 @@ class _GraphCanvas(QWidget):
         p.drawText(4, int(top_y) + 4, f"{max_total / 3600:.1f}h")
         p.drawText(4, int(base_y) + 4, "0.0h")
 
-        bar_count = max(1, len(self._data))
-        gap = 10
-        if self._fit_width and bar_count > 15:
-            gap = 4
-        total_gap = gap * (bar_count - 1)
-        bar_width = (chart.width() - total_gap) / bar_count
-        if not self._fit_width:
-            bar_width = max(12, bar_width)
-        else:
-            bar_width = max(2, bar_width)
+        bar_width, gap = self._bar_layout()
+        bar_count = len(self._data)
 
         for idx, day_data in enumerate(self._data):
             x = chart.left() + idx * (bar_width + gap)
@@ -235,13 +264,78 @@ class _GraphCanvas(QWidget):
                     day_text,
                 )
 
+    # ── hover / click ─────────────────────────────────────────────────────
+    def _bucket_title(self, date_iso: str) -> str:
+        try:
+            bucket_date = datetime.fromisoformat(date_iso).date()
+        except ValueError:
+            return date_iso
+        if self._grouping == "weekly":
+            _, iso_week, _ = bucket_date.isocalendar()
+            return f"Week {iso_week:02d} · from {bucket_date.strftime('%d %b %Y')}"
+        if self._grouping == "monthly":
+            return bucket_date.strftime("%B %Y")
+        return bucket_date.strftime("%A, %d %B %Y")
+
+    def _bar_html(self, day_data: dict) -> str:
+        total_h = max(0, int(day_data.get("total_seconds", 0))) / 3600.0
+        lines = [
+            f"<b>{self._bucket_title(day_data.get('date', ''))}</b>",
+            f"{total_h:.1f} tracked hours",
+        ]
+        per_subject: dict[tuple[str, str], int] = {}
+        for seg in day_data.get("segments", []):
+            key = (seg.get("subject_name", ""), seg.get("color", "#3B82F6"))
+            per_subject[key] = per_subject.get(key, 0) + max(
+                0, int(seg.get("seconds", 0))
+            )
+        entries = sorted(per_subject.items(), key=lambda kv: kv[1], reverse=True)
+        for (name, color), seconds in entries[:8]:
+            lines.append(
+                f"<span style='color:{color};'>■</span> "
+                f"{escape(name)} · {seconds / 3600:.1f}h"
+            )
+        if len(entries) > 8:
+            lines.append(f"… {len(entries) - 8} more")
+        return "<br>".join(lines)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        pos = event.position()
+        idx = self._bar_index_at(pos.x(), pos.y())
+        if idx is None:
+            self._hover_card.hide()
+            self.unsetCursor()
+        else:
+            self._hover_card.show_at(pos.x(), pos.y(), self._bar_html(self._data[idx]))
+            # Only daily bars open the day inspector on click.
+            if self._grouping == "daily":
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hover_card.hide()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        idx = self._bar_index_at(event.position().x(), event.position().y())
+        if idx is not None and self._grouping == "daily":
+            date_iso = self._data[idx].get("date", "")
+            if date_iso:
+                self.day_clicked.emit(date_iso)
+        super().mousePressEvent(event)
+
 
 class WorkGraphWidget(QWidget):
     """Scrollable bar chart widget."""
 
+    day_clicked = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._canvas = _GraphCanvas()
+        self._canvas.day_clicked.connect(self.day_clicked)
         self._scroll = QScrollArea()
         self._scroll.setWidget(self._canvas)
         self._scroll.setWidgetResizable(True)

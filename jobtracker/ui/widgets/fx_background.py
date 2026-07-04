@@ -9,14 +9,10 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor, QBrush, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
-
-def _with_alpha(hex_color: str, alpha: int) -> QColor:
-    c = QColor(hex_color)
-    c.setAlpha(max(0, min(255, alpha)))
-    return c
+from .paint_utils import with_alpha as _with_alpha
 
 
 class FxBackgroundWidget(QWidget):

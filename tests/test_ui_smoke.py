@@ -252,9 +252,11 @@ def test_arrow_reversal_scrolls_viewport_on_first_opposite_step(
         qt_app.processEvents()
 
 
-def test_number_shortcuts_are_context_sensitive_and_never_switch_sessions(
+def test_number_shortcuts_are_context_sensitive_and_switching_needs_confirm(
     database, monkeypatch
 ):
+    import jobtracker.ui.subjects_mixin as subjects_mixin_module
+
     qt_app, window = _window(database, monkeypatch)
     try:
         first_subject = window.service.add_subject("First", "#111111", "")
@@ -268,10 +270,34 @@ def test_number_shortcuts_are_context_sensitive_and_never_switch_sessions(
         assert window.service.active_subject.id == first_subject.id
         active_session_id = window.service.active_session.id
 
-        # A different number cannot stop or switch the running session.
+        # A different number offers a switch; declining changes nothing.
+        prompts: list[str] = []
+        monkeypatch.setattr(
+            subjects_mixin_module,
+            "question",
+            lambda _parent, _title, text, on_finished, **_kw: (
+                prompts.append(text),
+                on_finished(QMessageBox.No),
+            ),
+        )
         QTest.keyClick(window, Qt.Key_2)
+        qt_app.processEvents()
+        assert prompts and "Second" in prompts[0]
         assert window.service.active_subject.id == first_subject.id
         assert window.service.active_session.id == active_session_id
+        assert len(window.service.db.get_open_sessions()) == 1
+
+        # Confirming stops the old session and starts the new one.
+        monkeypatch.setattr(
+            subjects_mixin_module,
+            "question",
+            lambda _parent, _title, _text, on_finished, **_kw: on_finished(
+                QMessageBox.Yes
+            ),
+        )
+        QTest.keyClick(window, Qt.Key_2)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == second_subject.id
         assert len(window.service.db.get_open_sessions()) == 1
 
         started = datetime.fromisoformat(window.service.active_session.start_time)
@@ -1345,3 +1371,177 @@ def test_dark_and_light_palette_swatches_are_black_and_white():
     assert "background-color: #090B0F" in styles["Dark"]
     assert "background-color: #FFFFFF" in styles["Light"]
     dialog.close()
+
+
+# ── switch-with-confirm, graph hover/click, quit auto-backup ─────────────────
+def test_clicking_other_subject_asks_then_switches(database, monkeypatch):
+    import jobtracker.ui.subjects_mixin as subjects_mixin_module
+
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        first = window.service.add_subject("First", "#3B82F6", "")
+        second = window.service.add_subject("Second", "#22C55E", "")
+        window._reload_subjects()
+        window._start_tracking(first.id)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == first.id
+
+        # Decline: still tracking the first subject.
+        monkeypatch.setattr(
+            subjects_mixin_module,
+            "question",
+            lambda _parent, _title, _text, on_finished, **_kw: on_finished(
+                QMessageBox.No
+            ),
+        )
+        window._start_tracking(second.id)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == first.id
+
+        # Confirm: switched, exactly one open session.
+        monkeypatch.setattr(
+            subjects_mixin_module,
+            "question",
+            lambda _parent, _title, _text, on_finished, **_kw: on_finished(
+                QMessageBox.Yes
+            ),
+        )
+        window._start_tracking(second.id)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == second.id
+        assert len(window.service.db.get_open_sessions()) == 1
+
+        # Clicking the already-active subject never prompts.
+        def _fail(*_args, **_kwargs):
+            raise AssertionError("question() must not be called for same subject")
+
+        monkeypatch.setattr(subjects_mixin_module, "question", _fail)
+        window._start_tracking(second.id)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == second.id
+
+        window.service.stop_active_subject()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_bar_chart_hover_geometry_and_day_click():
+    from jobtracker.ui.widgets.graphs_view import WorkGraphWidget
+
+    qt_app = _application()
+    view = WorkGraphWidget()
+    view.resize(800, 500)
+    view.show()
+    qt_app.processEvents()
+
+    data = [
+        {
+            "date": "2026-06-20",
+            "total_seconds": 3600,
+            "segments": [
+                {
+                    "subject_id": 1,
+                    "subject_name": "Physics",
+                    "color": "#3B82F6",
+                    "seconds": 3600,
+                }
+            ],
+        },
+        {"date": "2026-06-21", "total_seconds": 0, "segments": []},
+    ]
+    view.set_data(data, fit_width=True, grouping="daily")
+    qt_app.processEvents()
+
+    canvas = view._canvas
+    chart = canvas._chart_rect()
+    bar_width, gap = canvas._bar_layout()
+    first_x = chart.left() + bar_width / 2
+    second_x = chart.left() + bar_width + gap + bar_width / 2
+    y = chart.center().y()
+    assert canvas._bar_index_at(first_x, y) == 0
+    assert canvas._bar_index_at(second_x, y) == 1
+    assert canvas._bar_index_at(chart.left() - 10, y) is None
+    assert canvas._bar_index_at(first_x, chart.top() - 10) is None
+
+    html = canvas._bar_html(data[0])
+    assert "Physics" in html and "1.0" in html
+
+    clicked: list[str] = []
+    view.day_clicked.connect(clicked.append)
+    QTest.mouseClick(canvas, Qt.LeftButton, pos=QPoint(int(first_x), int(y)))
+    assert clicked == ["2026-06-20"]
+
+    # Weekly/monthly buckets do not open a single-day inspector.
+    view.set_data(data, fit_width=True, grouping="weekly")
+    qt_app.processEvents()
+    QTest.mouseClick(canvas, Qt.LeftButton, pos=QPoint(int(first_x), int(y)))
+    assert clicked == ["2026-06-20"]
+    view.close()
+
+
+def test_agenda_hover_blocks_and_day_click():
+    from jobtracker.ui.widgets.agenda_view import _AgendaCanvas
+
+    _application()
+    canvas = _AgendaCanvas()
+    canvas.resize(700, 420)
+    sessions = [
+        {
+            "day": "2026-06-20",
+            "start_h": 9.0,
+            "end_h": 10.5,
+            "color": "#3B82F6",
+            "subject_name": "Physics",
+            "duration_seconds": 5400,
+        }
+    ]
+    canvas.set_data(
+        sessions, ["2026-06-20", "2026-06-21"], hour_start=6, hour_end=23
+    )
+    canvas.grab()  # force a paint pass so hit rectangles exist
+
+    assert canvas._block_hits
+    rect, _block, day_key = canvas._block_hits[0]
+    assert day_key == "2026-06-20"
+    hit = canvas._block_at(rect.center().x(), rect.center().y())
+    assert hit is not None and hit[0]["name"] == "Physics"
+
+    html = canvas._block_html(hit[0], day_key)
+    assert "Physics" in html
+    assert "09:00–10:30" in html
+    assert "1.5h" in html
+
+    assert canvas._day_at(rect.center().x(), rect.center().y()) == "2026-06-20"
+    clicked: list[str] = []
+    canvas.day_clicked.connect(clicked.append)
+    QTest.mouseClick(
+        canvas,
+        Qt.LeftButton,
+        pos=QPoint(int(rect.center().x()), int(rect.center().y())),
+    )
+    assert clicked == ["2026-06-20"]
+
+
+def test_quitting_writes_rotating_auto_backup(database, monkeypatch, tmp_path):
+    import json
+
+    import jobtracker.ui.app as app_module_local
+
+    backups_dir = tmp_path / "backups"
+    monkeypatch.setattr(app_module_local, "BACKUPS_DIR", backups_dir)
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        window.service.add_subject("Backup me", "#3B82F6", "")
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+    files = list(backups_dir.glob("autobackup_*.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert any(s["name"] == "Backup me" for s in payload["subjects"])

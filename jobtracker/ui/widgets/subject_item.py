@@ -361,9 +361,10 @@ class SubjectItemWidget(QFrame):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        # Dimmed cards (another subject is tracking) stay clickable: the
+        # host view answers with a confirm-switch prompt instead of a start.
         if (
             event.button() == Qt.LeftButton
-            and not self.is_dimmed
             and self.subject.id is not None
             and not self._suppress_click_once
         ):

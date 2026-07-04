@@ -13,20 +13,27 @@ Each session dict carries: ``day`` (logical-day iso), ``start_h`` / ``end_h``
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from datetime import datetime
+from html import escape
+
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 from ...core.timeutils import agenda_hour_label
 from ...core.themes import DEFAULT_TOKENS
+from .paint_utils import HoverCard, with_alpha as _with_alpha
 
 ADJACENT_MARGIN_HOURS = 30 / 3600
 
 
-def _with_alpha(hex_color: str, alpha: int) -> QColor:
-    c = QColor(hex_color)
-    c.setAlpha(max(0, min(255, alpha)))
-    return c
+def _agenda_time_label(hours: float) -> str:
+    """Clock label for a float agenda hour, e.g. 24.5 -> '00:30 (+1)'."""
+    total_minutes = int(round(hours * 60))
+    day_offset, minutes_in_day = divmod(total_minutes, 24 * 60)
+    hh, mm = divmod(minutes_in_day, 60)
+    suffix = " (+1)" if day_offset else ""
+    return f"{hh:02d}:{mm:02d}{suffix}"
 
 
 def _layout_session_blocks(
@@ -47,6 +54,11 @@ def _layout_session_blocks(
                 "end_h": end_h,
                 "color": session.get("color", "#3B82F6"),
                 "name": session.get("subject_name", ""),
+                # Untouched values for the hover card (layout may nudge the
+                # painted start_h/end_h to close sub-30s seams).
+                "orig_start_h": float(session.get("start_h", 0)),
+                "orig_end_h": float(session.get("end_h", 0)),
+                "duration_seconds": max(0, int(session.get("duration_seconds", 0))),
             }
         )
 
@@ -84,9 +96,12 @@ def _layout_session_blocks(
 class _AgendaCanvas(QWidget):
     """Inner canvas painted inside a horizontal scroll area."""
 
+    day_clicked = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(False)
+        self.setMouseTracking(True)
         self._sessions: list[dict] = []
         self._day_keys: list[str] = []
         self._tokens: dict = {}
@@ -95,11 +110,16 @@ class _AgendaCanvas(QWidget):
         self._fit_width: bool = True
         # (today_logical_iso, current_agenda_hour) or None.
         self._now_marker: tuple[str, float] | None = None
+        # Rebuilt on every paint; read by the mouse handlers.
+        self._block_hits: list[tuple[QRectF, dict, str]] = []
+        self._column_hits: list[tuple[QRectF, str]] = []
+        self._hover_card = HoverCard(self)
         self.setMinimumHeight(360)
 
     # ── public API ────────────────────────────────────────────────────────
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens
+        self._hover_card.apply_tokens(tokens)
         self.update()
 
     def set_data(
@@ -111,6 +131,7 @@ class _AgendaCanvas(QWidget):
         fit_width: bool = True,
         now_marker: tuple[str, float] | None = None,
     ) -> None:
+        self._hover_card.hide()
         self._sessions = sessions
         self._day_keys = day_keys
         # Agenda axis may extend past midnight (up to 27 == 03:00 (+1)).
@@ -140,6 +161,8 @@ class _AgendaCanvas(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
 
         t = self._tokens or DEFAULT_TOKENS
+        self._block_hits = []
+        self._column_hits = []
 
         outer = self.rect().adjusted(0, 0, -1, -1)
         p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 160), 1))
@@ -218,7 +241,6 @@ class _AgendaCanvas(QWidget):
             col_x = chart.left() + idx * (col_width + gap)
 
             try:
-                from datetime import datetime
                 day_label = datetime.fromisoformat(day_key).strftime("%m-%d")
             except ValueError:
                 day_label = day_key
@@ -231,6 +253,7 @@ class _AgendaCanvas(QWidget):
             )
 
             col_rect = QRectF(col_x, chart.top(), col_width, chart.height())
+            self._column_hits.append((QRectF(col_rect), day_key))
             p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 60), 0.5))
             p.setBrush(_with_alpha(t["BG_SECONDARY"], 60))
             p.drawRoundedRect(col_rect, 5, 5)
@@ -267,6 +290,7 @@ class _AgendaCanvas(QWidget):
                         (sr["bot_frac"] - sr["top_frac"]) * chart.height(),
                     )
                     rect = QRectF(col_x + 1, sy, col_width - 2, sh)
+                    self._block_hits.append((QRectF(rect), sr, day_key))
                     color = QColor(sr["color"])
                     color.setAlpha(210)
                     p.setPen(Qt.NoPen)
@@ -284,13 +308,69 @@ class _AgendaCanvas(QWidget):
                         )
                 p.restore()
 
+    # ── hover / click ─────────────────────────────────────────────────────
+    def _block_at(self, x: float, y: float) -> tuple[dict, str] | None:
+        for rect, block, day_key in reversed(self._block_hits):
+            if rect.contains(x, y):
+                return block, day_key
+        return None
+
+    def _day_at(self, x: float, y: float) -> str | None:
+        for rect, day_key in self._column_hits:
+            if rect.contains(x, y):
+                return day_key
+        return None
+
+    @staticmethod
+    def _block_html(block: dict, day_key: str) -> str:
+        try:
+            day_label = datetime.fromisoformat(day_key).strftime("%A, %d %B %Y")
+        except ValueError:
+            day_label = day_key
+        start = _agenda_time_label(block.get("orig_start_h", block["start_h"]))
+        end = _agenda_time_label(block.get("orig_end_h", block["end_h"]))
+        hours = block.get("duration_seconds", 0) / 3600.0
+        return (
+            f"<b>{escape(block.get('name', ''))}</b><br>"
+            f"{day_label}<br>"
+            f"{start}–{end} · {hours:.1f}h"
+        )
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        pos = event.position()
+        hit = self._block_at(pos.x(), pos.y())
+        if hit is not None:
+            block, day_key = hit
+            self._hover_card.show_at(pos.x(), pos.y(), self._block_html(block, day_key))
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self._hover_card.hide()
+            if self._day_at(pos.x(), pos.y()) is not None:
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hover_card.hide()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        day_key = self._day_at(event.position().x(), event.position().y())
+        if day_key is not None:
+            self.day_clicked.emit(day_key)
+        super().mousePressEvent(event)
+
 
 class AgendaViewWidget(QWidget):
     """Scrollable agenda timeline with a configurable visible hour range."""
 
+    day_clicked = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._canvas = _AgendaCanvas()
+        self._canvas.day_clicked.connect(self.day_clicked)
         self._scroll = QScrollArea()
         self._scroll.setWidget(self._canvas)
         self._scroll.setWidgetResizable(True)

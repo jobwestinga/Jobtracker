@@ -122,13 +122,15 @@ class GraphsMixin:
         self._graph_stack = QStackedWidget()
 
         self._graph_view = WorkGraphWidget()
+        self._graph_view.day_clicked.connect(self._open_day_sessions)
         self._graph_stack.addWidget(self._graph_view)  # index 0
 
         self._agenda_view = AgendaViewWidget()
+        self._agenda_view.day_clicked.connect(self._open_day_sessions)
         self._graph_stack.addWidget(self._agenda_view)  # index 1
 
         self._heatmap_view = HeatmapWidget()
-        self._heatmap_view.day_clicked.connect(self._open_heatmap_day)
+        self._heatmap_view.day_clicked.connect(self._open_day_sessions)
         self._graph_stack.addWidget(self._heatmap_view)  # index 2
 
         lay.addWidget(self._graph_stack, 1)
@@ -281,19 +283,20 @@ class GraphsMixin:
         )
         self._graph_legend.hide()
 
-    def _open_heatmap_day(self, day_iso: str) -> None:
+    def _open_day_sessions(self, day_iso: str) -> None:
+        """Inspect one logical day's sessions (bar chart, agenda, or heatmap)."""
         try:
             day = date.fromisoformat(day_iso)
         except ValueError:
-            logger.warning("Ignored invalid heatmap day: %r", day_iso)
+            logger.warning("Ignored invalid graph day: %r", day_iso)
             return
         dialog = DaySessionsDialog(self.service, day, self)
         open_dialog(
             dialog,
-            lambda _result, _dialog: self._finish_heatmap_day(),
+            lambda _result, _dialog: self._finish_day_sessions(),
         )
 
-    def _finish_heatmap_day(self) -> None:
+    def _finish_day_sessions(self) -> None:
         self._reload_subjects()
         self._reload_graphs()
 

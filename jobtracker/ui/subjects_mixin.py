@@ -132,6 +132,7 @@ class SubjectsMixin:
         self._subjects_list.show()
 
         filter_type = self._filter.currentText()
+        stats_map = self.service.get_subject_stats_map(filter_type)
         subjects_by_id = {s.id: s for s in subjects if s.id is not None}
         ids = list(subjects_by_id)
         # Structural fingerprint: a change here rebuilds just that one card. The
@@ -155,7 +156,7 @@ class SubjectsMixin:
             card = SubjectItemWidget(
                 subject,
                 self._tokens,
-                total_seconds=self.service.get_subject_stats(sid, filter_type),
+                total_seconds=stats_map.get(sid, 0),
                 is_dimmed=bool(is_tracking and not is_active),
                 is_active=is_active,
                 is_archived=bool(subject.is_archived),
@@ -176,7 +177,7 @@ class SubjectsMixin:
 
         def update_card(sid: int, card: SubjectItemWidget) -> None:
             is_active = sid == _active_id()
-            card.update_stats(self.service.get_subject_stats(sid, filter_type))
+            card.update_stats(stats_map.get(sid, 0))
             card.set_active(is_active)
             card.set_dimmed(bool(is_tracking and not is_active))
 
@@ -371,6 +372,12 @@ class SubjectsMixin:
     def _start_tracking(
         self, subject_id: int, shortcut_feedback: bool = False
     ) -> None:
+        if self.service.active_session is not None:
+            # Something is already being tracked: offer to switch instead of
+            # silently ignoring the click/key. The running session keeps
+            # ticking until the switch is confirmed, so a misclick costs nothing.
+            self._confirm_switch(subject_id, shortcut_feedback)
+            return
         if self.service.start_subject(subject_id):
             self._pending_tracking_feedback_id = (
                 subject_id if shortcut_feedback else None
@@ -379,6 +386,39 @@ class SubjectsMixin:
             # card list. Destroying or hiding the event source synchronously can
             # make a fullscreen macOS window lose activation.
             self._tracking_refresh_timer.start(0)
+
+    def _confirm_switch(
+        self, subject_id: int, shortcut_feedback: bool = False
+    ) -> None:
+        active = self.service.active_subject
+        if active is None or active.id == subject_id:
+            return
+        target = next(
+            (
+                s
+                for s in self.service.get_all_subjects(archived=False)
+                if s.id == subject_id
+            ),
+            None,
+        )
+        if target is None:
+            return
+
+        def finish(answer: QMessageBox.StandardButton) -> None:
+            if answer != QMessageBox.Yes:
+                return
+            if self.service.switch_subject(subject_id):
+                self._pending_tracking_feedback_id = (
+                    subject_id if shortcut_feedback else None
+                )
+                self._tracking_refresh_timer.start(0)
+
+        question(
+            self,
+            "Switch Subject",
+            f'Stop "{active.name}" and start tracking "{target.name}"?',
+            finish,
+        )
 
     def _stop_tracking(self) -> None:
         self.service.stop_active_subject()
@@ -413,12 +453,12 @@ class SubjectsMixin:
         else:
             self._timer.clear()
 
-        filter_type = self._filter.currentText()
+        stats_map = self.service.get_subject_stats_map(self._filter.currentText())
         for subject in subjects:
             card = self._subjects_list.card_widget(subject.id)
             if card is None:
                 return False
-            card.update_stats(self.service.get_subject_stats(subject.id, filter_type))
+            card.update_stats(stats_map.get(subject.id, 0))
             is_active = bool(is_tracking and active and subject.id == active.id)
             card.set_active(is_active)
             card.set_dimmed(bool(is_tracking and not is_active))

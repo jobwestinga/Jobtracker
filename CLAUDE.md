@@ -102,13 +102,24 @@ logic in widgets:
   dialog. Only ACTIVE (non-archived) subject colours are passed in.
 - `core/export_bundle.py` — CSV builders + `write_zip()`. JSON stays the only
   restore format; CSVs are read-only. Daily summary respects the logical day.
+- `core/auto_backup.py` — rotating JSON safety copies written on every clean
+  quit to `DATA_DIR/backups/` (`autobackup_*.json`, newest 10 kept). Only
+  `autobackup_*` files are ever pruned; a backup failure must never block
+  quitting.
 
 Service methods doing the analytics (all logical-day aware, include the live
 session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`,
 `get_agenda_data()`, `get_subject_deletion_summary()`, `get_active_recovery_info()`,
 `resolve_recovery()`, `get_heatmap_data()`, and
 `get_sessions_for_logical_day()`. `get_daily_subject_breakdown()` is a thin
-back-compat wrapper.
+back-compat wrapper. Subject card totals come from `get_subject_stats_map()`
+(one GROUP BY for all subjects + the live session, attributed by its START
+time like the bar chart).
+
+Switching subjects while tracking goes through `TrackerService.switch_subject()`
+and, in the UI, always behind a confirm prompt: the running session keeps
+ticking until the user confirms, and the old session gets the normal sub-30s
+stop rule. Number-key shortcuts use the same confirm path — never a silent stop.
 
 ## Goals, milestones, and recurring generation
 

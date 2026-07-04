@@ -77,7 +77,3 @@ class Session:
     def subject_id(self) -> int:
         """Semantic alias for task_id used by newer subject-oriented code paths."""
         return self.task_id
-
-    @subject_id.setter
-    def subject_id(self, value: int) -> None:
-        self.task_id = int(value)

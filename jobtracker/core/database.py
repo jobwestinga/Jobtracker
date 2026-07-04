@@ -358,18 +358,6 @@ class Database:
         cur.execute("UPDATE tasks SET is_archived = 0 WHERE id = ?", (subject_id,))
         self.connection.commit()
 
-    def move_subject(self, subject_id: int, direction: int) -> None:
-        subjects = self.get_all_subjects()
-        ids = [s.id for s in subjects if s.id is not None]
-        if subject_id not in ids:
-            return
-        idx = ids.index(subject_id)
-        target = idx + direction
-        if target < 0 or target >= len(ids):
-            return
-        ids[idx], ids[target] = ids[target], ids[idx]
-        self._set_order("tasks", "id", ids)
-
     def set_subject_order(
         self, ordered_ids: list[int], archived: bool = False
     ) -> None:
@@ -516,14 +504,6 @@ class Database:
         )
         return [Session(**dict(row)) for row in cur.fetchall()]
 
-    def get_closed_sessions_since(self, since_iso: str) -> List[Session]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM sessions WHERE end_time IS NOT NULL AND start_time >= ? ORDER BY start_time ASC",
-            (since_iso,),
-        )
-        return [Session(**dict(row)) for row in cur.fetchall()]
-
     def get_all_closed_sessions_in_range(
         self, since_iso: str, until_iso: str
     ) -> List[Session]:
@@ -560,6 +540,25 @@ class Database:
         row = cur.fetchone()
         return row["total"] if row and row["total"] else 0
 
+    def get_all_subject_stats(self, since_iso: Optional[str] = None) -> dict[int, int]:
+        """Closed-session totals for every subject in one query.
+
+        Replaces one aggregate query per subject card on every list reload.
+        """
+        cur = self.connection.cursor()
+        if since_iso:
+            cur.execute(
+                "SELECT task_id, SUM(duration_seconds) AS total FROM sessions "
+                "WHERE end_time IS NOT NULL AND start_time >= ? GROUP BY task_id",
+                (since_iso,),
+            )
+        else:
+            cur.execute(
+                "SELECT task_id, SUM(duration_seconds) AS total FROM sessions "
+                "WHERE end_time IS NOT NULL GROUP BY task_id"
+            )
+        return {int(row["task_id"]): int(row["total"] or 0) for row in cur.fetchall()}
+
     def get_incomplete_todo_count(self) -> int:
         cur = self.connection.cursor()
         cur.execute("SELECT COUNT(*) AS cnt FROM todo_tasks WHERE is_completed = 0")
@@ -585,11 +584,6 @@ class Database:
                 created_at ASC
             """
         )
-        return [int(row["id"]) for row in cur.fetchall()]
-
-    def _todo_ids_manual_order(self) -> list[int]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT id FROM todo_tasks ORDER BY sort_order ASC, created_at ASC")
         return [int(row["id"]) for row in cur.fetchall()]
 
     def _ensure_manual_todo_order(self) -> None:
@@ -722,18 +716,6 @@ class Database:
             "UPDATE todo_tasks SET is_completed = 0 WHERE id = ?", (todo_task_id,)
         )
         self.connection.commit()
-
-    def move_todo_task(self, todo_task_id: int, direction: int) -> None:
-        self._ensure_manual_todo_order()
-        ids = self._todo_ids_manual_order()
-        if todo_task_id not in ids:
-            return
-        idx = ids.index(todo_task_id)
-        target = idx + direction
-        if target < 0 or target >= len(ids):
-            return
-        ids[idx], ids[target] = ids[target], ids[idx]
-        self._set_order("todo_tasks", "id", ids)
 
     def set_todo_task_order(
         self, ordered_ids: list[int], completed: bool = False

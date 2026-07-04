@@ -162,9 +162,6 @@ class TrackerService:
             self.stop_active_subject()
         self.db.delete_subject(subject_id)  # CASCADE deletes sessions too
 
-    def move_subject(self, subject_id: int, direction: int) -> None:
-        self.db.move_subject(subject_id, direction)
-
     def set_subject_order(
         self, ordered_ids: list[int], archived: bool = False
     ) -> None:
@@ -212,6 +209,20 @@ class TrackerService:
         self.active_session = None
         self._set_active_subject(None)
 
+    def switch_subject(self, subject_id: int) -> bool:
+        """Stop the active session (normal stop rules) and start ``subject_id``.
+
+        Refuses to "switch" to the subject already being tracked. Works as a
+        plain start when nothing is active.
+        """
+        if self.active_subject and self.active_subject.id == subject_id:
+            return False
+        if self.db.get_subject(subject_id) is None:
+            return False
+        if self.active_session:
+            self.stop_active_subject()
+        return self.start_subject(subject_id)
+
     # ── Crash / ghost-time recovery ─────────────────────────────────────
     def get_active_recovery_info(
         self, now: Optional[datetime] = None, gap_threshold_seconds: Optional[int] = None
@@ -254,20 +265,45 @@ class TrackerService:
         self.active_session.last_active_at = when_iso
 
     # ── Stats (subjects) ────────────────────────────────────────────────
-    def get_subject_stats(self, subject_id: int, filter_type: str = "Total") -> int:
-        since_iso = None
+    def _stats_since_iso(self, filter_type: str) -> Optional[str]:
+        """Window start for a card stats filter; None means all time."""
         now = datetime.now()
         if filter_type == "Today":
             # "Today" honours the configurable logical-day boundary (default 03:00).
             day_start = self.get_day_start()
             today = timeutils.logical_day(now, day_start)
             start_dt, _ = timeutils.logical_day_bounds(today, day_start)
-            since_iso = start_dt.isoformat()
-        elif filter_type == "Last 7 days":
-            since_iso = (now - timedelta(days=7)).isoformat()
-        elif filter_type == "Last 30 days":
-            since_iso = (now - timedelta(days=30)).isoformat()
-        return self.db.get_subject_stats(subject_id, since_iso)
+            return start_dt.isoformat()
+        if filter_type == "Last 7 days":
+            return (now - timedelta(days=7)).isoformat()
+        if filter_type == "Last 30 days":
+            return (now - timedelta(days=30)).isoformat()
+        return None
+
+    def _live_stats_seconds(self, subject_id: int, since_iso: Optional[str]) -> int:
+        """Elapsed seconds of the running session if it belongs to this subject
+        and starts inside the window (start attribution, like the bar chart)."""
+        if not self.active_session or self.active_session.subject_id != subject_id:
+            return 0
+        if since_iso and self.active_session.start_time < since_iso:
+            return 0
+        return self._elapsed_active_seconds()
+
+    def get_subject_stats(self, subject_id: int, filter_type: str = "Total") -> int:
+        since_iso = self._stats_since_iso(filter_type)
+        total = self.db.get_subject_stats(subject_id, since_iso)
+        return total + self._live_stats_seconds(subject_id, since_iso)
+
+    def get_subject_stats_map(self, filter_type: str = "Total") -> dict[int, int]:
+        """Totals for all subjects at once (one query + the live session)."""
+        since_iso = self._stats_since_iso(filter_type)
+        totals = self.db.get_all_subject_stats(since_iso)
+        if self.active_session:
+            live_id = self.active_session.subject_id
+            live = self._live_stats_seconds(live_id, since_iso)
+            if live:
+                totals[live_id] = totals.get(live_id, 0) + live
+        return totals
 
     def _elapsed_active_seconds(self, reference: Optional[datetime] = None) -> int:
         """Seconds the active session has been running up to ``reference`` (now)."""
@@ -541,61 +577,6 @@ class TrackerService:
             "sessions": closed,
         }
 
-    def get_sessions_in_range(
-        self, since_date: date, until_date: date
-    ) -> list[dict]:
-        """Return all closed sessions between two CALENDAR dates with subject
-        metadata. Used by the agenda timeline, which paints sessions at their
-        real clock position per calendar day (so it intentionally uses calendar
-        days, not logical days).
-        """
-        subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
-        since_iso = f"{since_date.isoformat()}T00:00:00"
-        until_iso = f"{(until_date + timedelta(days=1)).isoformat()}T00:00:00"
-        sessions = self.db.get_all_closed_sessions_in_range(since_iso, until_iso)
-
-        result: list[dict] = []
-        for sess in sessions:
-            subject = subjects.get(sess.subject_id)
-            if not subject:
-                continue
-            result.append(
-                {
-                    "session_id": sess.id,
-                    "subject_id": sess.subject_id,
-                    "subject_name": subject.name,
-                    "color": subject.color,
-                    "start_time": sess.start_time,
-                    "end_time": sess.end_time,
-                    "duration_seconds": sess.duration_seconds,
-                }
-            )
-
-        # Include live session
-        if self.active_session:
-            started_at = timeutils.parse_iso(self.active_session.start_time)
-            subject = subjects.get(self.active_session.subject_id)
-            if started_at and subject:
-                sess_date = started_at.date()
-                if since_date <= sess_date <= until_date:
-                    now = datetime.now()
-                    result.append(
-                        {
-                            "session_id": None,
-                            "subject_id": self.active_session.subject_id,
-                            "subject_name": subject.name,
-                            "color": subject.color,
-                            "start_time": self.active_session.start_time,
-                            "end_time": now.isoformat(),
-                            "duration_seconds": self._elapsed_active_seconds(now),
-                        }
-                    )
-
-        return result
-
-    def get_incomplete_todo_count(self) -> int:
-        return self.db.get_incomplete_todo_count()
-
     # ── Sessions (subjects) ─────────────────────────────────────────────
     def get_sessions_for_subject(self, subject_id: int) -> List[Session]:
         return self.db.get_sessions_for_subject(subject_id)
@@ -647,20 +628,10 @@ class TrackerService:
     def delete_todo_task(self, todo_task_id: int) -> None:
         self.db.delete_todo_task(todo_task_id)
 
-    def complete_todo_task(self, todo_task_id: int) -> bool:
-        """Backward-compatible alias for milestone-aware Goal completion."""
-        return self.complete_goal(todo_task_id)
-
-    def move_todo_task(self, todo_task_id: int, direction: int) -> None:
-        self.db.move_todo_task(todo_task_id, direction)
-
     def set_todo_task_order(
         self, ordered_ids: list[int], completed: bool = False
     ) -> None:
         self.db.set_todo_task_order(ordered_ids, completed=completed)
-
-    def sort_todo_tasks_by_deadline(self) -> None:
-        self.db.sort_todo_tasks_by_deadline()
 
     # ── Goals (the redesigned Tasks tab) ────────────────────────────────
     # A "Goal" is a todo_tasks row. These are convenience aliases plus the

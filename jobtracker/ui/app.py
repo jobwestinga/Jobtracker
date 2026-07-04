@@ -45,6 +45,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import timeutils
+from ..core.auto_backup import write_auto_backup
+from ..core.config import BACKUPS_DIR
 from ..core.themes import get_tokens
 from ..services.tracker_service import TrackerService
 from .styles import build_stylesheet
@@ -369,13 +371,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
                 self._open_goal_after_shortcut_feedback(goal_id)
             return
         if page == 1:
-            # Number shortcuts may only START tracking. They never stop or
-            # switch an active session, and archived subjects cannot be started.
-            if (
-                self._showing_archived
-                or self.service.active_session is not None
-                or row >= self._subjects_list.count()
-            ):
+            # Number shortcuts start tracking when idle; while a session is
+            # active they ask to switch (handled inside _start_tracking) and
+            # never stop silently. Archived subjects cannot be started.
+            if self._showing_archived or row >= self._subjects_list.count():
                 return
             subject_id = self._subjects_list.item(row).data(Qt.UserRole)
             if subject_id is not None:
@@ -479,6 +478,14 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             self.service.heartbeat_active_session()
         except Exception:
             logger.exception("Heartbeat failed")
+        # Card totals include the live session, so nudge them along roughly
+        # once a minute while the subjects page is visible.
+        if (
+            self.service.active_session is not None
+            and self._pages.currentIndex() == 1
+            and not self._showing_archived
+        ):
+            self._update_tracking_state_inplace()
 
     def _schedule_recurring_boundary(self) -> None:
         now = datetime.now()
@@ -689,6 +696,12 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
                 "JobTracker cannot quit while a session is active.\n\n"
                 "Use the red Stop Tracking button first.",
             )
-            self._timer.pulse_stop_button()
             return
+
+        # Quit is going through: leave a rotating JSON safety copy behind.
+        # Never let a backup problem block quitting.
+        try:
+            write_auto_backup(self.service.export_data(), BACKUPS_DIR)
+        except Exception:
+            logger.exception("Auto-backup on quit failed")
         super().closeEvent(event)

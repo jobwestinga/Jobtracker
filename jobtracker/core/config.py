@@ -48,7 +48,5 @@ else:
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Static radius tokens (used everywhere, never change) ────────────────────
-RADIUS_SM = "6px"
-RADIUS_MD = "10px"
-RADIUS_LG = "14px"
+# ── Auto-backup (JSON safety copies written on quit) ─────────────────────────
+BACKUPS_DIR = DATA_DIR / "backups"
