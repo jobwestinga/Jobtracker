@@ -14,7 +14,8 @@ from datetime import date, datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QDialog, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
+    QWidget,
 )
 
 from ..core.timeutils import (
@@ -28,6 +29,7 @@ from ..core.timeutils import (
 )
 from .widgets.agenda_view import AgendaViewWidget
 from .widgets.day_sessions_dialog import DaySessionsDialog
+from .widgets.dialog_utils import open_dialog
 from .widgets.graph_settings_dialog import GraphSettingsDialog
 from .widgets.graphs_view import WorkGraphWidget
 from .widgets.heatmap_view import HeatmapWidget
@@ -99,7 +101,9 @@ class GraphsMixin:
                 f"Press {shortcut_number} to switch to {label}"
             )
             button.clicked.connect(
-                lambda _checked=False, selected=mode: self._set_graph_view_mode(selected)
+                lambda _checked=False, selected=mode: self._queue_ui_action(
+                    self._set_graph_view_mode, selected
+                )
             )
             view_controls.addWidget(button, 1)
             self._graph_mode_buttons[mode] = button
@@ -283,7 +287,13 @@ class GraphsMixin:
         except ValueError:
             logger.warning("Ignored invalid heatmap day: %r", day_iso)
             return
-        DaySessionsDialog(self.service, day, self).exec()
+        dialog = DaySessionsDialog(self.service, day, self)
+        open_dialog(
+            dialog,
+            lambda _result, _dialog: self._finish_heatmap_day(),
+        )
+
+    def _finish_heatmap_day(self) -> None:
         self._reload_subjects()
         self._reload_graphs()
 
@@ -293,12 +303,16 @@ class GraphsMixin:
 
     def _open_graph_settings(self) -> None:
         dlg = GraphSettingsDialog(self, service=self.service)
-        if dlg.exec():
-            s = dlg.get_settings()
-            self._graph_range_preset = s["range_preset"]
-            self._graph_view_mode = s["view_mode"]
-            self._graph_hour_start = s["hour_start"]
-            self._graph_hour_end = s["hour_end"]
-            self._graph_custom_range = s["custom_range"]
-            self._sync_graph_mode_buttons()
-            self._reload_graphs()
+        open_dialog(dlg, self._finish_graph_settings)
+
+    def _finish_graph_settings(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        s = dialog.get_settings()
+        self._graph_range_preset = s["range_preset"]
+        self._graph_view_mode = s["view_mode"]
+        self._graph_hour_start = s["hour_start"]
+        self._graph_hour_end = s["hour_end"]
+        self._graph_custom_range = s["custom_range"]
+        self._sync_graph_mode_buttons()
+        self._reload_graphs()

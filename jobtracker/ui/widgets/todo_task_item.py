@@ -159,8 +159,11 @@ class TodoTaskItemWidget(QFrame):
         tokens: dict,
         progress: tuple = (0, 0),
         shortcut_number: int | None = None,
+        parent=None,
     ) -> None:
-        super().__init__()
+        # Keep the complete card subtree inside the list's native window from
+        # the moment construction begins; see SubjectItemWidget.
+        super().__init__(parent)
         self.todo_task = todo_task
         self._t = tokens
         self._completing = False
@@ -183,24 +186,8 @@ class TodoTaskItemWidget(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 8, 12, 8)
         layout.setSpacing(8)
-
-        if self._shortcut_number is not None:
-            shortcut = QLabel(str(self._shortcut_number))
-            shortcut.setProperty("_jt_shortcut_badge", True)
-            shortcut.setProperty(
-                "_jt_shortcut_tooltip",
-                "Press {number} to open this goal",
-            )
-            shortcut.setAlignment(Qt.AlignCenter)
-            shortcut.setFixedSize(22, 22)
-            shortcut.setToolTip(f"Press {self._shortcut_number} to open this goal")
-            shortcut.setStyleSheet(
-                f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
-                f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
-                f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
-            )
-            shortcut.setVisible(1 <= self._shortcut_number <= 9)
-            layout.addWidget(shortcut, 0, Qt.AlignTop)
+        self._root_layout = layout
+        self._shortcut_badge = None
 
         info = QVBoxLayout()
         info.setSpacing(3)
@@ -211,24 +198,9 @@ class TodoTaskItemWidget(QFrame):
         )
         info.addWidget(self.name_lbl)
 
-        done, total = self._progress
-        if self.todo_task.is_completed:
-            progress_text = (
-                f"Completed · {done}/{total} milestones"
-                if total > 0 else "Completed"
-            )
-            progress_color = t["ACCENT_GREEN"]
-        elif total > 0:
-            progress_text = f"✓ {done}/{total} milestones"
-            progress_color = t["ACCENT_GREEN"] if done == total else t["TEXT_SECONDARY"]
-        else:
-            progress_text = "No milestones — complete manually"
-            progress_color = t["TEXT_DIMMED"]
-        self.progress_lbl = QLabel(progress_text)
-        self.progress_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {progress_color}; background: transparent;"
-        )
+        self.progress_lbl = QLabel()
         info.addWidget(self.progress_lbl)
+        self._apply_progress_label()
 
         if getattr(self.todo_task, "deadline", None):
             target_lbl = QLabel(f"🎯 Target: {self.todo_task.deadline[:10]}")
@@ -255,6 +227,59 @@ class TodoTaskItemWidget(QFrame):
             self.check_btn.hide()
         self.check_btn.clicked.connect(self._on_check_clicked)
         layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
+
+    def install_shortcut_badge(self) -> None:
+        """Create the keycap only after the card is owned by its list."""
+        if self._shortcut_number is None or self._shortcut_badge is not None:
+            return
+        t = self._t
+        shortcut = QLabel(str(self._shortcut_number), self)
+        shortcut.setProperty("_jt_shortcut_badge", True)
+        shortcut.setProperty(
+            "_jt_shortcut_tooltip",
+            "Press {number} to open this goal",
+        )
+        shortcut.setAlignment(Qt.AlignCenter)
+        shortcut.setFixedSize(22, 22)
+        shortcut.setToolTip(
+            f"Press {self._shortcut_number} to open this goal"
+        )
+        shortcut.setStyleSheet(
+            f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
+            f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
+            f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
+        )
+        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignTop)
+        self._shortcut_badge = shortcut
+
+    def _apply_progress_label(self) -> None:
+        t = self._t
+        done, total = self._progress
+        if self.todo_task.is_completed:
+            text = (
+                f"Completed · {done}/{total} milestones"
+                if total > 0 else "Completed"
+            )
+            color = t["ACCENT_GREEN"]
+        elif total > 0:
+            text = f"✓ {done}/{total} milestones"
+            color = t["ACCENT_GREEN"] if done == total else t["TEXT_SECONDARY"]
+        else:
+            text = "No milestones — complete manually"
+            color = t["TEXT_DIMMED"]
+        self.progress_lbl.setText(text)
+        self.progress_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {color}; background: transparent;"
+        )
+
+    def apply_transient(self, todo_task: TodoTask, progress: tuple) -> None:
+        """Refresh the volatile bits in place (no card rebuild): milestone
+        progress and completion state. Structural fields (title, notes, target)
+        are covered by the reconcile signature and rebuild the card instead."""
+        self.todo_task = todo_task
+        self._progress = progress
+        self._apply_progress_label()
+        self.check_btn.setVisible(not todo_task.is_completed)
 
     def _apply_style(self) -> None:
         t = self._t

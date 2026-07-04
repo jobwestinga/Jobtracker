@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from ...core.colors import suggest_colors
+from .dialog_utils import InlineDialog, configure_window_modal, open_dialog
 
 
 # ── Preset colour palette ────────────────────────────────────────────────────
@@ -25,9 +26,10 @@ PRESET_COLORS = [
 ]
 
 
-class SubjectDialog(QDialog):
+class SubjectDialog(InlineDialog):
     def __init__(self, parent=None, existing_colors=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.setWindowTitle("New Subject")
         self.setFixedSize(380, 500)
         self.selected_color = PRESET_COLORS[0]
@@ -160,9 +162,22 @@ class SubjectDialog(QDialog):
         self._refresh_swatches()
 
     def _pick_custom(self) -> None:
-        c = QColorDialog.getColor(QColor(self.selected_color), self, "Choose Color")
-        if c.isValid():
-            self._select_color(c.name())
+        dialog = QColorDialog(QColor(self.selected_color), self)
+        dialog.setWindowTitle("Choose Color")
+        # The native QColorPanel is a separate floating macOS window. Use the
+        # Qt dialog so it stays attached in a native-fullscreen Space.
+        dialog.setOption(QColorDialog.DontUseNativeDialog, True)
+        configure_window_modal(dialog)
+        open_dialog(dialog, self._finish_custom_color)
+
+    def _finish_custom_color(
+        self, result: int, dialog: QColorDialog
+    ) -> None:
+        if result != QDialog.Accepted:
+            return
+        color = dialog.selectedColor()
+        if color.isValid():
+            self._select_color(color.name())
 
     def _refresh_swatches(self) -> None:
         for btn in self._swatch_btns + getattr(self, "_suggest_btns", []):

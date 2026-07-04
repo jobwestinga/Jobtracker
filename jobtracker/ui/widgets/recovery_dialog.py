@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ...core import recovery
 from ...core.recovery import RecoveryInfo
+from .dialog_utils import InlineDialog, configure_window_modal
 
 
 def _fmt_duration(seconds: int) -> str:
@@ -36,9 +37,10 @@ def _fmt_dt(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%d  %H:%M:%S")
 
 
-class RecoveryDialog(QDialog):
+class RecoveryDialog(InlineDialog):
     def __init__(self, info: RecoveryInfo, parent=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self._info = info
         self.setWindowTitle("Resume Unfinished Session")
         self.setMinimumWidth(440)

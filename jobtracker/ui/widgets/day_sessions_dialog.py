@@ -12,10 +12,16 @@ from datetime import date, datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QVBoxLayout,
+    QPushButton, QVBoxLayout,
 )
 
 from .manage_sessions_dialog import ManageSessionsDialog
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    information,
+    open_dialog,
+)
 
 
 def _fmt(seconds: int) -> str:
@@ -24,9 +30,10 @@ def _fmt(seconds: int) -> str:
     return f"{h}h {m}m" if h else f"{m}m"
 
 
-class DaySessionsDialog(QDialog):
+class DaySessionsDialog(InlineDialog):
     def __init__(self, service, day: date, parent=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.service = service
         self.day = day
         self.setWindowTitle(f"Sessions · {day.isoformat()}")
@@ -82,11 +89,14 @@ class DaySessionsDialog(QDialog):
     def _edit_selected(self) -> None:
         item = self._list.currentItem()
         if not item:
-            QMessageBox.information(self, "No selection", "Pick a session to edit.")
+            information(self, "No selection", "Pick a session to edit.")
             return
         subject_id = item.data(Qt.UserRole)
         if subject_id is None:
             return
         # Reuse the existing per-subject session manager for full edit support.
-        ManageSessionsDialog(subject_id, self.service, self).exec()
-        self._reload()
+        dialog = ManageSessionsDialog(subject_id, self.service, self)
+        open_dialog(
+            dialog,
+            lambda _result, _dialog: self._reload(),
+        )

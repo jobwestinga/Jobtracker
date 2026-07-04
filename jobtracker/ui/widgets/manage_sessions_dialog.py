@@ -11,12 +11,21 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ...services.tracker_service import TrackerService
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    information,
+    open_dialog,
+    question,
+    warning,
+)
 from .session_dialog import SessionDialog
 
 
-class ManageSessionsDialog(QDialog):
+class ManageSessionsDialog(InlineDialog):
     def __init__(self, subject_id: int, service: TrackerService, parent=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.subject_id = subject_id
         self.service = service
 
@@ -188,40 +197,68 @@ class ManageSessionsDialog(QDialog):
 
     def _add(self) -> None:
         dlg = SessionDialog(self)
-        if dlg.exec():
-            d = dlg.get_data()
-            self.service.add_session(self.subject_id, d["start_time"], d["end_time"], d["note"])
-            self._load()
+        open_dialog(dlg, self._finish_add)
+
+    def _finish_add(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        self.service.add_session(
+            self.subject_id, d["start_time"], d["end_time"], d["note"]
+        )
+        self._load()
 
     def _edit(self) -> None:
         sel = self._list.currentItem()
         if not sel:
-            QMessageBox.information(self, "No Selection", "Select a session to edit.")
+            information(self, "No Selection", "Select a session to edit.")
             return
         session = sel.data(Qt.UserRole)
         if session.id is None:
-            QMessageBox.warning(self, "Invalid Session", "Selected session has no valid identifier.")
+            warning(self, "Invalid Session", "Selected session has no valid identifier.")
             return
         dlg = SessionDialog(self, session)
-        if dlg.exec():
-            d = dlg.get_data()
-            self.service.update_session(session.id, self.subject_id, d["start_time"], d["end_time"], d["note"])
-            self._load()
+        open_dialog(
+            dlg,
+            lambda result, dialog: self._finish_edit(
+                session.id, result, dialog
+            ),
+        )
+
+    def _finish_edit(
+        self, session_id: int, result: int, dialog: QDialog
+    ) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        self.service.update_session(
+            session_id,
+            self.subject_id,
+            d["start_time"],
+            d["end_time"],
+            d["note"],
+        )
+        self._load()
 
     def _delete(self) -> None:
         sel = self._list.currentItem()
         if not sel:
-            QMessageBox.information(self, "No Selection", "Select a session to delete.")
+            information(self, "No Selection", "Select a session to delete.")
             return
         session = sel.data(Qt.UserRole)
         if session.id is None:
-            QMessageBox.warning(self, "Invalid Session", "Selected session has no valid identifier.")
+            warning(self, "Invalid Session", "Selected session has no valid identifier.")
             return
-        reply = QMessageBox.question(
+        question(
             self, "Confirm Delete",
             "Delete this session permanently?",
-            QMessageBox.Yes | QMessageBox.No,
+            lambda answer: self._finish_delete(session.id, answer),
         )
-        if reply == QMessageBox.Yes:
-            self.service.delete_session(session.id)
-            self._load()
+
+    def _finish_delete(
+        self, session_id: int, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer != QMessageBox.Yes:
+            return
+        self.service.delete_session(session_id)
+        self._load()

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate
 
 from ...services.tracker_service import TrackerService
+from .dialog_utils import InlineDialog, configure_window_modal
 
 
 RANGE_OPTIONS = [
@@ -34,9 +35,10 @@ VIEW_OPTIONS = [
 ]
 
 
-class GraphSettingsDialog(QDialog):
+class GraphSettingsDialog(InlineDialog):
     def __init__(self, parent=None, service=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         # All persistence goes through the service. Fall back to a service bound
         # to the shared singleton db when constructed standalone (e.g. tests).
         self._svc = service or getattr(parent, "service", None) or TrackerService()

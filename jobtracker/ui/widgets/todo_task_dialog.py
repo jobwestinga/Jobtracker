@@ -18,11 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.models import TodoTask
+from .dialog_utils import InlineDialog, configure_window_modal
 
 
-class TodoTaskDialog(QDialog):
+class TodoTaskDialog(InlineDialog):
     def __init__(self, parent=None, todo_task: TodoTask | None = None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.todo_task = todo_task
         self.setWindowTitle("Edit Task" if todo_task else "New Task")
         self.setFixedSize(420, 360)

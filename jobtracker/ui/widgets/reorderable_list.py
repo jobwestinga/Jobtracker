@@ -54,6 +54,10 @@ class ReorderableCardList(QListWidget):
         self._reflow_overlays: list[QLabel] = []
         self._remove_anims: dict[int, QVariantAnimation] = {}
         self._pulse_anims: dict[int, QVariantAnimation] = {}
+        # id -> structural signature of the card currently rendered for it, so
+        # a reconcile can tell a content change (rebuild one card) from a
+        # transient change (update in place). Plain dict avoids QVariant issues.
+        self._card_signatures: dict[int, object] = {}
 
         self._wobble_timer = QTimer(self)
         self._wobble_timer.setInterval(70)
@@ -80,17 +84,101 @@ class ReorderableCardList(QListWidget):
     def add_card(self, item_id: int, widget: QWidget) -> None:
         item = QListWidgetItem()
         item.setData(Qt.UserRole, int(item_id))
-        item.setSizeHint(widget.sizeHint())
         self.addItem(item)
-        self.setItemWidget(item, widget)
+        self._install_card_widget(item, widget)
 
-        widget.setProperty("_jt_item_id", int(item_id))
+    def _install_card_widget(self, item: QListWidgetItem, widget: QWidget) -> None:
+        """Attach a card widget to a row (used by add_card and reconcile)."""
+        # setItemWidget() briefly reparents a widget internally. On Cocoa, an
+        # explicitly visible child can momentarily have no QWidget parent
+        # during that operation and acquire its own NSWindow. Shortcut badges
+        # are the only children we explicitly show while reconciling, so keep
+        # them hidden until the index widget is fully installed.
+        for badge in widget.findChildren(QLabel):
+            if badge.property("_jt_shortcut_badge"):
+                badge.hide()
+        item.setSizeHint(widget.sizeHint())
+        self.setItemWidget(item, widget)
+        widget.setProperty("_jt_item_id", int(item.data(Qt.UserRole)))
+        install_badge = getattr(widget, "install_shortcut_badge", None)
+        if install_badge is not None:
+            install_badge()
+            item.setSizeHint(widget.sizeHint())
         self._install_drag_filters(widget)
+
+    def sync_cards(self, ids, signatures, make_card, update_card) -> None:
+        """Reconcile the rows to ``ids`` (in order) without a full teardown.
+
+        Destroying and recreating every row widget is what glitches a fullscreen
+        macOS window (its own Space) into a jump. So instead we diff:
+
+        - rows whose id disappeared are removed;
+        - a kept row whose structural ``signatures[id]`` is unchanged is updated
+          in place via ``update_card(id, widget)`` (no widget destroyed);
+        - a kept row whose signature changed is rebuilt — but only that one card;
+        - new ids are built with ``make_card(id)`` and inserted at their slot;
+        - order is fixed by moving rows through the model, which preserves the
+          existing index widgets.
+
+        The net effect: archiving, adding a session, completing a goal, editing,
+        and reordering touch at most the cards that actually changed.
+        """
+        self._cancel_drag()
+        desired = [int(i) for i in ids]
+        desired_set = set(desired)
+
+        for row in range(self.count() - 1, -1, -1):
+            rid = self.item(row).data(Qt.UserRole)
+            if rid is None or int(rid) not in desired_set:
+                if rid is not None:
+                    self._card_signatures.pop(int(rid), None)
+                self._hide_card_for_detach(self.item(row))
+                self.takeItem(row)
+
+        for index, item_id in enumerate(desired):
+            new_sig = signatures.get(item_id)
+            row = self._row_for_id(item_id)
+            if row < 0:
+                item = QListWidgetItem()
+                item.setData(Qt.UserRole, item_id)
+                self.insertItem(index, item)
+                self._install_card_widget(item, make_card(item_id))
+                self._card_signatures[item_id] = new_sig
+                continue
+
+            if row != index:
+                self._move_item_rows(row, index)
+            item = self.item(index)
+            if self._card_signatures.get(item_id) != new_sig:
+                self._hide_card_for_detach(item)
+                self._install_card_widget(item, make_card(item_id))
+                self._card_signatures[item_id] = new_sig
+            else:
+                widget = self.itemWidget(item)
+                if widget is not None:
+                    update_card(item_id, widget)
+
+        self._renumber_shortcut_badges()
 
     def clear_cards(self) -> None:
         self._cancel_drag()
+        for row in range(self.count()):
+            self._hide_card_for_detach(self.item(row))
         self.clear()
+        self._card_signatures.clear()
         self._press_id = None
+
+    def _hide_card_for_detach(self, item: QListWidgetItem | None) -> None:
+        """Make descendants non-visible before Qt reparents/destroys a card."""
+        if item is None:
+            return
+        widget = self.itemWidget(item)
+        if widget is None:
+            return
+        for badge in widget.findChildren(QLabel):
+            if badge.property("_jt_shortcut_badge"):
+                badge.hide()
+        widget.hide()
 
     def ordered_ids(self) -> list[int]:
         ids: list[int] = []
@@ -194,6 +282,13 @@ class ReorderableCardList(QListWidget):
     def contains_id(self, item_id: int) -> bool:
         return self._row_for_id(item_id) >= 0
 
+    def card_widget(self, item_id: int) -> QWidget | None:
+        """Return the live card widget for an id, or None if absent."""
+        row = self._row_for_id(item_id)
+        if row < 0:
+            return None
+        return self.itemWidget(self.item(row))
+
     def _renumber_shortcut_badges(self) -> None:
         """Keep visible 1–9 keycaps aligned with the current live row order."""
         for row in range(self.count()):
@@ -210,7 +305,24 @@ class ReorderableCardList(QListWidget):
                     badge.setToolTip(
                         str(template).format(number=number)
                     )
-                badge.setVisible(number <= 9)
+                if number > 9:
+                    badge.hide()
+                elif not badge.isVisible():
+                    QTimer.singleShot(
+                        0,
+                        lambda current=badge: self._show_shortcut_badge(
+                            current
+                        ),
+                    )
+
+    def _show_shortcut_badge(self, badge: QLabel) -> None:
+        """Show a badge only after its card has a stable list parent."""
+        try:
+            parent = badge.parentWidget()
+            if parent is not None and parent.parentWidget() is self.viewport():
+                badge.show()
+        except RuntimeError:
+            pass
 
     def _refresh_drag_pixmap(self) -> None:
         """Repaint the floating card after its live shortcut number changes."""
@@ -282,9 +394,11 @@ class ReorderableCardList(QListWidget):
 
         def on_done() -> None:
             self._remove_anims.pop(item_id, None)
+            self._card_signatures.pop(item_id, None)
             # Remove row; list will relayout remaining items.
             cur_row = self._row_for_id(item_id)
             if cur_row >= 0:
+                self._hide_card_for_detach(self.item(cur_row))
                 taken = self.takeItem(cur_row)
                 del taken
             if on_finished:

@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from .widgets.active_timer import ActiveTimerWidget
 from .widgets.delete_subject_dialog import (
     DeleteSubjectDialog, RESULT_ARCHIVE, RESULT_DELETE,
 )
+from .widgets.dialog_utils import open_dialog, question, warning
 from .widgets.manage_sessions_dialog import ManageSessionsDialog
 from .widgets.reorderable_list import ReorderableCardList
 from .widgets.subject_dialog import SubjectDialog
@@ -46,7 +48,9 @@ class SubjectsMixin:
         self._archive_toggle_btn = QPushButton("Archived")
         self._archive_toggle_btn.setMinimumHeight(34)
         self._archive_toggle_btn.setCursor(Qt.PointingHandCursor)
-        self._archive_toggle_btn.clicked.connect(self._toggle_archived_view)
+        self._archive_toggle_btn.clicked.connect(
+            lambda: self._queue_ui_action(self._toggle_archived_view)
+        )
         header.addWidget(self._archive_toggle_btn)
 
         gear_btn = QPushButton("⚙")
@@ -72,7 +76,9 @@ class SubjectsMixin:
         self._filter = QComboBox()
         self._filter.addItems(["Total", "Today", "Last 7 days", "Last 30 days"])
         self._filter.setCursor(Qt.PointingHandCursor)
-        self._filter.currentTextChanged.connect(lambda: self._reload_subjects())
+        self._filter.currentTextChanged.connect(
+            lambda _text: self._queue_ui_action(self._reload_subjects)
+        )
         stats_hdr.addWidget(self._filter)
         lay.addLayout(stats_hdr)
 
@@ -106,7 +112,6 @@ class SubjectsMixin:
             self._subjects_list.capture_view_state()
         )
         restore_state = self._subject_view_states.get(self._showing_archived)
-        self._subjects_list.clear_cards()
         self._subjects_rendered_view = self._showing_archived
 
         is_tracking = self.service.active_session is not None
@@ -117,6 +122,7 @@ class SubjectsMixin:
 
         subjects = self.service.get_all_subjects(archived=self._showing_archived)
         if not subjects:
+            self._subjects_list.clear_cards()
             self._subjects_empty.show()
             self._subjects_list.hide()
             if hasattr(self, "_sync_active_session_indicator"):
@@ -126,37 +132,55 @@ class SubjectsMixin:
         self._subjects_list.show()
 
         filter_type = self._filter.currentText()
-        for index, subject in enumerate(subjects, start=1):
-            if subject.id is None:
-                continue
-            total = self.service.get_subject_stats(subject.id, filter_type)
-            is_active = bool(
-                is_tracking
-                and self.service.active_subject
-                and subject.id == self.service.active_subject.id
-            )
-            dimmed = bool(is_tracking and not is_active)
+        subjects_by_id = {s.id: s for s in subjects if s.id is not None}
+        ids = list(subjects_by_id)
+        # Structural fingerprint: a change here rebuilds just that one card. The
+        # active/dimmed state and tracked total are transient and refresh in
+        # place, so start/stop, archiving, and adding sessions destroy nothing.
+        signatures = {
+            sid: (s.name, s.color, s.notes or "", bool(s.is_archived))
+            for sid, s in subjects_by_id.items()
+        }
 
+        def _active_id():
+            return (
+                self.service.active_subject.id
+                if is_tracking and self.service.active_subject
+                else None
+            )
+
+        def make_card(sid: int) -> SubjectItemWidget:
+            subject = subjects_by_id[sid]
+            is_active = sid == _active_id()
             card = SubjectItemWidget(
                 subject,
                 self._tokens,
-                total_seconds=total,
-                is_dimmed=dimmed,
+                total_seconds=self.service.get_subject_stats(sid, filter_type),
+                is_dimmed=bool(is_tracking and not is_active),
                 is_active=is_active,
                 is_archived=bool(subject.is_archived),
-                shortcut_number=(
-                    index
-                    if not self._showing_archived
-                    else None
-                ),
+                shortcut_number=None if self._showing_archived else 1,
+                parent=self._subjects_list.viewport(),
             )
             card.start_requested.connect(self._start_tracking)
             card.edit_requested.connect(self._edit_subject)
             card.delete_requested.connect(self._delete_subject)
             card.manage_sessions_requested.connect(self._manage_sessions)
-            card.archive_requested.connect(self._archive_subject)
-            card.unarchive_requested.connect(self._unarchive_subject)
-            self._subjects_list.add_card(subject.id, card)
+            card.archive_requested.connect(
+                lambda sid: self._queue_ui_action(self._archive_subject, sid)
+            )
+            card.unarchive_requested.connect(
+                lambda sid: self._queue_ui_action(self._unarchive_subject, sid)
+            )
+            return card
+
+        def update_card(sid: int, card: SubjectItemWidget) -> None:
+            is_active = sid == _active_id()
+            card.update_stats(self.service.get_subject_stats(sid, filter_type))
+            card.set_active(is_active)
+            card.set_dimmed(bool(is_tracking and not is_active))
+
+        self._subjects_list.sync_cards(ids, signatures, make_card, update_card)
         self._subjects_list.restore_view_state(restore_state)
         if hasattr(self, "_sync_active_session_indicator"):
             self._sync_active_session_indicator()
@@ -165,16 +189,24 @@ class SubjectsMixin:
     def _new_subject(self) -> None:
         existing = [s.color for s in self.service.get_all_subjects(archived=False)]
         dlg = SubjectDialog(self, existing_colors=existing)
-        if dlg.exec():
-            d = dlg.get_data()
-            if not d["name"]:
-                QMessageBox.warning(self, "Validation", "Subject name cannot be empty.")
-                return
-            if not self.service.add_subject(d["name"], d["color"], d["notes"]):
-                QMessageBox.warning(self, "Duplicate Name", f'A subject named "{d["name"]}" already exists.')
-                return
-            self._reload_subjects()
-            self._reload_graphs()
+        open_dialog(dlg, self._finish_new_subject)
+
+    def _finish_new_subject(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        if not d["name"]:
+            warning(self, "Validation", "Subject name cannot be empty.")
+            return
+        if not self.service.add_subject(d["name"], d["color"], d["notes"]):
+            warning(
+                self,
+                "Duplicate Name",
+                f'A subject named "{d["name"]}" already exists.',
+            )
+            return
+        self._reload_subjects()
+        self._reload_graphs()
 
     def _toggle_archived_view(self) -> None:
         self._showing_archived = not self._showing_archived
@@ -227,16 +259,33 @@ class SubjectsMixin:
         if subject.notes:
             dlg.notes_input.setPlainText(subject.notes)
 
-        if dlg.exec():
-            d = dlg.get_data()
-            if not d["name"]:
-                QMessageBox.warning(self, "Validation", "Subject name cannot be empty.")
-                return
-            if not self.service.update_subject(subject_id, d["name"], d["color"], d["notes"]):
-                QMessageBox.warning(self, "Duplicate Name", f'A subject named "{d["name"]}" already exists.')
-                return
-            self._reload_subjects()
-            self._reload_graphs()
+        open_dialog(
+            dlg,
+            lambda result, dialog: self._finish_edit_subject(
+                subject_id, result, dialog
+            ),
+        )
+
+    def _finish_edit_subject(
+        self, subject_id: int, result: int, dialog: QDialog
+    ) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        if not d["name"]:
+            warning(self, "Validation", "Subject name cannot be empty.")
+            return
+        if not self.service.update_subject(
+            subject_id, d["name"], d["color"], d["notes"]
+        ):
+            warning(
+                self,
+                "Duplicate Name",
+                f'A subject named "{d["name"]}" already exists.',
+            )
+            return
+        self._reload_subjects()
+        self._reload_graphs()
 
     def _delete_subject(self, subject_id: int) -> None:
         summary = self.service.get_subject_deletion_summary(subject_id)
@@ -248,20 +297,35 @@ class SubjectsMixin:
 
         # No history to lose -> a simple confirm is enough (don't be annoying).
         if summary["session_count"] == 0:
-            if QMessageBox.question(
+            question(
                 self,
                 "Delete Subject",
                 f'Delete "{name}"? It has no tracked sessions.',
-                QMessageBox.Yes | QMessageBox.No,
-            ) == QMessageBox.Yes:
-                self.service.delete_subject(subject_id)
-                self._reload_subjects()
-                self._reload_graphs()
+                lambda answer: self._finish_delete_empty_subject(
+                    subject_id, answer
+                ),
+            )
             return
 
         # Has tracked time -> strong confirmation, archive recommended.
         dlg = DeleteSubjectDialog(name, summary, self)
-        result = dlg.exec()
+        open_dialog(
+            dlg,
+            lambda result, _dialog: self._finish_delete_subject(
+                subject_id, result
+            ),
+        )
+
+    def _finish_delete_empty_subject(
+        self, subject_id: int, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer != QMessageBox.Yes:
+            return
+        self.service.delete_subject(subject_id)
+        self._reload_subjects()
+        self._reload_graphs()
+
+    def _finish_delete_subject(self, subject_id: int, result: int) -> None:
         if result == RESULT_DELETE:
             self.service.delete_subject(subject_id)
         elif result == RESULT_ARCHIVE:
@@ -293,7 +357,13 @@ class SubjectsMixin:
             )
 
     def _manage_sessions(self, subject_id: int) -> None:
-        ManageSessionsDialog(subject_id, self.service, self).exec()
+        dialog = ManageSessionsDialog(subject_id, self.service, self)
+        open_dialog(
+            dialog,
+            lambda _result, _dialog: self._finish_manage_sessions(),
+        )
+
+    def _finish_manage_sessions(self) -> None:
         self._reload_subjects()
         self._reload_graphs()
 
@@ -317,8 +387,49 @@ class SubjectsMixin:
         # that page switch until its click event has returned to Qt.
         self._tracking_refresh_timer.start(0)
 
+    def _update_tracking_state_inplace(self) -> bool:
+        """Reflect a start/stop by mutating existing cards instead of rebuilding.
+
+        A start/stop never changes which subjects exist or their order — only
+        the active/dimmed state, the timer, and the finished subject's total.
+        Rebuilding the whole card list here is what trips the macOS fullscreen
+        compositor into a Space glitch, so keep the widget tree intact.
+        Returns False (caller falls back to a full reload) if the live cards no
+        longer match the current subjects.
+        """
+        if self._showing_archived:
+            return False
+        subjects = self.service.get_all_subjects(archived=False)
+        if not subjects:
+            return False
+        ids = [s.id for s in subjects if s.id is not None]
+        if ids != self._subjects_list.ordered_ids():
+            return False
+
+        is_tracking = self.service.active_session is not None
+        active = self.service.active_subject
+        if is_tracking and active:
+            self._timer.set_active(active, self.service.active_session)
+        else:
+            self._timer.clear()
+
+        filter_type = self._filter.currentText()
+        for subject in subjects:
+            card = self._subjects_list.card_widget(subject.id)
+            if card is None:
+                return False
+            card.update_stats(self.service.get_subject_stats(subject.id, filter_type))
+            is_active = bool(is_tracking and active and subject.id == active.id)
+            card.set_active(is_active)
+            card.set_dimmed(bool(is_tracking and not is_active))
+
+        if hasattr(self, "_sync_active_session_indicator"):
+            self._sync_active_session_indicator()
+        return True
+
     def _apply_tracking_refresh(self) -> None:
-        self._reload_subjects()
+        if not self._update_tracking_state_inplace():
+            self._reload_subjects()
         feedback_id = self._pending_tracking_feedback_id
         self._pending_tracking_feedback_id = None
         if (

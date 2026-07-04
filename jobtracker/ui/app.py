@@ -28,13 +28,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLineEdit,
     QListView,
     QMainWindow,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QStackedLayout,
@@ -53,6 +53,8 @@ from .goals_mixin import GoalsMixin
 from .subjects_mixin import SubjectsMixin
 from .widgets.fx_background import FxBackgroundWidget
 from .widgets.recovery_dialog import RecoveryDialog
+from .widgets.dialog_utils import information
+from .widgets.dialog_utils import open_dialog
 from .widgets.settings_dialog import SettingsDialog
 
 logger = logging.getLogger("jobtracker")
@@ -259,8 +261,11 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         if not info:
             return
         dlg = RecoveryDialog(info, self)
-        if dlg.exec():
-            self.service.resolve_recovery(dlg.chosen_end())
+        open_dialog(dlg, self._finish_recovery)
+
+    def _finish_recovery(self, result: int, dialog: QDialog) -> None:
+        if result == QDialog.Accepted:
+            self.service.resolve_recovery(dialog.chosen_end())
         # If dismissed, the session stays active (non-destructive) and keeps ticking.
         self._reload_subjects()
         self._reload_graphs()
@@ -321,8 +326,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             )
             self._shortcuts.append(shortcut)
 
-    @staticmethod
-    def _shortcut_focus_allows_navigation() -> bool:
+    def _shortcut_focus_allows_navigation(self) -> bool:
+        if int(self.property("_jt_inline_dialog_count") or 0) > 0:
+            return False
         if (
             QApplication.activePopupWidget() is not None
             or QApplication.activeModalWidget() is not None
@@ -451,6 +457,13 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         """Keep one intentionally small, in-memory reversible action."""
         self._undo_callback = callback
 
+    def _queue_ui_action(self, callback, *args) -> None:
+        """Let the originating input event finish before changing main views."""
+        def run() -> None:
+            callback(*args)
+
+        QTimer.singleShot(0, run)
+
     def _perform_undo(self, force: bool = False) -> None:
         if not force and not self._shortcut_focus_allows_navigation():
             return
@@ -518,7 +531,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             "Return to Subjects. This does not stop tracking."
         )
         self._active_session_indicator.clicked.connect(
-            lambda: self._switch_page(1)
+            lambda: self._queue_ui_action(self._switch_page, 1)
         )
         self._active_session_indicator.hide()
         root.addWidget(self._active_session_indicator)
@@ -543,7 +556,11 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             btn.setObjectName("navBtn")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, i=idx: self._switch_page(i))
+            btn.clicked.connect(
+                lambda _checked=False, i=idx: self._queue_ui_action(
+                    self._switch_page, i
+                )
+            )
             nav.addWidget(btn, 1)
             self._nav_buttons.append(btn)
 
@@ -630,22 +647,35 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     # ═══════════════════════════════════════════════════════════════════
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self, service=self.service)
-        if dlg.exec():
-            settings = dlg.get_settings()
-            self._fx = settings["theme_fx"]
-            self._palette = settings["theme_palette"]
-            self.service.set_setting("theme_fx", self._fx)
-            self.service.set_setting("theme_palette", self._palette)
-            self.service.set_day_start(settings["day_start_time"])
-            self._schedule_recurring_boundary()
-            self._apply_theme()
-            self._reload()  # day-start affects subject totals + graphs
+        open_dialog(dlg, self._finish_settings)
+
+    def _finish_settings(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        settings = dialog.get_settings()
+        self._fx = settings["theme_fx"]
+        self._palette = settings["theme_palette"]
+        self.service.set_setting("theme_fx", self._fx)
+        self.service.set_setting("theme_palette", self._palette)
+        self.service.set_day_start(settings["day_start_time"])
+        self._schedule_recurring_boundary()
+        self._apply_theme()
+        self._reload()  # day-start affects subject totals + graphs
 
     # ═══════════════════════════════════════════════════════════════════
     #  CLOSE
     # ═══════════════════════════════════════════════════════════════════
     def closeEvent(self, event) -> None:  # noqa: N802
-        if self.service.active_session:
+        # Only block quitting while a session is *genuinely* tracking (its
+        # heartbeat is recent). A session left open by a crash/force-kill is
+        # stale (a large heartbeat gap) — that is "no task actively running",
+        # so allow the quit. The session stays open and is picked up by
+        # recovery on the next launch; it is never silently dropped.
+        genuinely_tracking = (
+            self.service.active_session is not None
+            and self.service.get_active_recovery_info() is None
+        )
+        if genuinely_tracking:
             event.ignore()
             self.showNormal()
             self.show()
@@ -653,7 +683,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             self.activateWindow()
             self._switch_page(1)
             self._timer.pulse_stop_button()
-            QMessageBox.information(
+            information(
                 self,
                 "Session Still Active",
                 "JobTracker cannot quit while a session is active.\n\n"

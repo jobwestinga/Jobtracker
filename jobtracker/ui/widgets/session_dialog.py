@@ -5,14 +5,17 @@ and start < end validation.
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QPushButton, QDateTimeEdit, QMessageBox,
+    QTextEdit, QPushButton, QDateTimeEdit,
 )
 from PySide6.QtCore import QDateTime, QTime, Qt
 
+from .dialog_utils import InlineDialog, configure_window_modal, warning
 
-class SessionDialog(QDialog):
+
+class SessionDialog(InlineDialog):
     def __init__(self, parent=None, session=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.session = session
         self.setWindowTitle("Edit Session" if session else "Add Session")
         self.setFixedSize(380, 380)
@@ -105,7 +108,7 @@ class SessionDialog(QDialog):
         start = self.start_edit.dateTime()
         end = self.end_edit.dateTime()
         if start >= end:
-            QMessageBox.warning(
+            warning(
                 self, "Invalid Times",
                 "Start time must be before end time.",
             )

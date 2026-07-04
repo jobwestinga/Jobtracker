@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import QDate, QPoint, QTimer, Qt
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
     QDateEdit,
@@ -23,6 +23,15 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.themes import DEFAULT_TOKENS
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    dialog_owner,
+    information,
+    open_dialog,
+    question,
+    warning,
+)
 from .reorderable_list import ReorderableCardList
 from .todo_task_item import _StarBurstOverlay
 
@@ -67,7 +76,7 @@ def apply_goal_edits(service, goal_id: int, data: dict) -> None:
             )
 
 
-class GoalDialog(QDialog):
+class GoalDialog(InlineDialog):
     """Create/edit the Goal and its complete milestone definition."""
 
     DELETE_RESULT = 2
@@ -80,6 +89,7 @@ class GoalDialog(QDialog):
         tokens: dict | None = None,
     ) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.goal = goal
         self._is_edit = goal is not None
         self._tokens = _tokens_from(parent, tokens)
@@ -267,17 +277,22 @@ class GoalDialog(QDialog):
 
     def _accept(self) -> None:
         if not self.title_input.text().strip():
-            QMessageBox.warning(self, "Validation", "Goal title cannot be empty.")
+            warning(self, "Validation", "Goal title cannot be empty.")
             return
         self.accept()
 
     def _confirm_delete(self) -> None:
-        if QMessageBox.question(
+        question(
             self,
             "Delete Goal",
             f'Delete “{self.goal.name}” and all of its milestones permanently?',
-            QMessageBox.Yes | QMessageBox.No,
-        ) == QMessageBox.Yes:
+            self._finish_confirm_delete,
+        )
+
+    def _finish_confirm_delete(
+        self, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer == QMessageBox.Yes:
             self.done(self.DELETE_RESULT)
 
     def get_data(self) -> dict:
@@ -304,7 +319,7 @@ class GoalDialog(QDialog):
         }
 
 
-class GoalDetailDialog(QDialog):
+class GoalDetailDialog(InlineDialog):
     """Focused, read-only definition with a polished milestone checklist."""
 
     def __init__(
@@ -315,6 +330,7 @@ class GoalDetailDialog(QDialog):
         tokens: dict | None = None,
     ) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.service = service
         self.goal_id = goal_id
         self._tokens = _tokens_from(parent, tokens)
@@ -404,13 +420,12 @@ class GoalDetailDialog(QDialog):
             self._ms_empty.hide()
             self._ms_list.show()
             for index, milestone in enumerate(milestones, start=1):
-                self._ms_list.add_card(
-                    milestone.id,
-                    self._milestone_row(
-                        milestone,
-                        shortcut_number=index,
-                    ),
+                row = self._milestone_row(
+                    milestone,
+                    shortcut_number=index,
                 )
+                self._ms_list.add_card(milestone.id, row)
+                self._install_milestone_shortcut(row)
             self._ms_list.restore_view_state(view_state)
         else:
             self._ms_list.hide()
@@ -442,26 +457,8 @@ class GoalDetailDialog(QDialog):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
-        if shortcut_number is not None:
-            shortcut = QLabel(str(shortcut_number))
-            shortcut.setProperty("_jt_shortcut_badge", True)
-            shortcut.setProperty(
-                "_jt_shortcut_tooltip",
-                "Press {number} to toggle this milestone",
-            )
-            shortcut.setAlignment(Qt.AlignCenter)
-            shortcut.setFixedSize(22, 22)
-            shortcut.setToolTip(
-                f"Press {shortcut_number} to toggle this milestone"
-            )
-            shortcut.setStyleSheet(
-                f"background: {self._tokens.get('BG_TERTIARY', self._tokens['BG_SECONDARY'])};"
-                f" border: 1px solid {self._tokens['BORDER_COLOR']};"
-                f" border-radius: 6px; color: {self._tokens['TEXT_SECONDARY']};"
-                " font-size: 10px; font-weight: 750;"
-            )
-            shortcut.setVisible(1 <= shortcut_number <= 9)
-            title_row.addWidget(shortcut, 0, Qt.AlignTop)
+        frame._jt_title_row = title_row
+        frame._jt_shortcut_number = shortcut_number
 
         check = QCheckBox(milestone.title)
         check.setChecked(bool(milestone.is_done))
@@ -502,6 +499,29 @@ class GoalDetailDialog(QDialog):
             layout.addWidget(note)
         return frame
 
+    def _install_milestone_shortcut(self, frame: QFrame) -> None:
+        """Create a milestone keycap after its row is attached to the list."""
+        number = frame._jt_shortcut_number
+        if number is None:
+            return
+        shortcut = QLabel(str(number), frame)
+        shortcut.setProperty("_jt_shortcut_badge", True)
+        shortcut.setProperty(
+            "_jt_shortcut_tooltip",
+            "Press {number} to toggle this milestone",
+        )
+        shortcut.setAlignment(Qt.AlignCenter)
+        shortcut.setFixedSize(22, 22)
+        shortcut.setToolTip(f"Press {number} to toggle this milestone")
+        shortcut.setStyleSheet(
+            f"background: {self._tokens.get('BG_TERTIARY', self._tokens['BG_SECONDARY'])};"
+            f" border: 1px solid {self._tokens['BORDER_COLOR']};"
+            f" border-radius: 6px; color: {self._tokens['TEXT_SECONDARY']};"
+            " font-size: 10px; font-weight: 750;"
+        )
+        frame._jt_title_row.insertWidget(0, shortcut, 0, Qt.AlignTop)
+        shortcut.setVisible(1 <= number <= 9)
+
     def _milestone_order_changed(self, ordered_ids: list[int]) -> None:
         previous = [
             milestone.id
@@ -511,7 +531,7 @@ class GoalDetailDialog(QDialog):
         if previous == ordered_ids:
             return
         self.service.set_milestone_order(self.goal_id, ordered_ids)
-        owner = self.parent()
+        owner = dialog_owner(self)
         if hasattr(owner, "_register_undo"):
             owner._register_undo(
                 lambda old=previous, service=self.service, goal_id=self.goal_id: (
@@ -522,32 +542,42 @@ class GoalDetailDialog(QDialog):
             )
 
     def _install_number_shortcuts(self) -> None:
-        for number in range(1, 10):
-            shortcut = QShortcut(QKeySequence(str(number)), self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(
-                lambda index=number - 1: self._toggle_milestone_by_number(index)
-            )
-            self._number_shortcuts.append(shortcut)
-        undo_sequences = [QKeySequence.Undo, QKeySequence("Ctrl+Z")]
-        seen: set[str] = set()
-        for sequence in undo_sequences:
-            key = QKeySequence(sequence).toString()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            shortcut = QShortcut(QKeySequence(sequence), self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(self._perform_undo)
-            self._number_shortcuts.append(shortcut)
+        # Inline editors share the main QWindow. Registering another set of
+        # QShortcuts for 1–9/Ctrl+Z makes Qt report ambiguous window shortcuts
+        # before a key event reaches the editor. InlineDialog's application
+        # event filter routes these keys through handle_inline_key instead.
+        self._number_shortcuts.clear()
 
     def _perform_undo(self) -> None:
-        owner = self.parent()
+        owner = dialog_owner(self)
         if hasattr(owner, "_perform_undo"):
             owner._perform_undo(force=True)
             self._reload()
+
+    def handle_inline_key(self, event) -> bool:
+        if event.matches(QKeySequence.Undo):
+            self._perform_undo()
+            return True
+        if event.modifiers() & (
+            Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+        ):
+            return False
+        text = event.text()
+        if len(text) == 1 and text in "123456789":
+            self._toggle_milestone_by_number(int(text) - 1)
+            return True
+        return False
+
+    def claims_inline_key(self, event) -> bool:
+        return bool(
+            event.matches(QKeySequence.Undo)
+            or (
+                not event.modifiers()
+                & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+                and len(event.text()) == 1
+                and event.text() in "123456789"
+            )
+        )
 
     def done(self, result: int) -> None:
         if hasattr(self, "_milestone_reload_timer"):
@@ -576,7 +606,7 @@ class GoalDetailDialog(QDialog):
         source: QCheckBox,
     ) -> None:
         self.service.set_milestone_done(milestone_id, checked)
-        owner = self.parent()
+        owner = dialog_owner(self)
         if hasattr(owner, "_register_undo"):
             owner._register_undo(
                 lambda mid=milestone_id, old=not checked, service=self.service: (
@@ -607,7 +637,9 @@ class GoalDetailDialog(QDialog):
             milestones=milestones,
             tokens=self._tokens,
         )
-        result = dialog.exec()
+        open_dialog(dialog, self._finish_edit_goal)
+
+    def _finish_edit_goal(self, result: int, dialog: QDialog) -> None:
         if result == GoalDialog.DELETE_RESULT:
             self.service.delete_todo_task(self.goal_id)
             self.accept()
@@ -622,7 +654,7 @@ class GoalDetailDialog(QDialog):
             self._reload()
             return
         if not self.service.complete_goal(self.goal_id):
-            QMessageBox.information(
+            information(
                 self,
                 "Milestones remain",
                 "Finish all milestones before completing this goal.",

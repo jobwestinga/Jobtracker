@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout,
 )
 
+from .dialog_utils import InlineDialog, configure_window_modal
+
 # Custom result codes.
 RESULT_CANCEL = 0
 RESULT_DELETE = 1
@@ -25,9 +27,10 @@ def _fmt_hours(seconds: int) -> str:
     return f"{max(0, int(seconds)) / 3600:.1f}h"
 
 
-class DeleteSubjectDialog(QDialog):
+class DeleteSubjectDialog(InlineDialog):
     def __init__(self, subject_name: str, summary: dict, parent=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self._name = subject_name
         self._summary = summary
         self.setWindowTitle("Delete Subject")

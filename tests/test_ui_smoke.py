@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QCheckBox,
+    QColorDialog,
+    QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -25,6 +27,8 @@ from PySide6.QtWidgets import (
 
 from jobtracker.services.tracker_service import TrackerService
 from jobtracker.ui import app as app_module
+from jobtracker.ui.widgets import goal_dialog as goal_dialog_module
+from jobtracker.ui.widgets.dialog_utils import information, open_dialog
 from jobtracker.ui.widgets.goal_dialog import (
     GoalDialog,
     GoalDetailDialog,
@@ -42,6 +46,7 @@ from jobtracker.ui.widgets.heatmap_view import (
     _visual_ratio,
 )
 from jobtracker.ui.widgets.settings_dialog import SettingsDialog
+from jobtracker.ui.widgets.subject_dialog import SubjectDialog
 from jobtracker.ui.widgets.reorderable_list import ReorderableCardList
 from jobtracker.ui.widgets.template_dialog import TemplateDialog, TemplateManagerDialog
 from jobtracker.ui.widgets.todo_task_item import TodoTaskItemWidget
@@ -96,12 +101,14 @@ def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
         )
         window._graph_range_preset = "weeks"
         window._graph_mode_buttons["heatmap"].click()
+        qt_app.processEvents()
         assert window._graph_stack.currentIndex() == 2
         assert database.get_setting("graph_view_mode") == "heatmap"
         assert old_start.date().isoformat() in window._heatmap_view._canvas._data
         assert "All Time" in window._graph_subtitle.text()
 
         window._graph_mode_buttons["agenda"].click()
+        qt_app.processEvents()
         assert window._graph_stack.currentIndex() == 1
         assert database.get_setting("graph_view_mode") == "agenda"
     finally:
@@ -314,7 +321,7 @@ def test_active_session_blocks_quit_and_indicator_only_returns_to_subjects(
     qt_app, window = _window(database, monkeypatch)
     messages = []
     monkeypatch.setattr(
-        QMessageBox,
+        app_module,
         "information",
         lambda *args: messages.append((args[1], args[2])),
     )
@@ -330,6 +337,7 @@ def test_active_session_blocks_quit_and_indicator_only_returns_to_subjects(
         assert "Protected" in window._active_session_indicator.text()
 
         window._active_session_indicator.click()
+        qt_app.processEvents()
         assert window._pages.currentIndex() == 1
         assert window.service.active_session.id == session_id
 
@@ -358,37 +366,155 @@ def test_active_session_blocks_quit_and_indicator_only_returns_to_subjects(
         qt_app.processEvents()
 
 
-def test_tracking_transitions_defer_widget_rebuild_and_skip_hidden_graphs(
+def test_stale_open_session_does_not_block_quit(database, monkeypatch):
+    # Simulate a session left open by a crash / force-kill: it exists but its
+    # heartbeat is hours old, so nothing is actually tracking right now.
+    seed = TrackerService(database)
+    subject = seed.add_subject("Left open", "#22C55E", "")
+    assert seed.start_subject(subject.id)
+    # A crash-leftover session is old on both ends: started hours ago and its
+    # heartbeat stopped hours ago. (Backdating only last_active would be clamped
+    # back up to start, so the gap must come from an old start too.)
+    old_start = (datetime.now() - timedelta(hours=7)).isoformat()
+    old_active = (datetime.now() - timedelta(hours=6)).isoformat()
+    database.connection.execute(
+        "UPDATE sessions SET start_time = ?, last_active_at = ? "
+        "WHERE end_time IS NULL",
+        (old_start, old_active),
+    )
+    database.connection.commit()
+
+    # The recovered stale session would otherwise pop a modal recovery dialog.
+    monkeypatch.setattr(
+        app_module.MainWindow, "_maybe_prompt_recovery", lambda self: None
+    )
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        assert window.service.active_session is not None
+        assert window.service.get_active_recovery_info() is not None
+        # Idle-but-stale: quitting is allowed and the open session is preserved
+        # for recovery on the next launch (never silently dropped).
+        assert window.close()
+        assert window.service.db.get_open_sessions()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_genuinely_active_session_still_blocks_quit(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    messages = []
+    monkeypatch.setattr(
+        app_module,
+        "information",
+        lambda *args: messages.append(args[1]),
+    )
+    try:
+        subject = window.service.add_subject("Fresh", "#22C55E", "")
+        assert window.service.start_subject(subject.id)
+        # A just-started session has a current heartbeat -> genuinely tracking.
+        assert window.service.get_active_recovery_info() is None
+        assert not window.close()
+        assert window.isVisible()
+        assert messages and messages[-1] == "Session Still Active"
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        if window.service.active_session:
+            started = datetime.fromisoformat(
+                window.service.active_session.start_time
+            )
+            window.service.stop_active_subject(started + timedelta(seconds=31))
+        window.close()
+        qt_app.processEvents()
+
+
+def test_list_refresh_reuses_untouched_cards_and_rebuilds_only_changed(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        a = window.service.add_subject("A", "#111111", "")
+        b = window.service.add_subject("B", "#222222", "")
+        window._reload_subjects()
+        card_a = window._subjects_list.card_widget(a.id)
+        card_b = window._subjects_list.card_widget(b.id)
+        assert card_a is not None and card_b is not None
+
+        # Adding a session to B changes only its transient tracked total: no card
+        # is torn down (this teardown is what glitches a fullscreen window).
+        start = datetime.now() - timedelta(hours=1)
+        window.service.add_session(b.id, start, start + timedelta(minutes=30))
+        window._reload_subjects()
+        assert window._subjects_list.card_widget(a.id) is card_a
+        assert window._subjects_list.card_widget(b.id) is card_b
+
+        # Renaming B is structural -> only B's card is rebuilt; A is untouched.
+        window.service.update_subject(b.id, "B renamed", b.color, "")
+        window._reload_subjects()
+        assert window._subjects_list.card_widget(a.id) is card_a
+        b_card_after_rename = window._subjects_list.card_widget(b.id)
+        assert b_card_after_rename is not card_b
+
+        # Archiving A drops it from the active list without rebuilding B.
+        window._archive_subject(a.id)
+        assert window._subjects_list.card_widget(a.id) is None
+        assert window._subjects_list.card_widget(b.id) is b_card_after_rename
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_tracking_transitions_defer_and_update_cards_in_place(
     database, monkeypatch
 ):
     qt_app, window = _window(database, monkeypatch)
     try:
         subject = window.service.add_subject("Deferred", "#22C55E", "")
         window._reload_subjects()
-        calls = []
+
+        # A start/stop must not tear down and rebuild the card list — that heavy
+        # rebuild is what glitches a fullscreen macOS window into a Space switch.
+        graph_calls = []
+        window._reload_graphs = lambda: graph_calls.append("graphs")
+        rebuilds = []
         original_reload_subjects = window._reload_subjects
-        original_reload_graphs = window._reload_graphs
-        window._reload_subjects = lambda: calls.append("subjects")
-        window._reload_graphs = lambda: calls.append("graphs")
+        window._reload_subjects = lambda: (
+            rebuilds.append("subjects"),
+            original_reload_subjects(),
+        )
+
+        card = window._subjects_list.card_widget(subject.id)
+        assert card is not None and not card.is_active
 
         window._start_tracking(subject.id)
         assert window.service.active_session is not None
+        # Deferred: nothing mutates until the click event returns to Qt.
         assert window._tracking_refresh_timer.isActive()
-        assert calls == []
+        assert not card.is_active
 
         qt_app.processEvents()
-        assert calls == ["subjects"]
+        # State reflected in place: same card object, no full rebuild, and the
+        # hidden Graphs page is not redrawn from the Subjects page.
+        assert card.is_active
+        assert window._timer.subject is not None
+        assert rebuilds == []
+        assert graph_calls == []
 
-        calls.clear()
         window._stop_tracking()
         assert window.service.active_session is None
         assert window._tracking_refresh_timer.isActive()
-        assert calls == []
 
         qt_app.processEvents()
-        assert calls == ["subjects"]
+        assert not card.is_active
+        assert window._timer.subject is None
+        assert rebuilds == []
+
         window._reload_subjects = original_reload_subjects
-        window._reload_graphs = original_reload_graphs
     finally:
         window._graph_live_timer.stop()
         window._heartbeat_timer.stop()
@@ -480,13 +606,14 @@ def test_one_level_undo_restores_subject_archive_order_and_milestone(
         goal = window.service.add_todo_task("Undo goal", "", None)
         milestone = window.service.add_milestone(goal.id, "Undo milestone")
         detail = GoalDetailDialog(window.service, goal.id, window)
-        detail.show()
-        detail.activateWindow()
-        detail.setFocus()
+        open_dialog(detail)
         qt_app.processEvents()
-        QTest.keyClick(detail, Qt.Key_1)
+        key_target = detail._milestone_checks[0]
+        key_target.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(key_target, Qt.Key_1)
         assert window.service.db.get_milestone(milestone.id).is_done == 1
-        QTest.keyClick(detail, Qt.Key_Z, Qt.ControlModifier)
+        QTest.keyClick(key_target, Qt.Key_Z, Qt.ControlModifier)
         assert window.service.db.get_milestone(milestone.id).is_done == 0
         detail.close()
     finally:
@@ -558,39 +685,46 @@ def test_reorderable_list_arrows_scroll_one_card_from_first_press():
 
 def test_goal_detail_number_shortcuts_toggle_matching_milestones(service):
     qt_app = _application()
+    host = QFrame()
+    host.resize(700, 800)
+    host.show()
     goal = service.add_todo_task("Keyboard goal", "", None)
     first = service.add_milestone(goal.id, "First")
     second = service.add_milestone(goal.id, "Second")
-    detail = GoalDetailDialog(service, goal.id)
-    detail.show()
-    detail.activateWindow()
-    detail.setFocus()
+    detail = GoalDetailDialog(service, goal.id, host)
+    open_dialog(detail)
     qt_app.processEvents()
+    key_target = detail._milestone_checks[1]
+    key_target.setFocus()
 
-    QTest.keyClick(detail, Qt.Key_2)
+    QTest.keyClick(key_target, Qt.Key_2)
     assert service.db.get_milestone(first.id).is_done == 0
     assert service.db.get_milestone(second.id).is_done == 1
     QTest.qWait(350)
     qt_app.processEvents()
 
-    detail.activateWindow()
-    detail.setFocus()
+    key_target = detail._milestone_checks[1]
+    key_target.setFocus()
     qt_app.processEvents()
-    QTest.keyClick(detail, Qt.Key_2)
+    QTest.keyClick(key_target, Qt.Key_2)
     assert service.db.get_milestone(second.id).is_done == 0
-    detail.close()
+    detail.reject()
+    qt_app.processEvents()
 
     service.set_milestone_done(first.id, True)
     service.set_milestone_done(second.id, True)
     assert service.complete_goal(goal.id)
-    completed_detail = GoalDetailDialog(service, goal.id)
-    completed_detail.show()
-    completed_detail.activateWindow()
+    completed_detail = GoalDetailDialog(service, goal.id, host)
+    open_dialog(completed_detail)
     qt_app.processEvents()
-    QTest.keyClick(completed_detail, Qt.Key_1)
+    completed_target = completed_detail._milestone_checks[0]
+    completed_target.setFocus()
+    QTest.keyClick(completed_target, Qt.Key_1)
     assert service.db.get_milestone(first.id).is_done == 1
     assert service.get_goal(goal.id).is_completed == 1
-    completed_detail.close()
+    completed_detail.reject()
+    qt_app.processEvents()
+    host.close()
 
 
 def test_reorderable_list_uses_floating_drag_and_live_reflow():
@@ -664,6 +798,7 @@ def test_live_reorder_immediately_renumbers_badges_across_top_nine_boundary():
     old_pixmap_key = card_list._drag_pixmap.cacheKey()
 
     card_list._animate_live_move(9, 0)
+    qt_app.processEvents()
 
     assert card_list.ordered_ids()[0] == 10
     assert badges[10].text() == "1"
@@ -875,6 +1010,170 @@ def test_add_milestone_button_inserts_an_editable_row():
     dialog.close()
 
 
+def test_parented_editors_are_widgets_from_birth_and_accept_text():
+    qt_app = _application()
+    parent = QFrame()
+    parent.show()
+    dialogs = (GoalDialog(parent), SubjectDialog(parent))
+    try:
+        for dialog in dialogs:
+            assert dialog.windowType() == Qt.Widget
+            assert dialog.windowModality() == Qt.NonModal
+            assert not dialog.isWindow()
+            dialog.show()
+            editor = (
+                dialog.name_input
+                if hasattr(dialog, "name_input")
+                else dialog.title_input
+            )
+            editor.setFocus()
+            qt_app.processEvents()
+            QTest.keyClicks(editor, "Typed")
+            assert editor.text().endswith("Typed")
+            dialog.hide()
+    finally:
+        for dialog in dialogs:
+            dialog.close()
+        parent.close()
+
+
+def test_new_subject_and_goal_use_deferred_inline_panels(
+    database, monkeypatch
+):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        assert window._pages.currentIndex() == 1
+        window._nav_buttons[0].click()
+        assert window._pages.currentIndex() == 1
+        qt_app.processEvents()
+        assert window._pages.currentIndex() == 0
+        window._switch_page(1)
+
+        window._new_subject()
+        subject_dialog = window.findChild(SubjectDialog)
+        assert subject_dialog is not None
+        assert not subject_dialog.isVisible()
+        qt_app.processEvents()
+        assert subject_dialog.isVisible()
+        assert subject_dialog.windowType() == Qt.Widget
+        assert subject_dialog.window() is window
+        assert not window._shortcut_focus_allows_navigation()
+        subject_dialog.name_input.setText("Deferred subject")
+        subject_dialog.accept()
+        assert not window.service.get_all_subjects()
+        qt_app.processEvents()
+        assert [s.name for s in window.service.get_all_subjects()] == [
+            "Deferred subject"
+        ]
+        qt_app.processEvents()
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 0
+
+        window._new_goal()
+        goal_dialog = window.findChild(GoalDialog)
+        assert goal_dialog is not None
+        assert not goal_dialog.isVisible()
+        qt_app.processEvents()
+        assert goal_dialog.isVisible()
+        assert goal_dialog.windowType() == Qt.Widget
+        assert goal_dialog.window() is window
+        goal_dialog.title_input.setText("Deferred goal")
+        goal_dialog.accept()
+        assert not window.service.get_active_goals()
+        qt_app.processEvents()
+        assert [g.name for g in window.service.get_active_goals()] == [
+            "Deferred goal"
+        ]
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_message_box_helper_uses_parented_window_modal_dialog():
+    qt_app = _application()
+    parent = QFrame()
+    box = information(parent, "Title", "Body")
+    assert box._jt_original_parent is parent
+    qt_app.processEvents()
+    assert box.windowType() == Qt.Widget
+    assert box.window() is parent
+    assert not box.isWindow()
+    box.done(QMessageBox.Ok)
+    qt_app.processEvents()
+    parent.close()
+
+
+def test_framework_color_and_file_panels_remain_window_modal(service):
+    qt_app = _application()
+    parent = QFrame()
+    parent.show()
+
+    subject = SubjectDialog(parent)
+    subject.show()
+    subject._pick_custom()
+    color = subject.findChild(QColorDialog)
+    assert color is not None and not color.isVisible()
+    qt_app.processEvents()
+    assert color.isVisible()
+    assert color.testOption(QColorDialog.DontUseNativeDialog)
+    assert color.windowType() == Qt.Dialog
+    assert color.windowModality() == Qt.WindowModal
+    assert color.isWindow()
+    color.reject()
+    qt_app.processEvents()
+    subject.close()
+
+    settings = SettingsDialog(parent, service=service)
+    settings.show()
+    settings._export()
+    file_dialog = settings.findChild(QFileDialog)
+    assert file_dialog is not None and not file_dialog.isVisible()
+    qt_app.processEvents()
+    assert file_dialog.isVisible()
+    assert file_dialog.testOption(QFileDialog.DontUseNativeDialog)
+    assert file_dialog.windowType() == Qt.Dialog
+    assert file_dialog.windowModality() == Qt.WindowModal
+    assert file_dialog.isWindow()
+    file_dialog.reject()
+    qt_app.processEvents()
+    settings.close()
+    parent.close()
+
+
+def test_nested_goal_editor_stays_in_main_window(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        goal = window.service.add_todo_task("Nested editor", "", None)
+        window._open_goal(goal.id)
+        qt_app.processEvents()
+        detail = window.findChild(GoalDetailDialog)
+        assert detail is not None and detail.isVisible()
+        assert detail.window() is window
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 1
+
+        detail._edit_goal()
+        qt_app.processEvents()
+        editor = window.findChild(GoalDialog)
+        assert editor is not None and editor.isVisible()
+        assert editor.window() is window
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 2
+
+        editor.reject()
+        qt_app.processEvents()
+        assert detail.isVisible()
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 1
+
+        detail.accept()
+        qt_app.processEvents()
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 0
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
 def test_edit_goal_offers_confirmed_permanent_delete(service, monkeypatch):
     goal = service.add_todo_task("Delete from edit", "", None)
     dialog = GoalDialog(
@@ -883,9 +1182,11 @@ def test_edit_goal_offers_confirmed_permanent_delete(service, monkeypatch):
     )
     assert dialog.delete_btn.text() == "Delete Goal"
     monkeypatch.setattr(
-        QMessageBox,
+        goal_dialog_module,
         "question",
-        lambda *args, **kwargs: QMessageBox.Yes,
+        lambda _parent, _title, _text, on_finished, **_kwargs: on_finished(
+            QMessageBox.Yes
+        ),
     )
     dialog._confirm_delete()
     assert dialog.result() == GoalDialog.DELETE_RESULT

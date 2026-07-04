@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from .widgets.goal_dialog import GoalDetailDialog, GoalDialog, apply_goal_edits
+from .widgets.dialog_utils import open_dialog, question, warning
 from .widgets.reorderable_list import ReorderableCardList
 from .widgets.template_dialog import TemplateManagerDialog
 from .widgets.todo_task_item import TodoTaskItemWidget
@@ -63,7 +64,9 @@ class GoalsMixin:
         self._show_completed_btn = QPushButton("Completed")
         self._show_completed_btn.setCursor(Qt.PointingHandCursor)
         self._show_completed_btn.setMinimumHeight(30)
-        self._show_completed_btn.clicked.connect(self._toggle_completed_goals)
+        self._show_completed_btn.clicked.connect(
+            lambda: self._queue_ui_action(self._toggle_completed_goals)
+        )
         tools.addWidget(self._show_completed_btn)
         lay.addLayout(tools)
 
@@ -103,7 +106,6 @@ class GoalsMixin:
         restore_state = self._goal_view_states.get(
             self._showing_completed_goals
         )
-        self._todo_list.clear_cards()
         self._goals_rendered_view = self._showing_completed_goals
 
         goals = (
@@ -121,6 +123,7 @@ class GoalsMixin:
         self._todo_list.setAcceptDrops(True)
 
         if not goals:
+            self._todo_list.clear_cards()
             self._todo_empty.setText(
                 "No completed goals yet."
                 if self._showing_completed_goals
@@ -132,46 +135,70 @@ class GoalsMixin:
         self._todo_empty.hide()
         self._todo_list.show()
 
-        for index, goal in enumerate(goals, start=1):
-            if goal.id is None:
-                continue
-            progress = self.service.get_goal_progress(goal.id)
+        goals_by_id = {g.id: g for g in goals if g.id is not None}
+        ids = list(goals_by_id)
+        # Title/notes/target are structural (rebuild the one card); milestone
+        # progress and completion refresh in place, so completing a goal or
+        # ticking a milestone never tears down the whole list.
+        signatures = {
+            gid: (g.name, g.notes or "", getattr(g, "deadline", None))
+            for gid, g in goals_by_id.items()
+        }
+
+        def make_card(gid: int) -> TodoTaskItemWidget:
             card = TodoTaskItemWidget(
-                goal,
+                goals_by_id[gid],
                 self._tokens,
-                progress=progress,
-                shortcut_number=index,
+                progress=self.service.get_goal_progress(gid),
+                shortcut_number=1,
+                parent=self._todo_list.viewport(),
             )
             card.open_requested.connect(self._open_goal)
             card.edit_requested.connect(self._edit_goal)
             card.delete_requested.connect(self._delete_goal)
             card.complete_requested.connect(self._complete_goal)
-            self._todo_list.add_card(goal.id, card)
+            return card
+
+        def update_card(gid: int, card: TodoTaskItemWidget) -> None:
+            card.apply_transient(
+                goals_by_id[gid], self.service.get_goal_progress(gid)
+            )
+
+        self._todo_list.sync_cards(ids, signatures, make_card, update_card)
         self._todo_list.restore_view_state(restore_state)
 
     # ── Goal actions ────────────────────────────────────────────────────
     def _new_goal(self) -> None:
         dlg = GoalDialog(self)
-        if dlg.exec():
-            d = dlg.get_data()
-            goal = self.service.add_todo_task(d["name"], d["notes"], d.get("deadline"))
-            if goal is None or goal.id is None:
-                QMessageBox.warning(self, "Validation", "Goal title cannot be empty.")
-                return
-            for milestone in d["milestones"]:
-                self.service.add_milestone(
-                    goal.id,
-                    milestone["title"],
-                    milestone.get("note", ""),
-                )
-            self._showing_completed_goals = False
-            self._reload_tasks()
+        open_dialog(dlg, self._finish_new_goal)
+
+    def _finish_new_goal(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        goal = self.service.add_todo_task(d["name"], d["notes"], d.get("deadline"))
+        if goal is None or goal.id is None:
+            warning(self, "Validation", "Goal title cannot be empty.")
+            return
+        for milestone in d["milestones"]:
+            self.service.add_milestone(
+                goal.id,
+                milestone["title"],
+                milestone.get("note", ""),
+            )
+        self._showing_completed_goals = False
+        self._reload_tasks()
 
     def _open_goal(self, goal_id: int) -> None:
         if self.service.get_goal(goal_id) is None:
             return
-        GoalDetailDialog(self.service, goal_id, self, tokens=self._tokens).exec()
-        self._reload_tasks()
+        dialog = GoalDetailDialog(
+            self.service, goal_id, self, tokens=self._tokens
+        )
+        open_dialog(
+            dialog,
+            lambda _result, _dialog: self._reload_tasks(),
+        )
 
     def _edit_goal(self, goal_id: int) -> None:
         goal = self.service.get_goal(goal_id)
@@ -183,26 +210,41 @@ class GoalsMixin:
             milestones=self.service.get_goal_milestones(goal_id),
             tokens=self._tokens,
         )
-        result = dlg.exec()
+        open_dialog(
+            dlg,
+            lambda result, dialog: self._finish_edit_goal(
+                goal_id, result, dialog
+            ),
+        )
+
+    def _finish_edit_goal(
+        self, goal_id: int, result: int, dialog: QDialog
+    ) -> None:
         if result == GoalDialog.DELETE_RESULT:
             self.service.delete_todo_task(goal_id)
             self._reload_tasks()
         elif result == QDialog.Accepted:
-            apply_goal_edits(self.service, goal_id, dlg.get_data())
+            apply_goal_edits(self.service, goal_id, dialog.get_data())
             self._reload_tasks()
 
     def _delete_goal(self, goal_id: int) -> None:
         goal = self.service.get_goal(goal_id)
         if goal is None:
             return
-        if QMessageBox.question(
+        question(
             self,
             "Delete Goal",
             f'Delete “{goal.name}” and all of its milestones permanently?',
-            QMessageBox.Yes | QMessageBox.No,
-        ) == QMessageBox.Yes:
-            self.service.delete_todo_task(goal_id)
-            self._reload_tasks()
+            lambda answer: self._finish_delete_goal(goal_id, answer),
+        )
+
+    def _finish_delete_goal(
+        self, goal_id: int, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer != QMessageBox.Yes:
+            return
+        self.service.delete_todo_task(goal_id)
+        self._reload_tasks()
 
     def _complete_goal(self, goal_id: int) -> None:
         # The card only emits this when completion is allowed (it shakes the ✓
@@ -221,7 +263,13 @@ class GoalsMixin:
         self._reload_tasks()
 
     def _open_templates(self) -> None:
-        TemplateManagerDialog(self.service, self).exec()
+        dialog = TemplateManagerDialog(self.service, self)
+        open_dialog(
+            dialog,
+            lambda _result, _dialog: self._finish_templates(),
+        )
+
+    def _finish_templates(self) -> None:
         self._generate_due_goals(reload=False)
         self._reload_tasks()
 

@@ -84,8 +84,14 @@ class SubjectItemWidget(QFrame):
         is_active: bool = False,
         is_archived: bool = False,
         shortcut_number: int | None = None,
+        parent=None,
     ) -> None:
-        super().__init__()
+        # Dynamic cards must have an owner from their first QWidget
+        # constructor. A temporarily parentless card can let a visible child
+        # (notably the shortcut badge) become a top-level Cocoa window while
+        # the card is being built, which macOS promotes into its own native
+        # fullscreen Space.
+        super().__init__(parent)
         self.subject = subject
         self.total_seconds = total_seconds
         self.is_dimmed = False
@@ -113,24 +119,8 @@ class SubjectItemWidget(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 14, 12)
         layout.setSpacing(12)
-
-        if self._shortcut_number is not None:
-            shortcut = QLabel(str(self._shortcut_number))
-            shortcut.setProperty("_jt_shortcut_badge", True)
-            shortcut.setProperty(
-                "_jt_shortcut_tooltip",
-                "Press {number} to start tracking",
-            )
-            shortcut.setAlignment(Qt.AlignCenter)
-            shortcut.setFixedSize(22, 22)
-            shortcut.setToolTip(f"Press {self._shortcut_number} to start tracking")
-            shortcut.setStyleSheet(
-                f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
-                f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
-                f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
-            )
-            shortcut.setVisible(1 <= self._shortcut_number <= 9)
-            layout.addWidget(shortcut, 0, Qt.AlignTop)
+        self._root_layout = layout
+        self._shortcut_badge = None
 
         dot = QLabel()
         dot.setFixedSize(10, 10)
@@ -192,6 +182,30 @@ class SubjectItemWidget(QFrame):
             btn = self._make_action_button(text, signal, danger)
             layout.addWidget(btn, 0, Qt.AlignVCenter)
             self._action_buttons.append(btn)
+
+    def install_shortcut_badge(self) -> None:
+        """Create the keycap only after the card is owned by its list."""
+        if self._shortcut_number is None or self._shortcut_badge is not None:
+            return
+        t = self._t
+        shortcut = QLabel(str(self._shortcut_number), self)
+        shortcut.setProperty("_jt_shortcut_badge", True)
+        shortcut.setProperty(
+            "_jt_shortcut_tooltip",
+            "Press {number} to start tracking",
+        )
+        shortcut.setAlignment(Qt.AlignCenter)
+        shortcut.setFixedSize(22, 22)
+        shortcut.setToolTip(
+            f"Press {self._shortcut_number} to start tracking"
+        )
+        shortcut.setStyleSheet(
+            f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
+            f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
+            f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
+        )
+        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignTop)
+        self._shortcut_badge = shortcut
 
         # Keep a stable size hint so active border style changes do not shift
         # neighboring cards in the list.
@@ -314,6 +328,18 @@ class SubjectItemWidget(QFrame):
     def set_active(self, active: bool) -> None:
         self.is_active = active
         self._apply_state_style()
+
+    def update_stats(self, total_seconds: int) -> None:
+        """Refresh the tracked-time label in place (no card rebuild)."""
+        self.total_seconds = total_seconds
+        stats_text = format_duration(total_seconds)
+        self._stats_lbl.setText(
+            f"Tracked: {stats_text}" if total_seconds else "No time tracked yet"
+        )
+        color = self.subject.color if total_seconds else self._t["TEXT_DIMMED"]
+        self._stats_lbl.setStyleSheet(
+            f"font-size: 12px; font-weight: 500; color: {color}; background: transparent;"
+        )
 
     def _apply_state_style(self) -> None:
         self._update_action_opacity()

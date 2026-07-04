@@ -18,6 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.themes import DEFAULT_TOKENS
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    open_dialog,
+    question,
+    warning,
+)
 
 RECURRENCE_LABELS = [("Daily", "daily"), ("Weekly", "weekly"), ("Monthly", "monthly")]
 WEEKDAYS = [
@@ -36,9 +43,10 @@ def _ordinal(day: int) -> str:
     return f"{day}{suffix}"
 
 
-class TemplateDialog(QDialog):
+class TemplateDialog(InlineDialog):
     def __init__(self, parent=None, template=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.template = template
         self._tokens = getattr(parent, "_tokens", DEFAULT_TOKENS)
         self.setWindowTitle("Edit Template" if template else "New Template")
@@ -274,7 +282,7 @@ class TemplateDialog(QDialog):
 
     def _accept(self) -> None:
         if not self.title_input.text().strip():
-            QMessageBox.warning(self, "Validation", "Template title cannot be empty.")
+            warning(self, "Validation", "Template title cannot be empty.")
             return
         self.accept()
 
@@ -302,9 +310,10 @@ class TemplateDialog(QDialog):
         }
 
 
-class TemplateManagerDialog(QDialog):
+class TemplateManagerDialog(InlineDialog):
     def __init__(self, service, parent=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         self.service = service
         self._tokens = (getattr(parent, "_tokens", None) if parent is not None else None) or DEFAULT_TOKENS
         self.setWindowTitle("Recurring Templates")
@@ -431,13 +440,20 @@ class TemplateManagerDialog(QDialog):
 
     def _new(self) -> None:
         dlg = TemplateDialog(self)
-        if dlg.exec():
-            d = dlg.get_data()
-            template = self.service.add_goal_template(
-                d["title"], d["notes"], d["recurrence"], d["milestones"],
-                d["recurrence_day"],
-            )
-            self._reload(template.id if template else None)
+        open_dialog(dlg, self._finish_new)
+
+    def _finish_new(self, result: int, dialog: QDialog) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        template = self.service.add_goal_template(
+            d["title"],
+            d["notes"],
+            d["recurrence"],
+            d["milestones"],
+            d["recurrence_day"],
+        )
+        self._reload(template.id if template else None)
 
     def _edit(self) -> None:
         tid = self._selected_id()
@@ -447,13 +463,28 @@ class TemplateManagerDialog(QDialog):
         if not tpl:
             return
         dlg = TemplateDialog(self, template=tpl)
-        if dlg.exec():
-            d = dlg.get_data()
-            self.service.update_goal_template(
-                tid, d["title"], d["notes"], d["recurrence"], d["milestones"],
-                d["recurrence_day"],
-            )
-            self._reload(tid)
+        open_dialog(
+            dlg,
+            lambda result, dialog: self._finish_edit(
+                tid, result, dialog
+            ),
+        )
+
+    def _finish_edit(
+        self, template_id: int, result: int, dialog: QDialog
+    ) -> None:
+        if result != QDialog.Accepted:
+            return
+        d = dialog.get_data()
+        self.service.update_goal_template(
+            template_id,
+            d["title"],
+            d["notes"],
+            d["recurrence"],
+            d["milestones"],
+            d["recurrence_day"],
+        )
+        self._reload(template_id)
 
     def _toggle_active(self) -> None:
         tid = self._selected_id()
@@ -471,10 +502,16 @@ class TemplateManagerDialog(QDialog):
         template = self._selected_template()
         if template is None:
             return
-        if QMessageBox.question(
+        question(
             self, "Delete Template",
             f'Delete “{template.title}”? Already-generated goals are kept.',
-            QMessageBox.Yes | QMessageBox.No,
-        ) == QMessageBox.Yes:
-            self.service.delete_goal_template(tid)
-            self._reload()
+            lambda answer: self._finish_delete(tid, answer),
+        )
+
+    def _finish_delete(
+        self, template_id: int, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer != QMessageBox.Yes:
+            return
+        self.service.delete_goal_template(template_id)
+        self._reload()

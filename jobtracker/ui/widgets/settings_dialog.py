@@ -16,13 +16,22 @@ from ...services.tracker_service import TrackerService
 from ...core.themes import PALETTES, PALETTE_NAMES, FX_NAMES, get_tokens
 from ...core import export_bundle
 from ...core.timeutils import parse_day_start
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    critical,
+    information,
+    open_dialog,
+    question,
+)
 
 logger = logging.getLogger("jobtracker")
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(InlineDialog):
     def __init__(self, parent=None, service=None) -> None:
         super().__init__(parent)
+        configure_window_modal(self)
         # All persistence goes through the service (not the db directly).
         self._svc = service or getattr(parent, "service", None) or TrackerService()
         self.setWindowTitle("Settings")
@@ -282,39 +291,69 @@ class SettingsDialog(QDialog):
     # ── Data ─────────────────────────────────────────────────────────────
     def _export(self) -> None:
         """Export a bundle .zip: authoritative JSON + readable CSV files."""
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Backup Bundle", "jobtracker_backup.zip", "Zip bundle (*.zip)"
+        dialog = QFileDialog(
+            self,
+            "Export Backup Bundle",
+            "",
+            "Zip bundle (*.zip)",
         )
-        if not path:
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        dialog.setFileMode(QFileDialog.AnyFile)
+        dialog.setDefaultSuffix("zip")
+        dialog.selectFile("jobtracker_backup.zip")
+        dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+        configure_window_modal(dialog)
+        open_dialog(dialog, self._finish_export_selection)
+
+    def _finish_export_selection(
+        self, result: int, dialog: QFileDialog
+    ) -> None:
+        if result != QDialog.Accepted or not dialog.selectedFiles():
             return
+        path = dialog.selectedFiles()[0]
         try:
             export_data = self._svc.export_data()
             # Daily summary CSV respects the logical day-start setting.
             breakdown = self._svc.get_subject_breakdown(grouping="daily", days=None)
             export_bundle.write_zip(path, export_data, breakdown)
-            QMessageBox.information(
+            information(
                 self, "Exported",
                 "Backup bundle saved:\n• jobtracker_backup.json (restore file)\n"
                 "• sessions.csv, subjects.csv, daily_summary.csv",
             )
         except Exception as exc:
             logger.exception("Export failed")
-            QMessageBox.critical(self, "Error", f"Export failed:\n{exc}")
+            critical(self, "Error", f"Export failed:\n{exc}")
 
     def _import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
+        dialog = QFileDialog(
             self,
             "Import Backup Bundle",
             "",
             "JobTracker backup bundle (*.zip *.json)",
         )
-        if not path:
+        dialog.setAcceptMode(QFileDialog.AcceptOpen)
+        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+        configure_window_modal(dialog)
+        open_dialog(dialog, self._finish_import_selection)
+
+    def _finish_import_selection(
+        self, result: int, dialog: QFileDialog
+    ) -> None:
+        if result != QDialog.Accepted or not dialog.selectedFiles():
             return
-        if QMessageBox.question(
+        path = dialog.selectedFiles()[0]
+        question(
             self, "Import Data",
             "This will merge the backup into your existing data.\nProceed?",
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
+            lambda answer: self._finish_import(path, answer),
+        )
+
+    def _finish_import(
+        self, path: str, answer: QMessageBox.StandardButton
+    ) -> None:
+        if answer != QMessageBox.Yes:
             return
         try:
             if path.lower().endswith(".zip"):
@@ -336,11 +375,15 @@ class SettingsDialog(QDialog):
                 if hasattr(main, "_apply_theme"):
                     main._apply_theme()
                 main._reload()
-            QMessageBox.information(self, "Imported", "Data restored successfully.")
-            self.reject()
+            information(
+                self,
+                "Imported",
+                "Data restored successfully.",
+                on_finished=lambda _answer: self.reject(),
+            )
         except Exception as exc:
             logger.exception("Import failed")
-            QMessageBox.critical(self, "Error", f"Import failed:\n{exc}")
+            critical(self, "Error", f"Import failed:\n{exc}")
 
     # ── Result ───────────────────────────────────────────────────────────
     def get_settings(self) -> dict:
