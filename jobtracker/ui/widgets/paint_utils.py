@@ -32,11 +32,14 @@ class HoverCard(QLabel):
         self.hide()
 
     def apply_tokens(self, tokens: dict) -> None:
+        background = tokens.get("BG_SECONDARY", "#131D2E")
+        text = tokens.get("TEXT_PRIMARY", "#E2E8F0")
+        border = tokens.get("BORDER_FOCUS", tokens.get("ACCENT", "#3B82F6"))
         self.setStyleSheet(
-            f"QLabel {{ background-color: {tokens.get('BG_SECONDARY', '#131D2E')};"
-            f" color: {tokens.get('TEXT_PRIMARY', '#E2E8F0')};"
-            f" border: 1px solid {tokens.get('BORDER_FOCUS', tokens.get('ACCENT', '#3B82F6'))};"
-            " border-radius: 8px; font-size: 11px; }"
+            "QLabel { "
+            f"background-color: {background}; color: {text}; "
+            f"border: 1px solid {border}; "
+            "border-radius: 8px; font-size: 11px; }"
         )
 
     def show_at(self, x: float, y: float, html: str) -> None:
