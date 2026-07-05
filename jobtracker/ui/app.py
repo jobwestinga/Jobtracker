@@ -319,6 +319,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             shortcut.activated.connect(self._perform_undo)
             self._shortcuts.append(shortcut)
 
+        # Kept per-digit so the switch-confirm prompt can temporarily disable
+        # the one conflicting key (two live shortcuts on the same key would be
+        # ambiguous to Qt and neither would fire).
+        self._number_shortcuts: dict[int, QShortcut] = {}
         for number in range(1, 10):
             shortcut = QShortcut(QKeySequence(str(number)), self)
             shortcut.setContext(Qt.WindowShortcut)
@@ -327,6 +331,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
                 lambda selected=number: self._handle_number_shortcut(selected)
             )
             self._shortcuts.append(shortcut)
+            self._number_shortcuts[number] = shortcut
 
     def _shortcut_focus_allows_navigation(self) -> bool:
         if int(self.property("_jt_inline_dialog_count") or 0) > 0:

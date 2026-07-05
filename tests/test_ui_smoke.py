@@ -1545,3 +1545,105 @@ def test_quitting_writes_rotating_auto_backup(database, monkeypatch, tmp_path):
     assert len(files) == 1
     payload = json.loads(files[0].read_text(encoding="utf-8"))
     assert any(s["name"] == "Backup me" for s in payload["subjects"])
+
+
+def test_goal_focus_star_toggles_and_highlights(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        goal = window.service.add_todo_task("Weekly focus", "", None)
+        window._reload_tasks()
+        qt_app.processEvents()
+
+        card = window._todo_list.card_widget(goal.id)
+        assert card.focus_btn.text() == "☆"
+        card.focus_btn.click()
+        qt_app.processEvents()
+        assert window.service.get_goal(goal.id).is_focused == 1
+
+        # Focus is structural: the card rebuilt with accent emphasis.
+        card = window._todo_list.card_widget(goal.id)
+        assert card.focus_btn.text() == "★"
+        assert window._tokens["ACCENT"] in card.styleSheet()
+
+        card.focus_btn.click()
+        qt_app.processEvents()
+        assert window.service.get_goal(goal.id).is_focused == 0
+        card = window._todo_list.card_widget(goal.id)
+        assert card.focus_btn.text() == "☆"
+        assert window._tokens["ACCENT"] not in card.styleSheet()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_switch_prompt_quick_confirms_with_repeated_number(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        first = window.service.add_subject("First", "#111111", "")
+        second = window.service.add_subject("Second", "#222222", "")
+        window._reload_subjects()
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+
+        QTest.keyClick(window, Qt.Key_1)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == first.id
+
+        QTest.keyClick(window, Qt.Key_2)  # opens the switch prompt
+        QTest.qWait(50)
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 1
+
+        QTest.keyClick(window, Qt.Key_2)  # same number again = Yes
+        QTest.qWait(50)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == second.id
+        assert int(window.property("_jt_inline_dialog_count") or 0) == 0
+        assert len(window.service.db.get_open_sessions()) == 1
+
+        window.service.stop_active_subject()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        window.service.add_subject("First", "#111111", "")
+        second = window.service.add_subject("Second", "#222222", "")
+        window._reload_subjects()
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+
+        QTest.keyClick(window, Qt.Key_1)
+        qt_app.processEvents()
+        window._start_tracking(second.id)
+        QTest.qWait(50)
+
+        from PySide6.QtWidgets import QPushButton
+
+        from jobtracker.ui.widgets.dialog_utils import InlineDialog
+
+        box = window.findChild(InlineDialog)
+        assert box is not None
+        default_buttons = [
+            button for button in box.findChildren(QPushButton) if button.isDefault()
+        ]
+        assert default_buttons, "switch prompt must have a default (Enter) button"
+        assert default_buttons[0].text() in ("Yes", "&Yes")
+        box.done(int(QMessageBox.Yes))
+        QTest.qWait(50)
+        qt_app.processEvents()
+        assert window.service.active_subject.id == second.id
+        window.service.stop_active_subject()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()

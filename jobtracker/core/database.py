@@ -149,6 +149,13 @@ class Database:
         if not self._column_exists("todo_tasks", "template_id"):
             cur.execute("ALTER TABLE todo_tasks ADD COLUMN template_id INTEGER")
 
+        # Weekly-focus flag for goals (user highlights the goals they are
+        # concentrating on right now). Additive, reversible; 0 = not focused.
+        if not self._column_exists("todo_tasks", "is_focused"):
+            cur.execute(
+                "ALTER TABLE todo_tasks ADD COLUMN is_focused INTEGER DEFAULT 0"
+            )
+
         # Scheduled weekday/month-day for recurring templates. Existing weekly
         # and monthly templates retain predictable period-start behavior.
         if not self._column_exists("goal_templates", "recurrence_day"):
@@ -717,6 +724,14 @@ class Database:
         )
         self.connection.commit()
 
+    def set_todo_task_focused(self, todo_task_id: int, focused: bool) -> None:
+        cur = self.connection.cursor()
+        cur.execute(
+            "UPDATE todo_tasks SET is_focused = ? WHERE id = ?",
+            (1 if focused else 0, todo_task_id),
+        )
+        self.connection.commit()
+
     def set_todo_task_order(
         self, ordered_ids: list[int], completed: bool = False
     ) -> None:
@@ -1105,8 +1120,9 @@ class Database:
                 new_template_id = None
             cur.execute(
                 "INSERT INTO todo_tasks "
-                "(name, notes, deadline, is_completed, sort_order, created_at, template_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(name, notes, deadline, is_completed, sort_order, created_at, "
+                "template_id, is_focused) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     item["name"],
                     item.get("notes", ""),
@@ -1115,6 +1131,7 @@ class Database:
                     item.get("sort_order", self._next_sort_order("todo_tasks")),
                     item.get("created_at", datetime.now().isoformat()),
                     new_template_id,
+                    item.get("is_focused", 0),
                 ),
             )
             if legacy_goal_id is not None:

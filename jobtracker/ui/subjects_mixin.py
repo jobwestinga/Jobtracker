@@ -9,6 +9,7 @@ window: ``self.service``, ``self._tokens``, ``self._pages``, ``self._reload_grap
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
@@ -413,12 +414,36 @@ class SubjectsMixin:
                 )
                 self._tracking_refresh_timer.start(0)
 
-        question(
+        # Enter confirms (Yes is the default button); pressing the target
+        # subject's number again also confirms, so "6, 6" or "6, Enter"
+        # switches without touching the mouse.
+        box = question(
             self,
             "Switch Subject",
             f'Stop "{active.name}" and start tracking "{target.name}"?',
             finish,
+            default_button=QMessageBox.Yes,
         )
+        try:
+            row = self._subjects_list.ordered_ids().index(subject_id)
+        except ValueError:
+            row = -1
+        if 0 <= row < 9 and hasattr(box, "finished"):
+            digit = row + 1
+            # The window-level digit shortcut would make this key ambiguous
+            # while the prompt is open; park it until the prompt closes.
+            conflicting = getattr(self, "_number_shortcuts", {}).get(digit)
+            if conflicting is not None:
+                conflicting.setEnabled(False)
+                box.finished.connect(
+                    lambda _result, sc=conflicting: sc.setEnabled(True)
+                )
+            repeat = QShortcut(QKeySequence(str(digit)), box)
+            repeat.setContext(Qt.ApplicationShortcut)
+            repeat.setAutoRepeat(False)
+            repeat.activated.connect(
+                lambda: box.done(int(QMessageBox.Yes))
+            )
 
     def _stop_tracking(self) -> None:
         self.service.stop_active_subject()

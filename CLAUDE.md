@@ -48,6 +48,37 @@ live here.
 - The agenda timeline intentionally uses **calendar** days (it paints clock
   positions), not logical days.
 
+## Definition of done — ALWAYS test + rebuild
+
+After ANY code change, before reporting back to the user:
+
+1. **Run the full test suite**: `python3 -m pytest`. Everything must pass —
+   not just the tests near the change.
+2. **Rebuild and reinstall the app** so the installed app matches the source.
+   Fast path (system Python already has PyInstaller + PySide6, no venv needed):
+
+   ```bash
+   rm -rf build dist
+   pyinstaller JobTracker.spec --noconfirm
+   rm -rf /Applications/JobTracker.app
+   cp -R dist/JobTracker.app /Applications/
+   xattr -cr /Applications/JobTracker.app
+   codesign --force --deep -s - /Applications/JobTracker.app
+   codesign -v /Applications/JobTracker.app
+   ```
+
+   Sign AFTER copying to /Applications: the repo lives in iCloud Drive, which
+   re-attaches extended attributes between `xattr -cr` and `codesign`, breaking
+   signatures made inside the repo's `dist/`.
+
+   (`./build_macos.sh` does the same through a venv; slower but equivalent.)
+3. Before replacing `/Applications/JobTracker.app`, check whether the app is
+   running and whether a session is being tracked (`pgrep -lf JobTracker.app`,
+   open sessions in the prod db). Never yank the bundle mid-session; if it is
+   running idle, the old process keeps working but tell the user to relaunch.
+4. Back up both databases (`data/jobtracker.db` and the Application Support
+   one) before any schema migration, even additive ones.
+
 ## Testing
 
 - Tests are **pytest**, in `tests/`. Run them with `python -m pytest`

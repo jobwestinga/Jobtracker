@@ -29,6 +29,9 @@ class TodoTask:
     sort_order: int
     created_at: str
     template_id: Optional[int] = None
+    # Weekly focus: the user highlights goals they are concentrating on now.
+    # Purely visual emphasis + manual toggle; never affects completion rules.
+    is_focused: int = 0
 
 
 @dataclass

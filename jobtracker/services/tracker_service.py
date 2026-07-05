@@ -673,6 +673,16 @@ class TrackerService:
     def uncomplete_goal(self, goal_id: int) -> None:
         self.db.uncomplete_todo_task(goal_id)
 
+    def toggle_goal_focused(self, goal_id: int) -> bool:
+        """Flip the weekly-focus flag. Returns the new state (False if the
+        goal does not exist)."""
+        goal = self.db.get_todo_task(goal_id)
+        if goal is None:
+            return False
+        focused = not bool(goal.is_focused)
+        self.db.set_todo_task_focused(goal_id, focused)
+        return focused
+
     # Milestone editing
     def add_milestone(self, goal_id: int, title: str, note: str = "") -> Optional[Milestone]:
         milestone = self.db.add_milestone(goal_id, title, note)

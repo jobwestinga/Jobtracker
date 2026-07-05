@@ -16,20 +16,24 @@ from ...core.themes import DEFAULT_TOKENS
 from .paint_utils import HoverCard, with_alpha as _with_alpha
 
 
-def _intensity_style(seconds: float) -> tuple[str, float]:
-    """Color/scale the total label by average tracked time per day."""
+def _intensity_style(seconds: float) -> tuple[str, float, bool]:
+    """(color, scale, strong) for a bar's total label, by tracked time per day.
+
+    Higher tiers grow larger and ``strong`` tiers get the extra outer glow —
+    big days should read as achievements at a glance, even fullscreen.
+    """
     hours = max(0.0, float(seconds)) / 3600.0
     if hours <= 1.0:
-        return "#737373", 0.8
+        return "#737373", 0.85, False
     if hours <= 2.5:
-        return "#86EFAC", 0.95
+        return "#86EFAC", 1.0, False
     if hours <= 4.5:
-        return "#60A5FA", 1.0
+        return "#60A5FA", 1.08, False
     if hours <= 7.0:
-        return "#A855F7", 1.05
+        return "#A855F7", 1.2, True
     if hours <= 10.0:
-        return "#FB923C", 1.15
-    return "#EF4444", 1.25
+        return "#FB923C", 1.32, True
+    return "#EF4444", 1.45, True
 
 
 def _bucket_label(date_iso: str, grouping: str) -> str:
@@ -116,8 +120,9 @@ class _GraphCanvas(QWidget):
 
     # ── geometry shared by painting and mouse hit-testing ────────────────
     def _chart_rect(self) -> QRectF:
+        # Top margin leaves room for the enlarged total labels (halo included).
         return QRectF(
-            44, 26, max(80, self.width() - 66), max(120, self.height() - 70)
+            44, 32, max(80, self.width() - 66), max(120, self.height() - 76)
         )
 
     def _bar_layout(self) -> tuple[float, float]:
@@ -230,20 +235,28 @@ class _GraphCanvas(QWidget):
                 intensity_seconds = day_data.get(
                     "intensity_seconds", total_seconds
                 )
-                c_hex, s = _intensity_style(intensity_seconds)
+                c_hex, s, strong = _intensity_style(intensity_seconds)
 
                 text = f"{total_h:.1f}h"
-                base_font_size = 9
-                scaled_size = max(7, int(base_font_size * s))
-                p.setFont(QFont("SF Pro Text", scaled_size, QFont.Bold))
-                
-                text_rect = QRectF(x - 24, chart.top() - 25, bar_width + 48, 20)
-                
+                base_font_size = 11
+                scaled_size = max(8, int(base_font_size * s))
+                weight = QFont.Black if strong else QFont.Bold
+                p.setFont(QFont("SF Pro Text", scaled_size, weight))
+
+                text_rect = QRectF(x - 28, chart.top() - 28, bar_width + 56, 24)
+
+                # Strong days get a wide soft halo behind the contour so big
+                # totals visibly pop, especially fullscreen.
+                if strong:
+                    p.setPen(QPen(_with_alpha(c_hex, 80), 1))
+                    for ox, oy in [(-2, -2), (2, -2), (-2, 2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]:
+                        p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
+
                 # Draw the shiny contour (multi-offset outer stroke)
                 p.setPen(QPen(_with_alpha(c_hex, 220), 1))
                 for ox, oy in [(-1, -1), (1, -1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
                     p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
-                
+
                 # Draw the main text overtop
                 p.setPen(QColor(t["TEXT_PRIMARY"]))
                 p.drawText(text_rect, Qt.AlignCenter, text)

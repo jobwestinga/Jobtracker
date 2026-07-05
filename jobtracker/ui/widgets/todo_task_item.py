@@ -152,6 +152,7 @@ class TodoTaskItemWidget(QFrame):
     delete_requested = Signal(int)
     complete_requested = Signal(int)
     open_requested = Signal(int)
+    focus_toggle_requested = Signal(int)
 
     def __init__(
         self,
@@ -220,6 +221,18 @@ class TodoTaskItemWidget(QFrame):
         layout.addLayout(info)
         layout.addStretch()
 
+        # Weekly-focus star: quiet outline when off, theme accent when on.
+        self.focus_btn = QPushButton(self)
+        self.focus_btn.setFixedSize(28, 28)
+        self.focus_btn.setCursor(Qt.PointingHandCursor)
+        self.focus_btn.setFlat(True)
+        self.focus_btn.setProperty("no_drag", True)
+        self._apply_focus_button_style()
+        if self.todo_task.is_completed:
+            self.focus_btn.hide()
+        self.focus_btn.clicked.connect(self._on_focus_clicked)
+        layout.addWidget(self.focus_btn, 0, Qt.AlignVCenter)
+
         # No explicit "Open" button: clicking anywhere on the card opens the
         # detail view (see mouseReleaseEvent). The ✓ only completes.
         self.check_btn = _CheckButton(self)
@@ -284,18 +297,58 @@ class TodoTaskItemWidget(QFrame):
     def _apply_style(self) -> None:
         t = self._t
         radius = t.get("TASK_RADIUS", "6px")
-        border_style = "1px solid"
-        border_color = t["BORDER_COLOR"]
         card_bg = t.get("CARD_BG", t["BG_SECONDARY"])
+        if self._is_focused():
+            # Weekly-focus emphasis: theme-accent outline + left bar. Clear
+            # contrast against normal cards without shouting.
+            accent = t.get("ACCENT", "#3B82F6")
+            self.setStyleSheet(
+                f"""
+                QFrame#todoTaskCard {{
+                    background-color: {card_bg};
+                    border: 1.6px solid {accent};
+                    border-left: 4px solid {accent};
+                    border-radius: {radius};
+                }}
+                """
+            )
+            return
         self.setStyleSheet(
             f"""
             QFrame#todoTaskCard {{
                 background-color: {card_bg};
-                border: {border_style} {border_color};
+                border: 1px solid {t["BORDER_COLOR"]};
                 border-radius: {radius};
             }}
             """
         )
+
+    def _is_focused(self) -> bool:
+        return bool(
+            getattr(self.todo_task, "is_focused", 0)
+            and not self.todo_task.is_completed
+        )
+
+    def _apply_focus_button_style(self) -> None:
+        t = self._t
+        accent = t.get("ACCENT", "#3B82F6")
+        focused = self._is_focused()
+        self.focus_btn.setText("★" if focused else "☆")
+        self.focus_btn.setToolTip(
+            "Remove from this week's focus" if focused else "Focus on this goal this week"
+        )
+        color = accent if focused else t.get("TEXT_DIMMED", "#6F7D90")
+        self.focus_btn.setStyleSheet(
+            "QPushButton { background-color: transparent; border: none; "
+            f"color: {color}; font-size: 17px; font-weight: 600; "
+            "} QPushButton:hover { "
+            f"color: {accent}; "
+            "}"
+        )
+
+    def _on_focus_clicked(self) -> None:
+        if self.todo_task.id is not None:
+            self.focus_toggle_requested.emit(self.todo_task.id)
 
     def _can_complete(self) -> bool:
         """A goal can be completed when it has no milestones or all are done."""
@@ -380,6 +433,16 @@ class TodoTaskItemWidget(QFrame):
         open_action = QAction("Open Goal", self)
         open_action.triggered.connect(lambda: self.open_requested.emit(self.todo_task.id))
         menu.addAction(open_action)
+
+        if not self.todo_task.is_completed:
+            focus_action = QAction(
+                "Remove Weekly Focus" if self._is_focused() else "Focus This Week",
+                self,
+            )
+            focus_action.triggered.connect(
+                lambda: self.focus_toggle_requested.emit(self.todo_task.id)
+            )
+            menu.addAction(focus_action)
 
         edit = QAction("Edit Goal", self)
         edit.triggered.connect(lambda: self.edit_requested.emit(self.todo_task.id))

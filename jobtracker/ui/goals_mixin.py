@@ -137,11 +137,16 @@ class GoalsMixin:
 
         goals_by_id = {g.id: g for g in goals if g.id is not None}
         ids = list(goals_by_id)
-        # Title/notes/target are structural (rebuild the one card); milestone
-        # progress and completion refresh in place, so completing a goal or
-        # ticking a milestone never tears down the whole list.
+        # Title/notes/target/focus are structural (rebuild the one card);
+        # milestone progress and completion refresh in place, so completing a
+        # goal or ticking a milestone never tears down the whole list.
         signatures = {
-            gid: (g.name, g.notes or "", getattr(g, "deadline", None))
+            gid: (
+                g.name,
+                g.notes or "",
+                getattr(g, "deadline", None),
+                bool(getattr(g, "is_focused", 0)),
+            )
             for gid, g in goals_by_id.items()
         }
 
@@ -157,6 +162,7 @@ class GoalsMixin:
             card.edit_requested.connect(self._edit_goal)
             card.delete_requested.connect(self._delete_goal)
             card.complete_requested.connect(self._complete_goal)
+            card.focus_toggle_requested.connect(self._toggle_goal_focus)
             return card
 
         def update_card(gid: int, card: TodoTaskItemWidget) -> None:
@@ -257,6 +263,10 @@ class GoalsMixin:
             self._reload_tasks()
 
         self._todo_list.animate_remove(goal_id, on_finished=after_anim)
+
+    def _toggle_goal_focus(self, goal_id: int) -> None:
+        self.service.toggle_goal_focused(goal_id)
+        self._reload_tasks()
 
     def _toggle_completed_goals(self) -> None:
         self._showing_completed_goals = not self._showing_completed_goals
