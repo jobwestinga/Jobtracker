@@ -1647,3 +1647,77 @@ def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
         window._heartbeat_timer.stop()
         window.close()
         qt_app.processEvents()
+
+
+def test_session_dialog_subject_picker_only_when_editing(service):
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    _application()
+    first = service.add_subject("General", "#111111", "")
+    second = service.add_subject("Specific", "#222222", "")
+    session = service.add_session(
+        first.id, datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 10, 0)
+    )
+
+    # Add mode: no subject picker.
+    add_dialog = SessionDialog(None)
+    assert add_dialog.subject_combo is None
+    assert add_dialog.get_data()["subject_id"] is None
+    add_dialog.close()
+
+    # Edit mode with a service: picker present, current subject preselected.
+    edit_dialog = SessionDialog(
+        None, session, service=service, current_subject_id=first.id
+    )
+    combo = edit_dialog.subject_combo
+    assert combo is not None
+    names = [combo.itemText(i) for i in range(combo.count())]
+    assert "General" in names and "Specific" in names
+    assert combo.currentData() == first.id
+
+    combo.setCurrentIndex(combo.findData(second.id))
+    assert edit_dialog.get_data()["subject_id"] == second.id
+    edit_dialog.close()
+
+
+def test_manage_sessions_edit_moves_session_to_chosen_subject(service):
+    from PySide6.QtWidgets import QDialog
+
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app = _application()
+    first = service.add_subject("General", "#111111", "")
+    second = service.add_subject("Specific", "#222222", "")
+    session = service.add_session(
+        first.id,
+        datetime(2026, 6, 20, 9, 0),
+        datetime(2026, 6, 20, 10, 0),
+        note="move me",
+    )
+
+    manager = ManageSessionsDialog(first.id, service)
+    manager.show()
+    qt_app.processEvents()
+    assert manager._list.count() == 1
+
+    # Drive the same dialog the Edit button opens, choose the other subject.
+    edit_dialog = SessionDialog(
+        manager, session, service=service, current_subject_id=first.id
+    )
+    edit_dialog.subject_combo.setCurrentIndex(
+        edit_dialog.subject_combo.findData(second.id)
+    )
+    manager._finish_edit(session.id, int(QDialog.Accepted), edit_dialog)
+    qt_app.processEvents()
+
+    moved = service.get_sessions_for_subject(second.id)
+    assert len(moved) == 1
+    assert moved[0].id == session.id
+    assert moved[0].duration_seconds == 3600
+    assert moved[0].note == "move me"
+    assert service.get_sessions_for_subject(first.id) == []
+    # The source list no longer shows the moved session.
+    assert manager._list.count() == 0 or manager._list.isHidden()
+    edit_dialog.close()
+    manager.close()

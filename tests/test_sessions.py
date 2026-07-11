@@ -125,3 +125,32 @@ def test_heartbeat_ignores_closed_session(service, subject):
     # Closed session should never be touched by the heartbeat write.
     service.db.touch_active_session(sess.id, datetime(2026, 6, 20, 12, 0).isoformat())
     assert service.db.get_session(sess.id).last_active_at is None
+
+
+# ── moving a session to another subject ──────────────────────────────────────
+def test_update_session_moves_between_subjects(service, subject):
+    other = service.add_subject("Deep Work", "#22C55E", "")
+    sess = service.add_session(
+        subject.id,
+        datetime(2026, 6, 20, 9, 0),
+        datetime(2026, 6, 20, 10, 0),
+        note="belongs elsewhere",
+    )
+
+    moved = service.update_session(
+        sess.id,
+        other.id,
+        datetime(2026, 6, 20, 9, 0),
+        datetime(2026, 6, 20, 10, 0),
+        note="belongs elsewhere",
+    )
+
+    # Same session row, same times/duration/note — only the subject changed.
+    assert moved.id == sess.id
+    assert moved.subject_id == other.id
+    assert moved.start_time == sess.start_time
+    assert moved.end_time == sess.end_time
+    assert moved.duration_seconds == 3600
+    assert moved.note == "belongs elsewhere"
+    assert service.get_sessions_for_subject(subject.id) == []
+    assert len(service.get_sessions_for_subject(other.id)) == 1

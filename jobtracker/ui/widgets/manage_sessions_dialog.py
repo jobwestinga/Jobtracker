@@ -217,7 +217,12 @@ class ManageSessionsDialog(InlineDialog):
         if session.id is None:
             warning(self, "Invalid Session", "Selected session has no valid identifier.")
             return
-        dlg = SessionDialog(self, session)
+        dlg = SessionDialog(
+            self,
+            session,
+            service=self.service,
+            current_subject_id=self.subject_id,
+        )
         open_dialog(
             dlg,
             lambda result, dialog: self._finish_edit(
@@ -231,14 +236,30 @@ class ManageSessionsDialog(InlineDialog):
         if result != QDialog.Accepted:
             return
         d = dialog.get_data()
+        target_subject_id = d.get("subject_id") or self.subject_id
         self.service.update_session(
             session_id,
-            self.subject_id,
+            target_subject_id,
             d["start_time"],
             d["end_time"],
             d["note"],
         )
         self._load()
+        if target_subject_id != self.subject_id:
+            target = next(
+                (
+                    s
+                    for s in self.service.get_all_subjects_including_archived()
+                    if s.id == target_subject_id
+                ),
+                None,
+            )
+            information(
+                self,
+                "Session Moved",
+                f'Session moved to "{target.name if target else "another subject"}".'
+                "\nSame times, same duration — only the subject changed.",
+            )
 
     def _delete(self) -> None:
         sel = self._list.currentItem()
