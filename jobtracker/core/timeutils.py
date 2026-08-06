@@ -149,6 +149,41 @@ def logical_day_range(
     return [start_day + timedelta(days=i) for i in range(span + 1)]
 
 
+def clock_time_in_logical_day(
+    day: date, clock: time, day_start: time = DEFAULT_DAY_START
+) -> datetime:
+    """The datetime INSIDE logical ``day`` whose wall-clock time is ``clock``.
+
+    Inverse of :func:`logical_day`. Clock times before ``day_start`` belong to
+    the following calendar date, because a logical day spans
+    ``[day 03:00, day+1 03:00)`` by default::
+
+        clock_time_in_logical_day(2026-06-20, 09:00) -> 2026-06-20 09:00
+        clock_time_in_logical_day(2026-06-20, 01:00) -> 2026-06-21 01:00
+
+    Both results satisfy ``logical_day(result) == 2026-06-20``.
+    """
+    moment = datetime.combine(day, clock)
+    if clock < day_start:
+        moment += timedelta(days=1)
+    return moment
+
+
+def shift_session_to_logical_day(
+    start: datetime,
+    end: datetime,
+    target_day: date,
+    day_start: time = DEFAULT_DAY_START,
+) -> Tuple[datetime, datetime]:
+    """Move a [start, end) session onto ``target_day``, keeping clock time.
+
+    The duration is preserved exactly (the end is derived from the shifted
+    start), so a session that crosses midnight stays intact.
+    """
+    new_start = clock_time_in_logical_day(target_day, start.time(), day_start)
+    return new_start, new_start + (end - start)
+
+
 def week_start(day: date) -> date:
     """Monday of the week containing ``day`` (weeks are Monday-start)."""
     return day - timedelta(days=day.weekday())

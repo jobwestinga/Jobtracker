@@ -605,6 +605,50 @@ class TrackerService:
     def delete_session(self, session_id: int) -> None:
         self.db.delete_session(session_id)
 
+    def duplicate_session(
+        self, session_id: int, to: str = "today"
+    ) -> Optional[Session]:
+        """Copy a closed session onto another logical day, same clock time.
+
+        ``to="today"``    -> the current logical day.
+        ``to="next_day"`` -> the logical day after the original's.
+
+        Duration, note, and subject are preserved; only the date moves. The
+        copy may never START in the future — the app must not fabricate time
+        that has not been worked yet — so such a request returns None and
+        nothing is written.
+        """
+        session = self.db.get_session(session_id)
+        if session is None or session.id is None or not session.end_time:
+            return None
+        start_dt = timeutils.parse_iso(session.start_time)
+        end_dt = timeutils.parse_iso(session.end_time)
+        if start_dt is None or end_dt is None:
+            return None
+
+        day_start = self.get_day_start()
+        now = datetime.now()
+        if to == "next_day":
+            target_day = timeutils.logical_day(start_dt, day_start) + timedelta(days=1)
+        elif to == "today":
+            target_day = timeutils.logical_day(now, day_start)
+        else:
+            return None
+
+        new_start, new_end = timeutils.shift_session_to_logical_day(
+            start_dt, end_dt, target_day, day_start
+        )
+        if new_start > now:
+            logger.info(
+                "Refused to duplicate session %s to %s: copy would start in the future",
+                session_id,
+                new_start.isoformat(),
+            )
+            return None
+        return self.add_session(
+            session.subject_id, new_start, new_end, session.note
+        )
+
     # ── Todo Tasks (completable) ────────────────────────────────────────
     def get_all_todo_tasks(self) -> List[TodoTask]:
         return self.db.get_all_todo_tasks()

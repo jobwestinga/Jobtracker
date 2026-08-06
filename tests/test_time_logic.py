@@ -179,3 +179,50 @@ def test_bucket_key_daily_weekly_monthly():
 def test_logical_day_range_inclusive():
     rng = timeutils.logical_day_range(date(2026, 6, 1), date(2026, 6, 3))
     assert rng == [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)]
+
+
+# ── clock time inside a logical day / shifting a session ─────────────────────
+DAY_START = timeutils.DEFAULT_DAY_START
+
+
+def test_clock_time_in_logical_day_normal_hours():
+    moment = timeutils.clock_time_in_logical_day(
+        date(2026, 6, 20), time(9, 0), DAY_START
+    )
+    assert moment == datetime(2026, 6, 20, 9, 0)
+    assert timeutils.logical_day(moment, DAY_START) == date(2026, 6, 20)
+
+
+def test_clock_time_before_day_start_lands_on_next_calendar_date():
+    # 01:00 belongs to the PREVIOUS logical day, so inside logical day 06-20 it
+    # is really 06-21 01:00.
+    moment = timeutils.clock_time_in_logical_day(
+        date(2026, 6, 20), time(1, 0), DAY_START
+    )
+    assert moment == datetime(2026, 6, 21, 1, 0)
+    assert timeutils.logical_day(moment, DAY_START) == date(2026, 6, 20)
+
+
+def test_shift_session_preserves_clock_time_and_duration():
+    start = datetime(2026, 6, 20, 9, 0)
+    end = datetime(2026, 6, 20, 11, 30)
+    new_start, new_end = timeutils.shift_session_to_logical_day(
+        start, end, date(2026, 7, 4), DAY_START
+    )
+    assert new_start == datetime(2026, 7, 4, 9, 0)
+    assert new_end == datetime(2026, 7, 4, 11, 30)
+    assert (new_end - new_start) == (end - start)
+
+
+def test_shift_session_keeps_midnight_crossing_intact():
+    start = datetime(2026, 6, 20, 23, 0)
+    end = datetime(2026, 6, 21, 1, 0)  # same logical day (2026-06-20)
+    new_start, new_end = timeutils.shift_session_to_logical_day(
+        start, end, date(2026, 7, 4), DAY_START
+    )
+    assert new_start == datetime(2026, 7, 4, 23, 0)
+    assert new_end == datetime(2026, 7, 5, 1, 0)
+    assert (new_end - new_start) == (end - start)
+    # Both ends still belong to the target logical day.
+    assert timeutils.logical_day(new_start, DAY_START) == date(2026, 7, 4)
+    assert timeutils.logical_day(new_end, DAY_START) == date(2026, 7, 4)

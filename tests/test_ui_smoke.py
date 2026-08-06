@@ -1721,3 +1721,53 @@ def test_manage_sessions_edit_moves_session_to_chosen_subject(service):
     assert manager._list.count() == 0 or manager._list.isHidden()
     edit_dialog.close()
     manager.close()
+
+
+def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
+    from PySide6.QtWidgets import QPushButton
+
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Routine", "#111111", "")
+    start = (datetime.now() - timedelta(days=3)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
+    original = service.add_session(
+        subject.id, start, start + timedelta(hours=2), note="block"
+    )
+
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    qt_app.processEvents()
+
+    labels = {b.text() for b in manager.findChildren(QPushButton)}
+    assert "⧉ Duplicate" in labels and "⧉ +1 Day" in labels
+    assert manager._list.count() == 1
+
+    # "+1 Day" copies forward and leaves the COPY selected, so a second click
+    # walks another day forward rather than re-copying the original.
+    manager._duplicate("next_day")
+    qt_app.processEvents()
+    assert manager._list.count() == 2
+    selected = manager._list.currentItem().data(Qt.UserRole)
+    assert selected.id != original.id
+
+    manager._duplicate("next_day")
+    qt_app.processEvents()
+    assert manager._list.count() == 3
+    days = sorted(
+        datetime.fromisoformat(s.start_time).date()
+        for s in service.get_sessions_for_subject(subject.id)
+    )
+    assert days == [start.date() + timedelta(days=n) for n in (0, 1, 2)]
+
+    # "Duplicate" lands on today, same clock time, same duration.
+    manager._duplicate("today")
+    qt_app.processEvents()
+    copy = manager._list.currentItem().data(Qt.UserRole)
+    copy_start = datetime.fromisoformat(copy.start_time)
+    assert copy_start.time() == start.time()
+    assert copy.duration_seconds == original.duration_seconds
+    assert copy.note == "block"
+    manager.close()

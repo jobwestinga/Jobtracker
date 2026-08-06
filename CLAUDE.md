@@ -124,7 +124,9 @@ Pure, UI-free, fully unit-tested core logic — extend these rather than putting
 logic in widgets:
 
 - `core/timeutils.py` — parsing, durations, logical day, week/month bucket keys,
-  `agenda_hour()` (after-midnight work maps to 24..27), `split_by_logical_day()`.
+  `agenda_hour()` (after-midnight work maps to 24..27), `split_by_logical_day()`,
+  `clock_time_in_logical_day()` (inverse of `logical_day`) and
+  `shift_session_to_logical_day()` (used by session duplication).
 - `core/recovery.py` — crash-recovery decision: `build_recovery_info()` returns
   None for small gaps (don't prompt), else the numbers the dialog shows;
   `end_time_for_choice()` maps a choice to an end datetime. Gap threshold default
@@ -146,6 +148,13 @@ session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`
 back-compat wrapper. Subject card totals come from `get_subject_stats_map()`
 (one GROUP BY for all subjects + the live session, attributed by its START
 time like the bar chart).
+
+`TrackerService.duplicate_session(session_id, to="today"|"next_day")` copies a
+closed session onto another logical day keeping clock time, duration, note, and
+subject. It must never create a copy that STARTS in the future (returns None
+instead) — the app does not fabricate untracked time. Editing a session can also
+move it to another subject (subject dropdown in `SessionDialog`); that is one
+UPDATE on the same row, so the session id and all times survive.
 
 Switching subjects while tracking goes through `TrackerService.switch_subject()`
 and, in the UI, always behind a confirm prompt: the running session keeps

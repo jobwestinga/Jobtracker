@@ -1,6 +1,8 @@
 """Session lifecycle: start/stop, 30s rule, manual CRUD, overlap, heartbeat."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+
+from jobtracker.core import timeutils
 
 
 def _backdate_active_start(database, service, minutes: int) -> None:
@@ -154,3 +156,86 @@ def test_update_session_moves_between_subjects(service, subject):
     assert moved.note == "belongs elsewhere"
     assert service.get_sessions_for_subject(subject.id) == []
     assert len(service.get_sessions_for_subject(other.id)) == 1
+
+
+# ── duplicating a session ────────────────────────────────────────────────────
+def _yesterday_at(hour: int) -> datetime:
+    """A safely-in-the-past moment: yesterday at ``hour``."""
+    return datetime.combine(
+        (datetime.now() - timedelta(days=1)).date(), time(hour, 0)
+    )
+
+
+def test_duplicate_to_today_keeps_clock_time_duration_and_note(service, subject):
+    start = _yesterday_at(9)
+    original = service.add_session(
+        subject.id, start, start + timedelta(hours=2), note="routine block"
+    )
+
+    copy = service.duplicate_session(original.id, to="today")
+
+    assert copy is not None and copy.id != original.id
+    copy_start = datetime.fromisoformat(copy.start_time)
+    assert copy_start.time() == start.time()          # same clock time
+    assert copy.duration_seconds == original.duration_seconds
+    assert copy.note == "routine block"
+    assert copy.subject_id == subject.id
+    # Lands on the current logical day, and the original is untouched.
+    assert timeutils.logical_day(copy_start) == timeutils.logical_day(datetime.now())
+    assert service.db.get_session(original.id).start_time == original.start_time
+    assert len(service.get_sessions_for_subject(subject.id)) == 2
+
+
+def test_duplicate_next_day_moves_exactly_one_logical_day(service, subject):
+    start = datetime.now() - timedelta(days=5)
+    start = start.replace(hour=9, minute=0, second=0, microsecond=0)
+    original = service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    copy = service.duplicate_session(original.id, to="next_day")
+
+    assert copy is not None
+    copy_start = datetime.fromisoformat(copy.start_time)
+    assert copy_start.time() == start.time()
+    assert (
+        timeutils.logical_day(copy_start)
+        == timeutils.logical_day(start) + timedelta(days=1)
+    )
+    assert copy.duration_seconds == original.duration_seconds
+
+
+def test_repeated_next_day_duplicates_walk_forward(service, subject):
+    start = datetime.now() - timedelta(days=4)
+    start = start.replace(hour=10, minute=0, second=0, microsecond=0)
+    current = service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    days = []
+    for _ in range(3):
+        current = service.duplicate_session(current.id, to="next_day")
+        assert current is not None
+        days.append(timeutils.logical_day(datetime.fromisoformat(current.start_time)))
+
+    first_day = timeutils.logical_day(start)
+    assert days == [first_day + timedelta(days=n) for n in (1, 2, 3)]
+    assert len(service.get_sessions_for_subject(subject.id)) == 4
+
+
+def test_duplicate_refuses_to_create_future_session(service, subject):
+    # A session from today: "+1 day" would land tomorrow -> refused, nothing written.
+    start = datetime.now() - timedelta(hours=2)
+    original = service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    assert service.duplicate_session(original.id, to="next_day") is None
+    assert len(service.get_sessions_for_subject(subject.id)) == 1
+
+
+def test_duplicate_rejects_unknown_mode_and_missing_session(service, subject):
+    start = _yesterday_at(9)
+    original = service.add_session(subject.id, start, start + timedelta(hours=1))
+    assert service.duplicate_session(original.id, to="whenever") is None
+    assert service.duplicate_session(999_999, to="today") is None
+    assert len(service.get_sessions_for_subject(subject.id)) == 1
+
+
+def test_duplicate_ignores_the_open_session(service, subject):
+    service.start_subject(subject.id)
+    assert service.duplicate_session(service.active_session.id, to="today") is None

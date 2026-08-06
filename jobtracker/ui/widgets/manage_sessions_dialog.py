@@ -122,6 +122,21 @@ class ManageSessionsDialog(InlineDialog):
         edit_btn.clicked.connect(self._edit)
         btn_row.addWidget(edit_btn)
 
+        dup_btn = QPushButton("⧉ Duplicate")
+        dup_btn.setCursor(Qt.PointingHandCursor)
+        dup_btn.setToolTip("Copy this session to today at the same clock time")
+        dup_btn.clicked.connect(lambda: self._duplicate("today"))
+        btn_row.addWidget(dup_btn)
+
+        dup_next_btn = QPushButton("⧉ +1 Day")
+        dup_next_btn.setCursor(Qt.PointingHandCursor)
+        dup_next_btn.setToolTip(
+            "Copy this session to the day after it, same clock time. "
+            "The copy is selected, so clicking again walks forward day by day."
+        )
+        dup_next_btn.clicked.connect(lambda: self._duplicate("next_day"))
+        btn_row.addWidget(dup_next_btn)
+
         del_btn = QPushButton("✕ Delete")
         del_btn.setObjectName("dangerBtn")
         del_btn.setCursor(Qt.PointingHandCursor)
@@ -143,7 +158,7 @@ class ManageSessionsDialog(InlineDialog):
         close_btn.setDefault(True)
 
     # ── Data ─────────────────────────────────────────────────────────────
-    def _load(self) -> None:
+    def _load(self, select_session_id: int | None = None) -> None:
         self._list.clear()
         sessions = self.service.get_sessions_for_subject(self.subject_id)
         closed = [s for s in sessions if s.end_time]
@@ -170,8 +185,19 @@ class ManageSessionsDialog(InlineDialog):
             self._list.addItem(item)
 
         # Outline the first row by default so Edit/Delete have a clear target.
-        if self._list.count():
-            self._list.setCurrentRow(0)
+        # After a duplicate, select the copy instead: repeated "+1 Day" clicks
+        # then walk forward one day at a time.
+        if not self._list.count():
+            return
+        target_row = 0
+        if select_session_id is not None:
+            for row in range(self._list.count()):
+                session = self._list.item(row).data(Qt.UserRole)
+                if session is not None and session.id == select_session_id:
+                    target_row = row
+                    break
+        self._list.setCurrentRow(target_row)
+        self._list.scrollToItem(self._list.item(target_row))
 
     # ── Actions ──────────────────────────────────────────────────────────
     def _quick_add(self, minutes: int) -> None:
@@ -260,6 +286,27 @@ class ManageSessionsDialog(InlineDialog):
                 f'Session moved to "{target.name if target else "another subject"}".'
                 "\nSame times, same duration — only the subject changed.",
             )
+
+    def _duplicate(self, to: str) -> None:
+        sel = self._list.currentItem()
+        if not sel:
+            information(self, "No Selection", "Select a session to duplicate.")
+            return
+        session = sel.data(Qt.UserRole)
+        if session.id is None:
+            warning(self, "Invalid Session", "Selected session has no valid identifier.")
+            return
+
+        copy = self.service.duplicate_session(session.id, to=to)
+        if copy is None:
+            warning(
+                self,
+                "Nothing Duplicated",
+                "That copy would start in the future, so no session was created.\n"
+                "Use Edit or + Add Session to enter times manually.",
+            )
+            return
+        self._load(select_session_id=copy.id)
 
     def _delete(self) -> None:
         sel = self._list.currentItem()
