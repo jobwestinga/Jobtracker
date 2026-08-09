@@ -1771,3 +1771,288 @@ def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
     assert copy.duration_seconds == original.duration_seconds
     assert copy.note == "block"
     manager.close()
+
+
+# ── agenda click routing + day-session editor ────────────────────────────────
+def _agenda_canvas_with(sessions, day_keys):
+    from jobtracker.ui.widgets.agenda_view import _AgendaCanvas
+
+    _application()
+    canvas = _AgendaCanvas()
+    canvas.resize(700, 420)
+    canvas.set_data(sessions, day_keys, hour_start=6, hour_end=23)
+    canvas.grab()  # paint pass builds the hit rectangles
+    return canvas
+
+
+def test_agenda_left_click_targets_the_clicked_session():
+    sessions = [
+        {
+            "session_id": 41,
+            "day": "2026-06-20",
+            "start_h": 9.0,
+            "end_h": 10.0,
+            "color": "#3B82F6",
+            "subject_name": "Physics",
+            "duration_seconds": 3600,
+        },
+        {
+            "session_id": 77,
+            "day": "2026-06-20",
+            "start_h": 14.0,
+            "end_h": 16.0,
+            "color": "#22C55E",
+            "subject_name": "Maths",
+            "duration_seconds": 7200,
+        },
+    ]
+    canvas = _agenda_canvas_with(sessions, ["2026-06-20", "2026-06-21"])
+
+    picked: list[int] = []
+    days: list[str] = []
+    canvas.session_clicked.connect(picked.append)
+    canvas.day_clicked.connect(days.append)
+
+    # Each block routes to its OWN session, not an arbitrary one.
+    for rect, block, _day in canvas._block_hits:
+        QTest.mouseClick(
+            canvas,
+            Qt.LeftButton,
+            pos=QPoint(int(rect.center().x()), int(rect.center().y())),
+        )
+        assert picked[-1] == block["session_id"]
+    assert sorted(picked) == [41, 77]
+    assert days == []
+
+
+def test_agenda_right_click_and_empty_space_open_the_day():
+    sessions = [
+        {
+            "session_id": 41,
+            "day": "2026-06-20",
+            "start_h": 9.0,
+            "end_h": 10.0,
+            "color": "#3B82F6",
+            "subject_name": "Physics",
+            "duration_seconds": 3600,
+        }
+    ]
+    canvas = _agenda_canvas_with(sessions, ["2026-06-20", "2026-06-21"])
+    rect, _block, _day = canvas._block_hits[0]
+
+    picked: list[int] = []
+    days: list[str] = []
+    canvas.session_clicked.connect(picked.append)
+    canvas.day_clicked.connect(days.append)
+
+    # Right-click on the same block -> whole day.
+    QTest.mouseClick(
+        canvas,
+        Qt.RightButton,
+        pos=QPoint(int(rect.center().x()), int(rect.center().y())),
+    )
+    assert days == ["2026-06-20"] and picked == []
+
+    # Left-click on empty column space -> whole day too.
+    column_rect, day_key = canvas._column_hits[1]
+    QTest.mouseClick(
+        canvas,
+        Qt.LeftButton,
+        pos=QPoint(int(column_rect.center().x()), int(column_rect.bottom()) - 6),
+    )
+    assert days[-1] == day_key
+    assert picked == []
+
+
+def test_agenda_live_block_without_id_falls_back_to_day():
+    sessions = [
+        {
+            "session_id": None,  # the running session
+            "day": "2026-06-20",
+            "start_h": 9.0,
+            "end_h": 10.0,
+            "color": "#3B82F6",
+            "subject_name": "Physics",
+            "duration_seconds": 3600,
+        }
+    ]
+    canvas = _agenda_canvas_with(sessions, ["2026-06-20"])
+    rect, _block, _day = canvas._block_hits[0]
+
+    picked: list[int] = []
+    days: list[str] = []
+    canvas.session_clicked.connect(picked.append)
+    canvas.day_clicked.connect(days.append)
+    QTest.mouseClick(
+        canvas,
+        Qt.LeftButton,
+        pos=QPoint(int(rect.center().x()), int(rect.center().y())),
+    )
+    assert picked == [] and days == ["2026-06-20"]
+
+
+def _day_with_two_sessions(service):
+    from jobtracker.core import timeutils
+
+    subject_a = service.add_subject("Physics", "#3B82F6", "")
+    subject_b = service.add_subject("Maths", "#22C55E", "")
+    base = (datetime.now() - timedelta(days=2)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
+    first = service.add_session(subject_a.id, base, base + timedelta(hours=1))
+    second = service.add_session(
+        subject_b.id,
+        base + timedelta(hours=5),
+        base + timedelta(hours=7),
+        note="afternoon",
+    )
+    return timeutils.logical_day(base), subject_a, subject_b, first, second
+
+
+def test_day_dialog_rows_carry_session_identity_and_totals(service):
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+
+    qt_app = _application()
+    day, _a, _b, first, second = _day_with_two_sessions(service)
+
+    dialog = DaySessionsDialog(service, day)
+    dialog.show()
+    qt_app.processEvents()
+
+    assert dialog._list.count() == 2
+    ids = [
+        dialog._list.item(row).data(Qt.UserRole)["session_id"]
+        for row in range(dialog._list.count())
+    ]
+    assert ids == [first.id, second.id]  # chronological
+    assert "3h 0m" in dialog._total_lbl.text()
+    per_subject = dialog._per_subject_lbl.text()
+    assert "Physics" in per_subject and "Maths" in per_subject
+    dialog.close()
+
+
+def test_day_dialog_edits_the_selected_session_not_an_arbitrary_one(service):
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app = _application()
+    day, _a, subject_b, _first, second = _day_with_two_sessions(service)
+
+    dialog = DaySessionsDialog(service, day)
+    dialog.show()
+    qt_app.processEvents()
+
+    dialog._list.setCurrentRow(1)  # the Maths session
+    dialog._edit_selected()
+    qt_app.processEvents()
+
+    editor = dialog.findChild(SessionDialog)
+    assert editor is not None
+    # The editor opened on the row that was selected.
+    assert editor.session.id == second.id
+    assert editor.subject_combo.currentData() == subject_b.id
+    editor.reject()
+    qt_app.processEvents()
+    dialog.close()
+
+
+def test_day_dialog_duplicate_and_delete_act_on_the_selection(service, monkeypatch):
+    from jobtracker.ui.widgets import day_sessions_dialog as day_module
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+
+    qt_app = _application()
+    day, subject_a, _b, first, _second = _day_with_two_sessions(service)
+    monkeypatch.setattr(
+        day_module, "information", lambda *_args, **_kwargs: None
+    )
+
+    dialog = DaySessionsDialog(service, day)
+    dialog.show()
+    qt_app.processEvents()
+
+    dialog._list.setCurrentRow(0)  # Physics
+    dialog._duplicate_selected()
+    qt_app.processEvents()
+    copies = service.get_sessions_for_subject(subject_a.id)
+    assert len(copies) == 2
+    assert {c.duration_seconds for c in copies} == {3600}
+
+    # Delete the original, confirmed.
+    monkeypatch.setattr(
+        day_module,
+        "question",
+        lambda _parent, _title, _text, on_finished, **_kw: on_finished(
+            QMessageBox.Yes
+        ),
+    )
+    dialog._reload(select_session_id=first.id)
+    dialog._delete_selected()
+    qt_app.processEvents()
+    assert service.get_session(first.id) is None
+    dialog.close()
+
+
+def test_day_dialog_history_button_preselects_same_session(service):
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    day, subject_a, _b, first, _second = _day_with_two_sessions(service)
+    # Older sessions exist, so "newest first" would pick the wrong one.
+    older = datetime.fromisoformat(first.start_time) - timedelta(days=3)
+    service.add_session(subject_a.id, older, older + timedelta(hours=1))
+    newer = datetime.fromisoformat(first.start_time) + timedelta(days=1)
+    service.add_session(subject_a.id, newer, newer + timedelta(hours=1))
+
+    dialog = DaySessionsDialog(service, day)
+    dialog.show()
+    qt_app.processEvents()
+    dialog._list.setCurrentRow(0)
+    dialog._open_subject_history()
+    qt_app.processEvents()
+
+    manager = dialog.findChild(ManageSessionsDialog)
+    assert manager is not None
+    selected = manager._list.currentItem().data(Qt.UserRole)
+    assert selected.id == first.id  # not merely the newest row
+    manager.reject()
+    qt_app.processEvents()
+    dialog.close()
+
+
+def test_agenda_click_opens_editor_for_that_session_in_main_window(
+    database, monkeypatch
+):
+    from PySide6.QtWidgets import QDialog
+
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("Physics", "#3B82F6", "")
+        start = (datetime.now() - timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        session = window.service.add_session(
+            subject.id, start, start + timedelta(hours=1)
+        )
+
+        window._open_session_editor(session.id)
+        qt_app.processEvents()
+        editor = window.findChild(SessionDialog)
+        assert editor is not None and editor.session.id == session.id
+
+        # Saving through the shared helper keeps the row and applies changes.
+        editor.notes_input.setPlainText("edited from agenda")
+        window._finish_session_editor(session, int(QDialog.Accepted), editor)
+        qt_app.processEvents()
+        updated = window.service.get_session(session.id)
+        assert updated.note == "edited from agenda"
+        assert updated.duration_seconds == 3600
+        editor.reject()
+        qt_app.processEvents()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()

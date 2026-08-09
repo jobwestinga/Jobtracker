@@ -581,6 +581,9 @@ class TrackerService:
     def get_sessions_for_subject(self, subject_id: int) -> List[Session]:
         return self.db.get_sessions_for_subject(subject_id)
 
+    def get_session(self, session_id: int) -> Optional[Session]:
+        return self.db.get_session(session_id)
+
     def add_session(
         self,
         subject_id: int,

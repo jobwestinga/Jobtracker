@@ -16,6 +16,22 @@ from PySide6.QtCore import QDateTime, QTime, Qt
 from .dialog_utils import InlineDialog, configure_window_modal, warning
 
 
+def apply_session_edits(service, session, data: dict):
+    """Persist a :class:`SessionDialog` result onto an existing session.
+
+    Falls back to the session's current subject when the dialog had no subject
+    picker, so an edit can never strand a session on a missing subject.
+    """
+    subject_id = data.get("subject_id") or session.subject_id
+    return service.update_session(
+        session.id,
+        subject_id,
+        data["start_time"],
+        data["end_time"],
+        data["note"],
+    )
+
+
 class SessionDialog(InlineDialog):
     def __init__(
         self,

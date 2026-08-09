@@ -54,6 +54,9 @@ def _layout_session_blocks(
                 "end_h": end_h,
                 "color": session.get("color", "#3B82F6"),
                 "name": session.get("subject_name", ""),
+                # Kept so a click can open exactly the session that was hit.
+                # None for the live session (it has no stored row yet).
+                "session_id": session.get("session_id"),
                 # Untouched values for the hover card (layout may nudge the
                 # painted start_h/end_h to close sub-30s seams).
                 "orig_start_h": float(session.get("start_h", 0)),
@@ -97,6 +100,7 @@ class _AgendaCanvas(QWidget):
     """Inner canvas painted inside a horizontal scroll area."""
 
     day_clicked = Signal(str)
+    session_clicked = Signal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -341,7 +345,13 @@ class _AgendaCanvas(QWidget):
         hit = self._block_at(pos.x(), pos.y())
         if hit is not None:
             block, day_key = hit
-            self._hover_card.show_at(pos.x(), pos.y(), self._block_html(block, day_key))
+            html = self._block_html(block, day_key)
+            if block.get("session_id") is not None:
+                html += (
+                    "<br><span style='opacity:0.7;'>"
+                    "Click to edit · right-click for the whole day</span>"
+                )
+            self._hover_card.show_at(pos.x(), pos.y(), html)
             self.setCursor(Qt.PointingHandCursor)
         else:
             self._hover_card.hide()
@@ -356,7 +366,18 @@ class _AgendaCanvas(QWidget):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        day_key = self._day_at(event.position().x(), event.position().y())
+        pos = event.position()
+        # Left-click on a block edits exactly that session. Right-click (and any
+        # click on empty column space) opens the whole day instead.
+        if event.button() == Qt.LeftButton:
+            hit = self._block_at(pos.x(), pos.y())
+            if hit is not None:
+                session_id = hit[0].get("session_id")
+                if session_id is not None:
+                    self.session_clicked.emit(int(session_id))
+                    super().mousePressEvent(event)
+                    return
+        day_key = self._day_at(pos.x(), pos.y())
         if day_key is not None:
             self.day_clicked.emit(day_key)
         super().mousePressEvent(event)
@@ -366,11 +387,13 @@ class AgendaViewWidget(QWidget):
     """Scrollable agenda timeline with a configurable visible hour range."""
 
     day_clicked = Signal(str)
+    session_clicked = Signal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._canvas = _AgendaCanvas()
         self._canvas.day_clicked.connect(self.day_clicked)
+        self._canvas.session_clicked.connect(self.session_clicked)
         self._scroll = QScrollArea()
         self._scroll.setWidget(self._canvas)
         self._scroll.setWidgetResizable(True)

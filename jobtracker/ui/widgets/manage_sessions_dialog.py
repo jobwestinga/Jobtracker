@@ -19,15 +19,22 @@ from .dialog_utils import (
     question,
     warning,
 )
-from .session_dialog import SessionDialog
+from .session_dialog import SessionDialog, apply_session_edits
 
 
 class ManageSessionsDialog(InlineDialog):
-    def __init__(self, subject_id: int, service: TrackerService, parent=None) -> None:
+    def __init__(
+        self,
+        subject_id: int,
+        service: TrackerService,
+        parent=None,
+        select_session_id: int | None = None,
+    ) -> None:
         super().__init__(parent)
         configure_window_modal(self)
         self.subject_id = subject_id
         self.service = service
+        self._initial_session_id = select_session_id
 
         subject = next((s for s in service.get_all_subjects() if s.id == subject_id), None)
         title = f"Sessions — {subject.name}" if subject else "Sessions"
@@ -36,7 +43,7 @@ class ManageSessionsDialog(InlineDialog):
         parent_tokens = getattr(parent, "_tokens", None)
         self._accent = (parent_tokens or {}).get("ACCENT", "#3B82F6")
         self._build_ui()
-        self._load()
+        self._load(select_session_id=select_session_id)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -262,14 +269,12 @@ class ManageSessionsDialog(InlineDialog):
         if result != QDialog.Accepted:
             return
         d = dialog.get_data()
+        session = self.service.get_session(session_id)
+        if session is None:
+            self._load()
+            return
         target_subject_id = d.get("subject_id") or self.subject_id
-        self.service.update_session(
-            session_id,
-            target_subject_id,
-            d["start_time"],
-            d["end_time"],
-            d["note"],
-        )
+        apply_session_edits(self.service, session, d)
         self._load()
         if target_subject_id != self.subject_id:
             target = next(

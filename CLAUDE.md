@@ -186,10 +186,26 @@ stop rule. Number-key shortcuts use the same confirm path — never a silent sto
 - `TrackerService.get_heatmap_data()` uses the same logical-day/start-attribution
   rule as the bar chart and includes a live session. Empty days are zero-filled.
 - Clicking a cell opens `DaySessionsDialog`, which uses
-  `get_sessions_for_logical_day()` and delegates edits to the existing subject
-  session manager.
+  `get_sessions_for_logical_day()`. It edits / duplicates / deletes the selected
+  session itself (via `apply_session_edits()` and `duplicate_session()`), and
+  "Open subject history…" hands the same session id to `ManageSessionsDialog`
+  so it is preselected there.
+
+## Clicking a session must always target THAT session
+
+Graph views carry session identity, never just a day:
+
+- The agenda keeps `session_id` on every painted block. **Left-click edits that
+  exact session** (`AgendaViewWidget.session_clicked`); **right-click**, or a
+  click on empty column space, opens the day (`day_clicked`). A block with no
+  id (the live session) falls back to the day.
+- `DaySessionsDialog` stores the whole session dict per row, and every dialog
+  that opens a session list accepts `select_session_id` so the right row is
+  preselected. Never reopen a list and rely on "row 0" — that was a real bug:
+  editing from the agenda used to land on the subject's newest session.
 
 Rules when extending:
+
 - Weeks are Monday-start. Don't change that convention.
 - The bar chart attributes a whole session to the logical day of its START. The
   agenda clamps sessions that spill past the logical-day end. Keep both.
