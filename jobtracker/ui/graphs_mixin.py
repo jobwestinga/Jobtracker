@@ -34,7 +34,7 @@ from .widgets.dialog_utils import open_dialog
 from .widgets.graph_settings_dialog import GraphSettingsDialog
 from .widgets.graphs_view import WorkGraphWidget
 from .widgets.heatmap_view import HeatmapWidget
-from .widgets.session_dialog import SessionDialog, apply_session_edits
+from .widgets import session_list
 
 logger = logging.getLogger("jobtracker")
 
@@ -310,26 +310,14 @@ class GraphsMixin:
         self._reload_graphs()
 
     def _open_session_editor(self, session_id: int) -> None:
-        """Edit exactly the agenda block that was clicked."""
-        session = self.service.get_session(session_id)
-        if session is None or not session.end_time:
-            return
-        dialog = SessionDialog(
-            self,
-            session,
-            service=self.service,
-            current_subject_id=session.subject_id,
-        )
-        open_dialog(
-            dialog,
-            lambda result, dlg: self._finish_session_editor(session, result, dlg),
-        )
+        """Edit (or delete) exactly the agenda block that was clicked.
 
-    def _finish_session_editor(self, session, result: int, dialog) -> None:
-        if result != QDialog.Accepted:
-            return
-        apply_session_edits(self.service, session, dialog.get_data())
-        self._finish_day_sessions()
+        Goes through the shared editor so the agenda gets the same subject
+        move, nudge, and delete affordances as the session lists.
+        """
+        session_list.edit_session(
+            self, self.service, session_id, self._finish_day_sessions
+        )
 
     def _refresh_graphs_if_needed(self) -> None:
         if self.service.active_session and self._pages.currentIndex() == 2:

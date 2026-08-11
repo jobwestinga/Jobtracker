@@ -237,7 +237,12 @@ Graph views carry session identity, never just a day:
   model. `session_id` is None only for the live session, which is shown but
   never editable (`require_editable`).
 - Reaching "the sessions menu" from a subject card or from a graph must land on
-  this code, not a lookalike. If you add an action, add it here.
+  this code, not a lookalike. If you add an action, add it here. `graphs_mixin`
+  routes agenda clicks through `edit_session()` for exactly this reason — when
+  it had its own copy, the agenda silently missed delete.
+- `SessionDialog` reports `DELETE_RESULT` (like `GoalDialog`) instead of
+  deleting itself; `edit_session()` performs the removal. Every entry point
+  (agenda block, per-day list, per-subject list) therefore deletes identically.
 - `session_dialog` imports `build_move_row` from this module, so `session_list`
   imports `SessionDialog` lazily inside `edit_session()` — keep it that way or
   the import graph becomes cyclic.

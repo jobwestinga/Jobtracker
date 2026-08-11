@@ -253,7 +253,9 @@ def edit_session(host: QWidget, service, session_id: int, on_done: Callable) -> 
     )
 
     def finished(result: int, dlg) -> None:
-        if result == QDialog.Accepted:
+        if result == SessionDialog.DELETE_RESULT:
+            service.delete_session(session_id)
+        elif result == QDialog.Accepted:
             apply_session_edits(service, session, dlg.get_data())
         on_done()
 

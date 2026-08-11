@@ -10,12 +10,17 @@ Sessions have no note field — it was removed from the schema.
 """
 
 from PySide6.QtWidgets import (
-    QComboBox, QVBoxLayout, QHBoxLayout, QLabel,
+    QComboBox, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QDateTimeEdit, QSpinBox,
 )
 from PySide6.QtCore import QDateTime, QTime, Qt
 
-from .dialog_utils import InlineDialog, configure_window_modal, warning
+from .dialog_utils import (
+    InlineDialog,
+    configure_window_modal,
+    question,
+    warning,
+)
 from .session_list import build_move_row
 
 
@@ -117,6 +122,11 @@ class DurationDialog(InlineDialog):
 
 
 class SessionDialog(InlineDialog):
+    # Deleting from the editor reports its own result, exactly like GoalDialog,
+    # so the caller persists the removal instead of the dialog reaching into
+    # the service itself.
+    DELETE_RESULT = 2
+
     def __init__(
         self,
         parent=None,
@@ -230,6 +240,20 @@ class SessionDialog(InlineDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
+        # Editing an existing session can also remove it — this is the only
+        # session menu reachable from an agenda block, so delete has to live
+        # here too, not just in the session lists.
+        self.delete_btn: QPushButton | None = None
+        if self.session is not None:
+            self.delete_btn = QPushButton("✕ Delete")
+            self.delete_btn.setObjectName("dangerBtn")
+            self.delete_btn.setMinimumHeight(36)
+            self.delete_btn.setCursor(Qt.PointingHandCursor)
+            self.delete_btn.setToolTip("Delete this session permanently")
+            self.delete_btn.clicked.connect(self._confirm_delete)
+            btn_row.addWidget(self.delete_btn)
+            btn_row.addStretch()
+
         cancel = QPushButton("Cancel")
         cancel.setMinimumHeight(36)
         cancel.setCursor(Qt.PointingHandCursor)
@@ -250,6 +274,18 @@ class SessionDialog(InlineDialog):
             b.setDefault(False)
         save.setAutoDefault(True)
         save.setDefault(True)
+
+    def _confirm_delete(self) -> None:
+        question(
+            self,
+            "Delete Session",
+            "Delete this session permanently?",
+            self._finish_confirm_delete,
+        )
+
+    def _finish_confirm_delete(self, answer) -> None:
+        if answer == QMessageBox.Yes:
+            self.done(self.DELETE_RESULT)
 
     def _shift(self, seconds: int) -> None:
         """Move both ends by the same amount (duration is preserved)."""

@@ -2042,16 +2042,15 @@ def test_agenda_click_opens_editor_for_that_session_in_main_window(
         editor = window.findChild(SessionDialog)
         assert editor is not None and editor.session.id == session.id
 
-        # Saving through the shared helper keeps the row id and applies changes.
+        # Saving keeps the row id and applies the change (shared edit path).
         editor._shift(3600)  # nudge an hour later with the Move buttons
-        window._finish_session_editor(session, int(QDialog.Accepted), editor)
+        editor.accept()
+        QTest.qWait(30)
         qt_app.processEvents()
         updated = window.service.get_session(session.id)
         assert updated.id == session.id
         assert datetime.fromisoformat(updated.start_time) == start + timedelta(hours=1)
         assert updated.duration_seconds == 3600
-        editor.reject()
-        qt_app.processEvents()
     finally:
         window._graph_live_timer.stop()
         window._heartbeat_timer.stop()
@@ -2385,3 +2384,130 @@ def test_goal_card_transient_refresh_keeps_focus_star_consistent(service):
     card.apply_transient(service.get_goal(goal.id), (0, 0))
     assert not card.focus_btn.isVisibleTo(card)
     assert DEFAULT_TOKENS["ACCENT"] not in card.styleSheet()
+
+
+# ── deleting a session from every entry point ────────────────────────────────
+def test_session_editor_offers_delete_only_when_editing(service):
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(
+        subject.id, datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 10, 0)
+    )
+
+    adding = SessionDialog(None)
+    assert adding.delete_btn is None  # nothing to delete yet
+    adding.close()
+
+    editing = SessionDialog(
+        None, session, service=service, current_subject_id=subject.id
+    )
+    assert editing.delete_btn is not None and editing.delete_btn.text() == "✕ Delete"
+    editing.close()
+
+
+def test_agenda_block_click_can_delete_that_session(database, monkeypatch):
+    """The agenda is the only route to this editor, so delete must work there."""
+    from jobtracker.ui.widgets import session_dialog as session_dialog_module
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("Physics", "#3B82F6", "")
+        start = (datetime.now() - timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        doomed = window.service.add_session(
+            subject.id, start, start + timedelta(hours=1)
+        )
+        keeper = window.service.add_session(
+            subject.id, start + timedelta(hours=3), start + timedelta(hours=4)
+        )
+
+        # Click the agenda block -> shared editor -> confirmed delete.
+        window._open_session_editor(doomed.id)
+        QTest.qWait(30)
+        qt_app.processEvents()
+        editor = window.findChild(SessionDialog)
+        assert editor is not None and editor.session.id == doomed.id
+
+        monkeypatch.setattr(
+            session_dialog_module,
+            "question",
+            lambda _p, _t, _x, on_finished, **_kw: on_finished(QMessageBox.Yes),
+        )
+        editor._confirm_delete()
+        QTest.qWait(30)
+        qt_app.processEvents()
+
+        assert window.service.get_session(doomed.id) is None
+        assert window.service.get_session(keeper.id) is not None  # nothing else touched
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_declining_the_delete_confirm_keeps_the_session(service, monkeypatch):
+    from jobtracker.ui.widgets import session_dialog as session_dialog_module
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(
+        subject.id, datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 10, 0)
+    )
+    dialog = SessionDialog(
+        None, session, service=service, current_subject_id=subject.id
+    )
+    monkeypatch.setattr(
+        session_dialog_module,
+        "question",
+        lambda _p, _t, _x, on_finished, **_kw: on_finished(QMessageBox.No),
+    )
+    dialog._confirm_delete()
+    assert dialog.result() != SessionDialog.DELETE_RESULT
+    assert service.get_session(session.id) is not None
+    dialog.close()
+
+
+def test_every_session_list_edit_path_can_delete(service, monkeypatch):
+    """Deleting through the shared editor works from both session lists."""
+    from jobtracker.ui.widgets import session_dialog as session_dialog_module
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app = _application()
+    monkeypatch.setattr(
+        session_dialog_module,
+        "question",
+        lambda _p, _t, _x, on_finished, **_kw: on_finished(QMessageBox.Yes),
+    )
+    day, subject_a, _b, first, second = _day_with_two_sessions(service)
+
+    manager = ManageSessionsDialog(subject_a.id, service)
+    manager.show()
+    qt_app.processEvents()
+    manager._edit()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    manager.findChild(SessionDialog)._confirm_delete()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    assert service.get_session(first.id) is None
+    manager.close()
+
+    day_dialog = DaySessionsDialog(service, day)
+    day_dialog.show()
+    qt_app.processEvents()
+    day_dialog._edit_selected()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    day_dialog.findChild(SessionDialog)._confirm_delete()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    assert service.get_session(second.id) is None
+    day_dialog.close()
