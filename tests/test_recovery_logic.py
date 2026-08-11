@@ -9,7 +9,7 @@ from jobtracker.core.models import Session
 def _session(start, last_active=None, sid=1):
     return Session(
         id=sid, task_id=1, start_time=start, end_time=None,
-        duration_seconds=0, note=None, last_active_at=last_active,
+        duration_seconds=0, last_active_at=last_active,
     )
 
 

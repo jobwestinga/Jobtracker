@@ -9,7 +9,7 @@ from jobtracker.core.database import Database
 
 def _seed(service):
     s = service.add_subject("Physics", "#3B82F6", "core notes")
-    service.add_session(s.id, datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 10, 0), note="n1")
+    service.add_session(s.id, datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 10, 0))
     service.add_session(s.id, datetime(2026, 6, 20, 11, 0), datetime(2026, 6, 20, 12, 30))
     service.add_todo_task("Write report", "", "2026-07-01")
     return s
@@ -186,3 +186,50 @@ def test_import_legacy_tasks_key(service, tmp_path):
     assert subjects[0].name == "Legacy Subject"
     assert len(other.get_sessions_for_subject(subjects[0].id)) == 1
     other.connection.close()
+
+
+def test_old_backup_with_session_notes_still_imports(tmp_path):
+    """Backups written before notes were dropped must still restore cleanly."""
+    from jobtracker.core.database import Database
+
+    legacy_payload = {
+        "subjects": [
+            {
+                "id": 1,
+                "name": "Physics",
+                "color": "#3B82F6",
+                "notes": "subject notes survive",
+                "sort_order": 1,
+                "is_archived": 0,
+                "created_at": "2026-06-01T10:00:00",
+            }
+        ],
+        "sessions": [
+            {
+                "id": 5,
+                "task_id": 1,
+                "start_time": "2026-06-20T09:00:00",
+                "end_time": "2026-06-20T10:00:00",
+                "duration_seconds": 3600,
+                "note": "a note from the old schema",
+                "last_active_at": None,
+            }
+        ],
+        "todo_tasks": [],
+        "milestones": [],
+        "goal_templates": [],
+        "settings": [],
+    }
+
+    db = Database(tmp_path / "restored.db")
+    try:
+        db.import_data(legacy_payload)  # must not raise on the extra key
+        subject = db.get_subject_by_name("Physics")
+        assert subject is not None
+        assert subject.notes == "subject notes survive"
+        sessions = db.get_sessions_for_subject(subject.id)
+        assert len(sessions) == 1
+        assert sessions[0].duration_seconds == 3600
+        assert not hasattr(sessions[0], "note")
+    finally:
+        db.connection.close()

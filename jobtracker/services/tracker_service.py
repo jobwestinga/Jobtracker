@@ -112,6 +112,22 @@ class TrackerService:
     def get_earliest_session_date(self) -> Optional[str]:
         return self.db.get_earliest_session_date()
 
+    def get_latest_session_date(self) -> Optional[str]:
+        return self.db.get_latest_session_date()
+
+    def graph_end_day(self, day_start: Optional[time] = None) -> date:
+        """The last logical day any graph should show.
+
+        Normally today, but stretched forward when sessions exist beyond it, so
+        work logged ahead of time is visible instead of silently out of range.
+        """
+        day_start = day_start or self.get_day_start()
+        today = timeutils.logical_day(datetime.now(), day_start)
+        latest = timeutils.logical_day_of_iso(
+            self.db.get_latest_session_date(), day_start
+        )
+        return max(today, latest) if latest is not None else today
+
     # ── Logical day / settings ──────────────────────────────────────────
     def get_day_start(self) -> time:
         """The configured logical-day start time (default 03:00)."""
@@ -330,8 +346,15 @@ class TrackerService:
         end_date: date | None,
         grouping: str = "daily",
     ) -> tuple[date, date]:
-        """Resolve the [start_day, end_day] logical-day window for analytics."""
+        """Resolve the [start_day, end_day] logical-day window for analytics.
+
+        Windows are always ANCHORED on the real today, then stretched forward
+        to ``last_day`` when sessions are scheduled beyond it. Anchoring on the
+        stretched day instead would slide the whole window into the future and
+        silently drop real past days from view.
+        """
         today = timeutils.logical_day(datetime.now(), day_start)
+        last_day = self.graph_end_day(day_start)
         if start_date is not None and end_date is not None:
             start_day, end_day = start_date, end_date
             if end_day < start_day:
@@ -341,17 +364,17 @@ class TrackerService:
             # 14 days -> two weeks. This avoids a rolling seven-day window
             # producing two partial weekly bars.
             periods = max(1, (days + 6) // 7)
-            end_day = today
+            end_day = last_day
             start_day = timeutils.week_start(today) - timedelta(weeks=periods - 1)
         elif days is not None and grouping == "monthly":
             # Likewise, short rolling ranges should not straddle two month bars.
             periods = max(1, (days + 29) // 30)
-            end_day = today
+            end_day = last_day
             start_day = timeutils.month_start(today)
             for _ in range(periods - 1):
                 start_day = (start_day - timedelta(days=1)).replace(day=1)
         elif days is not None:
-            end_day = today
+            end_day = last_day
             start_day = today - timedelta(days=max(1, days) - 1)
         else:  # "All time"
             earliest = timeutils.logical_day_of_iso(
@@ -364,7 +387,7 @@ class TrackerService:
                 if active_day is not None and (earliest is None or active_day < earliest):
                     earliest = active_day
             start_day = earliest or today
-            end_day = today
+            end_day = last_day
         return start_day, end_day
 
     def get_subject_breakdown(
@@ -589,10 +612,9 @@ class TrackerService:
         subject_id: int,
         start_time: datetime,
         end_time: datetime,
-        note: Optional[str] = None,
     ) -> Optional[Session]:
         duration = timeutils.duration_seconds(start_time, end_time)
-        return self.db.add_session(subject_id, start_time, end_time, duration, note)
+        return self.db.add_session(subject_id, start_time, end_time, duration)
 
     def update_session(
         self,
@@ -600,10 +622,27 @@ class TrackerService:
         subject_id: int,
         start_time: datetime,
         end_time: datetime,
-        note: Optional[str] = None,
     ) -> Optional[Session]:
         duration = timeutils.duration_seconds(start_time, end_time)
-        return self.db.update_session(session_id, subject_id, start_time, end_time, duration, note)
+        return self.db.update_session(session_id, subject_id, start_time, end_time, duration)
+
+    def shift_session(self, session_id: int, seconds: int) -> Optional[Session]:
+        """Move a closed session in time by ``seconds`` (negative = earlier).
+
+        Start and end move together, so the duration and the subject are
+        untouched. Used by the ±15m / ±1h nudge buttons.
+        """
+        session = self.db.get_session(session_id)
+        if session is None or session.id is None or not session.end_time:
+            return None
+        start_dt = timeutils.parse_iso(session.start_time)
+        end_dt = timeutils.parse_iso(session.end_time)
+        if start_dt is None or end_dt is None:
+            return None
+        delta = timedelta(seconds=int(seconds))
+        return self.update_session(
+            session.id, session.subject_id, start_dt + delta, end_dt + delta
+        )
 
     def delete_session(self, session_id: int) -> None:
         self.db.delete_session(session_id)
@@ -616,10 +655,9 @@ class TrackerService:
         ``to="today"``    -> the current logical day.
         ``to="next_day"`` -> the logical day after the original's.
 
-        Duration, note, and subject are preserved; only the date moves. The
-        copy may never START in the future — the app must not fabricate time
-        that has not been worked yet — so such a request returns None and
-        nothing is written.
+        Duration and subject are preserved; only the date moves. Copies that
+        land in the future are allowed on purpose (planning ahead is a valid
+        use), so the only failures are a missing, open, or unparseable session.
         """
         session = self.db.get_session(session_id)
         if session is None or session.id is None or not session.end_time:
@@ -641,16 +679,7 @@ class TrackerService:
         new_start, new_end = timeutils.shift_session_to_logical_day(
             start_dt, end_dt, target_day, day_start
         )
-        if new_start > now:
-            logger.info(
-                "Refused to duplicate session %s to %s: copy would start in the future",
-                session_id,
-                new_start.isoformat(),
-            )
-            return None
-        return self.add_session(
-            session.subject_id, new_start, new_end, session.note
-        )
+        return self.add_session(session.subject_id, new_start, new_end)
 
     # ── Todo Tasks (completable) ────────────────────────────────────────
     def get_all_todo_tasks(self) -> List[TodoTask]:
@@ -928,7 +957,6 @@ class TrackerService:
                     "start_time": sess.start_time,
                     "end_time": sess.end_time,
                     "duration_seconds": sess.duration_seconds,
-                    "note": sess.note,
                 }
             )
         if self.active_session:
@@ -949,7 +977,6 @@ class TrackerService:
                         "start_time": self.active_session.start_time,
                         "end_time": None,
                         "duration_seconds": self._elapsed_active_seconds(now),
-                        "note": self.active_session.note,
                     }
                 )
         return result

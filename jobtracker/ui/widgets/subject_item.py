@@ -279,7 +279,10 @@ class SubjectItemWidget(QFrame):
     def _apply_hover_style(self) -> None:
         t = self._t
         hover_bg = t.get("CARD_HOVER_BG", t["BG_TERTIARY"])
-        hover_border = t.get("CARD_HOVER_BORDER", f"1px solid {self.subject.color}40")
+        hover_border = t.get(
+            "CARD_HOVER_BORDER",
+            f"1px solid {_hex_to_rgba(self.subject.color, 64)}",
+        )
         hover_border_color = _extract_border_color(hover_border, t.get("BORDER_COLOR", self.subject.color))
         radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "12px"))
         self.setStyleSheet(

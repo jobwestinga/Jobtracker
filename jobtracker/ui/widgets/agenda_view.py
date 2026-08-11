@@ -349,7 +349,7 @@ class _AgendaCanvas(QWidget):
             if block.get("session_id") is not None:
                 html += (
                     "<br><span style='opacity:0.7;'>"
-                    "Click to edit · right-click for the whole day</span>"
+                    "Click to edit · click empty space for the whole day</span>"
                 )
             self._hover_card.show_at(pos.x(), pos.y(), html)
             self.setCursor(Qt.PointingHandCursor)
@@ -367,16 +367,15 @@ class _AgendaCanvas(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         pos = event.position()
-        # Left-click on a block edits exactly that session. Right-click (and any
-        # click on empty column space) opens the whole day instead.
-        if event.button() == Qt.LeftButton:
-            hit = self._block_at(pos.x(), pos.y())
-            if hit is not None:
-                session_id = hit[0].get("session_id")
-                if session_id is not None:
-                    self.session_clicked.emit(int(session_id))
-                    super().mousePressEvent(event)
-                    return
+        # Either button behaves the same: a click on a block opens exactly that
+        # session, a click on empty column space opens the whole day.
+        hit = self._block_at(pos.x(), pos.y())
+        if hit is not None:
+            session_id = hit[0].get("session_id")
+            if session_id is not None:
+                self.session_clicked.emit(int(session_id))
+                super().mousePressEvent(event)
+                return
         day_key = self._day_at(pos.x(), pos.y())
         if day_key is not None:
             self.day_clicked.emit(day_key)

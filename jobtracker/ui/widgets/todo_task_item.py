@@ -293,6 +293,11 @@ class TodoTaskItemWidget(QFrame):
         self._progress = progress
         self._apply_progress_label()
         self.check_btn.setVisible(not todo_task.is_completed)
+        # Completion also decides whether the focus star applies, so keep the
+        # star and the card outline consistent with the refreshed state.
+        self.focus_btn.setVisible(not todo_task.is_completed)
+        self._apply_focus_button_style()
+        self._apply_style()
 
     def _apply_style(self) -> None:
         t = self._t

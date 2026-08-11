@@ -108,3 +108,24 @@ def test_day_start_setting_roundtrip(service):
     assert service.get_day_start() == time(5, 30)
     # Persisted in the settings table.
     assert service.db.get_setting("day_start_time") == "05:30"
+
+
+# ── future sessions extend, but never slide, a window ────────────────────────
+def test_future_session_extends_window_without_dropping_past_days(service):
+    """A session scheduled ahead must not push the window off the past."""
+    from datetime import timedelta
+
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    today = timeutils.logical_day(datetime.now(), DAY_START)
+    for days_ago in range(1, 11):
+        start = datetime.combine(today - timedelta(days=days_ago), time(10, 0))
+        service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    before = service._resolve_logical_window(DAY_START, 7, None, None, "daily")
+
+    future = datetime.combine(today + timedelta(days=9), time(10, 0))
+    service.add_session(subject.id, future, future + timedelta(hours=1))
+    after = service._resolve_logical_window(DAY_START, 7, None, None, "daily")
+
+    assert after[0] == before[0]                    # start stays anchored
+    assert after[1] == today + timedelta(days=9)    # end stretches to the copy

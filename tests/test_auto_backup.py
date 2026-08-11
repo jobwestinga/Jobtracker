@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from jobtracker.core.auto_backup import (
     BACKUP_PREFIX,
     DEFAULT_KEEP,
-    prune_old_backups,
     write_auto_backup,
 )
 from jobtracker.core.database import Database
@@ -49,7 +48,6 @@ def test_backup_round_trips_through_import(tmp_path, database, subject, service)
         subject.id,
         datetime(2026, 6, 20, 9, 0),
         datetime(2026, 6, 20, 10, 0),
-        note="from backup",
     )
     path = write_auto_backup(database.export_data(), tmp_path / "backups")
 
@@ -60,6 +58,6 @@ def test_backup_round_trips_through_import(tmp_path, database, subject, service)
         assert restored is not None
         sessions = other.get_sessions_for_subject(restored.id)
         assert len(sessions) == 1
-        assert sessions[0].note == "from backup"
+        assert sessions[0].duration_seconds == 3600
     finally:
         other.connection.close()

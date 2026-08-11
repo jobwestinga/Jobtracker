@@ -61,7 +61,6 @@ class Database:
                 start_time TIMESTAMP NOT NULL,
                 end_time TIMESTAMP,
                 duration_seconds INTEGER DEFAULT 0,
-                note TEXT,
                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
             )
             """
@@ -125,9 +124,40 @@ class Database:
             """
         )
 
-        # Migration for sessions.note
-        if not self._column_exists("sessions", "note"):
-            cur.execute("ALTER TABLE sessions ADD COLUMN note TEXT")
+        # Migration: DROP sessions.note.
+        #
+        # Session notes were removed from the product — they were never used and
+        # the UI no longer offers the field. This is the one NON-ADDITIVE
+        # migration in the schema, so it is deliberately loud: any non-empty note
+        # is written to the log before the column goes, and the drop only runs
+        # while the column still exists (idempotent on every later launch).
+        # Subject notes (`tasks.notes`) and milestone notes are unaffected.
+        if self._column_exists("sessions", "note"):
+            cur.execute(
+                "SELECT id, note FROM sessions "
+                "WHERE note IS NOT NULL AND TRIM(note) <> ''"
+            )
+            stranded = cur.fetchall()
+            for row in stranded:
+                logger.warning(
+                    "Dropping sessions.note: session %s had note %r",
+                    row["id"],
+                    row["note"],
+                )
+            logger.info(
+                "Migration: dropping sessions.note (%d non-empty note(s))",
+                len(stranded),
+            )
+            try:
+                cur.execute("ALTER TABLE sessions DROP COLUMN note")
+            except sqlite3.OperationalError:
+                # DROP COLUMN needs SQLite >= 3.35. On anything older the column
+                # simply stays: nothing reads or writes it, so leaving it is far
+                # better than refusing to start.
+                logger.warning(
+                    "Could not drop sessions.note (SQLite %s); leaving it unused",
+                    sqlite3.sqlite_version,
+                )
 
         # Migration for tasks.sort_order
         if not self._column_exists("tasks", "sort_order"):
@@ -408,15 +438,15 @@ class Database:
         self.connection.commit()
 
     def stop_session(
-        self, session_id: int, end_time: datetime, duration_seconds: int, note: Optional[str] = None
+        self, session_id: int, end_time: datetime, duration_seconds: int
     ) -> None:
         cur = self.connection.cursor()
         if duration_seconds < 30:
             cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         else:
             cur.execute(
-                "UPDATE sessions SET end_time = ?, duration_seconds = ?, note = ? WHERE id = ?",
-                (end_time.isoformat(), duration_seconds, note, session_id),
+                "UPDATE sessions SET end_time = ?, duration_seconds = ? WHERE id = ?",
+                (end_time.isoformat(), duration_seconds, session_id),
             )
         self.connection.commit()
 
@@ -425,7 +455,6 @@ class Database:
         session_id: int,
         end_time: datetime,
         duration_seconds: int,
-        note: Optional[str] = None,
     ) -> None:
         """Close an unfinished session without applying the 30-second deletion.
 
@@ -436,9 +465,9 @@ class Database:
         """
         cur = self.connection.cursor()
         cur.execute(
-            "UPDATE sessions SET end_time = ?, duration_seconds = ?, note = ? "
+            "UPDATE sessions SET end_time = ?, duration_seconds = ? "
             "WHERE id = ? AND end_time IS NULL",
-            (end_time.isoformat(), max(0, int(duration_seconds)), note, session_id),
+            (end_time.isoformat(), max(0, int(duration_seconds)), session_id),
         )
         self.connection.commit()
 
@@ -448,15 +477,14 @@ class Database:
         start_time: datetime,
         end_time: datetime,
         duration_seconds: int,
-        note: Optional[str] = None,
     ) -> Optional[Session]:
         if duration_seconds < 30:
             return None
         cur = self.connection.cursor()
         cur.execute(
-            "INSERT INTO sessions (task_id, start_time, end_time, duration_seconds, note) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds, note),
+            "INSERT INTO sessions (task_id, start_time, end_time, duration_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds),
         )
         self.connection.commit()
         return self.get_session(cur.lastrowid)
@@ -468,7 +496,6 @@ class Database:
         start_time: datetime,
         end_time: datetime,
         duration_seconds: int,
-        note: Optional[str] = None,
     ) -> Optional[Session]:
         cur = self.connection.cursor()
         if duration_seconds < 30:
@@ -477,8 +504,8 @@ class Database:
             return None
         cur.execute(
             "UPDATE sessions SET task_id = ?, start_time = ?, end_time = ?, "
-            "duration_seconds = ?, note = ? WHERE id = ?",
-            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds, note, session_id),
+            "duration_seconds = ? WHERE id = ?",
+            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds, session_id),
         )
         self.connection.commit()
         return self.get_session(session_id)
@@ -529,6 +556,19 @@ class Database:
         )
         row = cur.fetchone()
         return row["earliest"] if row and row["earliest"] else None
+
+    def get_latest_session_date(self) -> Optional[str]:
+        """Latest session START, including sessions scheduled ahead of now.
+
+        Graph windows use this so a session created for a future day is
+        actually visible instead of falling outside every range.
+        """
+        cur = self.connection.cursor()
+        cur.execute(
+            "SELECT MAX(start_time) AS latest FROM sessions WHERE end_time IS NOT NULL"
+        )
+        row = cur.fetchone()
+        return row["latest"] if row and row["latest"] else None
 
     def get_subject_stats(self, subject_id: int, since_iso: Optional[str] = None) -> int:
         cur = self.connection.cursor()
@@ -1017,16 +1057,17 @@ class Database:
             )
             if cur.fetchone():
                 continue
+            # Older backups may still carry a "note" key; it is ignored on
+            # purpose since session notes were removed from the schema.
             cur.execute(
                 "INSERT INTO sessions "
-                "(task_id, start_time, end_time, duration_seconds, note, last_active_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(task_id, start_time, end_time, duration_seconds, last_active_at) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (
                     new_subject_id,
                     sess["start_time"],
                     sess.get("end_time"),
                     sess.get("duration_seconds", 0),
-                    sess.get("note"),
                     sess.get("last_active_at"),
                 ),
             )

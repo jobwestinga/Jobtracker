@@ -47,7 +47,7 @@ def sessions_csv(export_data: dict) -> str:
     names = _subject_names(export_data)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["subject", "start_time", "end_time", "duration_seconds", "duration_hms", "note"])
+    writer.writerow(["subject", "start_time", "end_time", "duration_seconds", "duration_hms"])
     rows = sorted(
         export_data.get("sessions", []),
         key=lambda s: (s.get("start_time") or ""),
@@ -59,7 +59,6 @@ def sessions_csv(export_data: dict) -> str:
             sess.get("end_time", "") or "",
             sess.get("duration_seconds", 0) or 0,
             _hms(sess.get("duration_seconds", 0) or 0),
-            (sess.get("note") or "").replace("\n", " ").strip(),
         ])
     return buf.getvalue()
 

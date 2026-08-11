@@ -56,10 +56,9 @@ def test_stop_under_30s_discards_session(service, subject):
 def test_manual_add_session(service, subject):
     start = datetime(2026, 6, 20, 9, 0)
     end = datetime(2026, 6, 20, 10, 0)
-    sess = service.add_session(subject.id, start, end, note="reading")
+    sess = service.add_session(subject.id, start, end)
     assert sess is not None
     assert sess.duration_seconds == 3600
-    assert sess.note == "reading"
 
 
 def test_manual_add_under_30s_is_rejected(service, subject):
@@ -76,10 +75,8 @@ def test_manual_edit_session(service, subject):
     updated = service.update_session(
         sess.id, subject.id,
         datetime(2026, 6, 20, 9, 0), datetime(2026, 6, 20, 11, 0),
-        note="extended",
     )
     assert updated.duration_seconds == 7200
-    assert updated.note == "extended"
 
 
 def test_delete_session(service, subject):
@@ -136,7 +133,6 @@ def test_update_session_moves_between_subjects(service, subject):
         subject.id,
         datetime(2026, 6, 20, 9, 0),
         datetime(2026, 6, 20, 10, 0),
-        note="belongs elsewhere",
     )
 
     moved = service.update_session(
@@ -144,16 +140,14 @@ def test_update_session_moves_between_subjects(service, subject):
         other.id,
         datetime(2026, 6, 20, 9, 0),
         datetime(2026, 6, 20, 10, 0),
-        note="belongs elsewhere",
     )
 
-    # Same session row, same times/duration/note — only the subject changed.
+    # Same session row, same times and duration — only the subject changed.
     assert moved.id == sess.id
     assert moved.subject_id == other.id
     assert moved.start_time == sess.start_time
     assert moved.end_time == sess.end_time
     assert moved.duration_seconds == 3600
-    assert moved.note == "belongs elsewhere"
     assert service.get_sessions_for_subject(subject.id) == []
     assert len(service.get_sessions_for_subject(other.id)) == 1
 
@@ -166,10 +160,10 @@ def _yesterday_at(hour: int) -> datetime:
     )
 
 
-def test_duplicate_to_today_keeps_clock_time_duration_and_note(service, subject):
+def test_duplicate_to_today_keeps_clock_time_and_duration(service, subject):
     start = _yesterday_at(9)
     original = service.add_session(
-        subject.id, start, start + timedelta(hours=2), note="routine block"
+        subject.id, start, start + timedelta(hours=2)
     )
 
     copy = service.duplicate_session(original.id, to="today")
@@ -178,7 +172,6 @@ def test_duplicate_to_today_keeps_clock_time_duration_and_note(service, subject)
     copy_start = datetime.fromisoformat(copy.start_time)
     assert copy_start.time() == start.time()          # same clock time
     assert copy.duration_seconds == original.duration_seconds
-    assert copy.note == "routine block"
     assert copy.subject_id == subject.id
     # Lands on the current logical day, and the original is untouched.
     assert timeutils.logical_day(copy_start) == timeutils.logical_day(datetime.now())
@@ -219,13 +212,18 @@ def test_repeated_next_day_duplicates_walk_forward(service, subject):
     assert len(service.get_sessions_for_subject(subject.id)) == 4
 
 
-def test_duplicate_refuses_to_create_future_session(service, subject):
-    # A session from today: "+1 day" would land tomorrow -> refused, nothing written.
+def test_duplicate_may_create_a_future_session(service, subject):
+    # Planning ahead is allowed: "+1 day" on a session from today lands tomorrow.
     start = datetime.now() - timedelta(hours=2)
     original = service.add_session(subject.id, start, start + timedelta(hours=1))
 
-    assert service.duplicate_session(original.id, to="next_day") is None
-    assert len(service.get_sessions_for_subject(subject.id)) == 1
+    copy = service.duplicate_session(original.id, to="next_day")
+
+    assert copy is not None
+    copy_start = datetime.fromisoformat(copy.start_time)
+    assert copy_start > datetime.now()
+    assert copy.duration_seconds == original.duration_seconds
+    assert len(service.get_sessions_for_subject(subject.id)) == 2
 
 
 def test_duplicate_rejects_unknown_mode_and_missing_session(service, subject):
@@ -239,3 +237,62 @@ def test_duplicate_rejects_unknown_mode_and_missing_session(service, subject):
 def test_duplicate_ignores_the_open_session(service, subject):
     service.start_subject(subject.id)
     assert service.duplicate_session(service.active_session.id, to="today") is None
+
+
+# ── nudging a session in time ────────────────────────────────────────────────
+def test_shift_session_moves_both_ends_and_keeps_duration(service, subject):
+    start = datetime(2026, 6, 20, 14, 0)
+    original = service.add_session(subject.id, start, start + timedelta(hours=2))
+
+    moved = service.shift_session(original.id, -3600)
+
+    assert moved is not None and moved.id == original.id
+    assert datetime.fromisoformat(moved.start_time) == start - timedelta(hours=1)
+    assert datetime.fromisoformat(moved.end_time) == start + timedelta(hours=1)
+    assert moved.duration_seconds == original.duration_seconds
+    assert moved.subject_id == subject.id
+
+
+def test_shift_session_accumulates_and_accepts_quarter_hours(service, subject):
+    start = datetime(2026, 6, 20, 14, 0)
+    original = service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    for _ in range(2):
+        service.shift_session(original.id, -3600)
+    for _ in range(2):
+        service.shift_session(original.id, -900)
+
+    moved = service.get_session(original.id)
+    assert datetime.fromisoformat(moved.start_time) == datetime(2026, 6, 20, 11, 30)
+    assert moved.duration_seconds == 3600
+
+
+def test_shift_session_ignores_missing_and_open_sessions(service, subject):
+    assert service.shift_session(999_999, 900) is None
+    service.start_subject(subject.id)
+    assert service.shift_session(service.active_session.id, 900) is None
+
+
+# ── graph windows reach sessions scheduled ahead of today ────────────────────
+def test_graph_end_day_is_today_without_future_sessions(service, subject):
+    start = datetime.now() - timedelta(days=1)
+    service.add_session(subject.id, start, start + timedelta(hours=1))
+    assert service.graph_end_day() == timeutils.logical_day(datetime.now())
+
+
+def test_graph_end_day_stretches_to_future_sessions(service, subject):
+    future = datetime.now() + timedelta(days=3)
+    service.add_session(subject.id, future, future + timedelta(hours=1))
+    assert service.graph_end_day() == timeutils.logical_day(future)
+
+
+def test_future_session_appears_in_breakdown_and_heatmap(service, subject):
+    future = (datetime.now() + timedelta(days=2)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
+    service.add_session(subject.id, future, future + timedelta(hours=1))
+
+    future_day = timeutils.logical_day(future).isoformat()
+    breakdown = service.get_subject_breakdown(grouping="daily", days=None)
+    assert any(bucket["date"] == future_day for bucket in breakdown)
+    assert any(row["date"] == future_day for row in service.get_heatmap_data(days=None))

@@ -408,6 +408,12 @@ class SubjectsMixin:
         def finish(answer: QMessageBox.StandardButton) -> None:
             if answer != QMessageBox.Yes:
                 return
+            # The prompt describes a specific situation ("stop X, start Y").
+            # If that changed while it was open — the timer was stopped, or a
+            # second prompt already switched — don't act on the stale premise.
+            current = self.service.active_subject
+            if current is None or current.id != active.id:
+                return
             if self.service.switch_subject(subject_id):
                 self._pending_tracking_feedback_id = (
                     subject_id if shortcut_feedback else None

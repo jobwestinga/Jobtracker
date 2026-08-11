@@ -5,7 +5,7 @@ callbacks/imports and verify that all three main feature areas construct against
 an isolated database.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QKeyEvent
@@ -1681,8 +1681,6 @@ def test_session_dialog_subject_picker_only_when_editing(service):
 
 
 def test_manage_sessions_edit_moves_session_to_chosen_subject(service):
-    from PySide6.QtWidgets import QDialog
-
     from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
     from jobtracker.ui.widgets.session_dialog import SessionDialog
 
@@ -1693,7 +1691,6 @@ def test_manage_sessions_edit_moves_session_to_chosen_subject(service):
         first.id,
         datetime(2026, 6, 20, 9, 0),
         datetime(2026, 6, 20, 10, 0),
-        note="move me",
     )
 
     manager = ManageSessionsDialog(first.id, service)
@@ -1701,25 +1698,26 @@ def test_manage_sessions_edit_moves_session_to_chosen_subject(service):
     qt_app.processEvents()
     assert manager._list.count() == 1
 
-    # Drive the same dialog the Edit button opens, choose the other subject.
-    edit_dialog = SessionDialog(
-        manager, session, service=service, current_subject_id=first.id
-    )
+    # Drive the real Edit path (shared session_list.edit_session).
+    manager._edit()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    edit_dialog = manager.findChild(SessionDialog)
+    assert edit_dialog is not None and edit_dialog.session.id == session.id
     edit_dialog.subject_combo.setCurrentIndex(
         edit_dialog.subject_combo.findData(second.id)
     )
-    manager._finish_edit(session.id, int(QDialog.Accepted), edit_dialog)
+    edit_dialog.accept()
+    QTest.qWait(30)
     qt_app.processEvents()
 
     moved = service.get_sessions_for_subject(second.id)
     assert len(moved) == 1
     assert moved[0].id == session.id
     assert moved[0].duration_seconds == 3600
-    assert moved[0].note == "move me"
     assert service.get_sessions_for_subject(first.id) == []
     # The source list no longer shows the moved session.
     assert manager._list.count() == 0 or manager._list.isHidden()
-    edit_dialog.close()
     manager.close()
 
 
@@ -1734,7 +1732,7 @@ def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
         hour=9, minute=0, second=0, microsecond=0
     )
     original = service.add_session(
-        subject.id, start, start + timedelta(hours=2), note="block"
+        subject.id, start, start + timedelta(hours=2)
     )
 
     manager = ManageSessionsDialog(subject.id, service)
@@ -1742,7 +1740,7 @@ def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
     qt_app.processEvents()
 
     labels = {b.text() for b in manager.findChildren(QPushButton)}
-    assert "⧉ Duplicate" in labels and "⧉ +1 Day" in labels
+    assert "⧉ Duplicate to Today" in labels and "⧉ +1 Day" in labels
     assert manager._list.count() == 1
 
     # "+1 Day" copies forward and leaves the COPY selected, so a second click
@@ -1750,8 +1748,8 @@ def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
     manager._duplicate("next_day")
     qt_app.processEvents()
     assert manager._list.count() == 2
-    selected = manager._list.currentItem().data(Qt.UserRole)
-    assert selected.id != original.id
+    selected = manager._list.selected_session()
+    assert selected["session_id"] != original.id
 
     manager._duplicate("next_day")
     qt_app.processEvents()
@@ -1762,14 +1760,13 @@ def test_manage_sessions_duplicate_buttons_copy_and_select_the_copy(service):
     )
     assert days == [start.date() + timedelta(days=n) for n in (0, 1, 2)]
 
-    # "Duplicate" lands on today, same clock time, same duration.
+    # "Duplicate to Today" lands on today, same clock time, same duration.
     manager._duplicate("today")
     qt_app.processEvents()
-    copy = manager._list.currentItem().data(Qt.UserRole)
-    copy_start = datetime.fromisoformat(copy.start_time)
+    copy = manager._list.selected_session()
+    copy_start = datetime.fromisoformat(copy["start_time"])
     assert copy_start.time() == start.time()
-    assert copy.duration_seconds == original.duration_seconds
-    assert copy.note == "block"
+    assert copy["duration_seconds"] == original.duration_seconds
     manager.close()
 
 
@@ -1825,7 +1822,7 @@ def test_agenda_left_click_targets_the_clicked_session():
     assert days == []
 
 
-def test_agenda_right_click_and_empty_space_open_the_day():
+def test_agenda_right_click_matches_left_and_empty_space_opens_the_day():
     sessions = [
         {
             "session_id": 41,
@@ -1845,13 +1842,13 @@ def test_agenda_right_click_and_empty_space_open_the_day():
     canvas.session_clicked.connect(picked.append)
     canvas.day_clicked.connect(days.append)
 
-    # Right-click on the same block -> whole day.
+    # Right-click on a block behaves exactly like left-click: that session.
     QTest.mouseClick(
         canvas,
         Qt.RightButton,
         pos=QPoint(int(rect.center().x()), int(rect.center().y())),
     )
-    assert days == ["2026-06-20"] and picked == []
+    assert picked == [41] and days == []
 
     # Left-click on empty column space -> whole day too.
     column_rect, day_key = canvas._column_hits[1]
@@ -1860,8 +1857,8 @@ def test_agenda_right_click_and_empty_space_open_the_day():
         Qt.LeftButton,
         pos=QPoint(int(column_rect.center().x()), int(column_rect.bottom()) - 6),
     )
-    assert days[-1] == day_key
-    assert picked == []
+    assert days == [day_key]
+    assert picked == [41]
 
 
 def test_agenda_live_block_without_id_falls_back_to_day():
@@ -1904,7 +1901,6 @@ def _day_with_two_sessions(service):
         subject_b.id,
         base + timedelta(hours=5),
         base + timedelta(hours=7),
-        note="afternoon",
     )
     return timeutils.logical_day(base), subject_a, subject_b, first, second
 
@@ -1957,13 +1953,13 @@ def test_day_dialog_edits_the_selected_session_not_an_arbitrary_one(service):
 
 
 def test_day_dialog_duplicate_and_delete_act_on_the_selection(service, monkeypatch):
-    from jobtracker.ui.widgets import day_sessions_dialog as day_module
+    from jobtracker.ui.widgets import session_list as actions_module
     from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
 
     qt_app = _application()
     day, subject_a, _b, first, _second = _day_with_two_sessions(service)
     monkeypatch.setattr(
-        day_module, "information", lambda *_args, **_kwargs: None
+        actions_module, "information", lambda *_args, **_kwargs: None
     )
 
     dialog = DaySessionsDialog(service, day)
@@ -1979,7 +1975,7 @@ def test_day_dialog_duplicate_and_delete_act_on_the_selection(service, monkeypat
 
     # Delete the original, confirmed.
     monkeypatch.setattr(
-        day_module,
+        actions_module,
         "question",
         lambda _parent, _title, _text, on_finished, **_kw: on_finished(
             QMessageBox.Yes
@@ -1992,13 +1988,15 @@ def test_day_dialog_duplicate_and_delete_act_on_the_selection(service, monkeypat
     dialog.close()
 
 
-def test_day_dialog_history_button_preselects_same_session(service):
+def test_day_dialog_has_no_history_button_and_manager_still_preselects(service):
+    from PySide6.QtWidgets import QPushButton
+
     from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
     from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
 
     qt_app = _application()
     day, subject_a, _b, first, _second = _day_with_two_sessions(service)
-    # Older sessions exist, so "newest first" would pick the wrong one.
+    # Older and newer sessions exist, so "newest first" would pick the wrong one.
     older = datetime.fromisoformat(first.start_time) - timedelta(days=3)
     service.add_session(subject_a.id, older, older + timedelta(hours=1))
     newer = datetime.fromisoformat(first.start_time) + timedelta(days=1)
@@ -2007,17 +2005,19 @@ def test_day_dialog_history_button_preselects_same_session(service):
     dialog = DaySessionsDialog(service, day)
     dialog.show()
     qt_app.processEvents()
-    dialog._list.setCurrentRow(0)
-    dialog._open_subject_history()
-    qt_app.processEvents()
-
-    manager = dialog.findChild(ManageSessionsDialog)
-    assert manager is not None
-    selected = manager._list.currentItem().data(Qt.UserRole)
-    assert selected.id == first.id  # not merely the newest row
-    manager.reject()
-    qt_app.processEvents()
+    labels = {b.text() for b in dialog.findChildren(QPushButton)}
+    assert not any("history" in label.lower() for label in labels)
+    assert "⧉ Duplicate to Today" in labels
     dialog.close()
+
+    # Opening the subject manager directly still preselects the right session.
+    manager = ManageSessionsDialog(
+        subject_a.id, service, select_session_id=first.id
+    )
+    manager.show()
+    qt_app.processEvents()
+    assert manager._list.selected_session()["session_id"] == first.id
+    manager.close()
 
 
 def test_agenda_click_opens_editor_for_that_session_in_main_window(
@@ -2042,12 +2042,13 @@ def test_agenda_click_opens_editor_for_that_session_in_main_window(
         editor = window.findChild(SessionDialog)
         assert editor is not None and editor.session.id == session.id
 
-        # Saving through the shared helper keeps the row and applies changes.
-        editor.notes_input.setPlainText("edited from agenda")
+        # Saving through the shared helper keeps the row id and applies changes.
+        editor._shift(3600)  # nudge an hour later with the Move buttons
         window._finish_session_editor(session, int(QDialog.Accepted), editor)
         qt_app.processEvents()
         updated = window.service.get_session(session.id)
-        assert updated.note == "edited from agenda"
+        assert updated.id == session.id
+        assert datetime.fromisoformat(updated.start_time) == start + timedelta(hours=1)
         assert updated.duration_seconds == 3600
         editor.reject()
         qt_app.processEvents()
@@ -2056,3 +2057,331 @@ def test_agenda_click_opens_editor_for_that_session_in_main_window(
         window._heartbeat_timer.stop()
         window.close()
         qt_app.processEvents()
+
+
+# ── notes removed, move buttons, custom duration, shared list ────────────────
+def test_session_dialog_has_no_notes_and_move_buttons_shift_both_ends(service):
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 6, 20, 14, 0)
+    session = service.add_session(subject.id, start, start + timedelta(hours=2))
+
+    dialog = SessionDialog(
+        None, session, service=service, current_subject_id=subject.id
+    )
+    assert not hasattr(dialog, "notes_input")
+    assert "note" not in dialog.get_data()
+
+    dialog._shift(-3600)
+    dialog._shift(-900)
+    data = dialog.get_data()
+    assert data["start_time"] == start - timedelta(hours=1, minutes=15)
+    assert data["end_time"] == start + timedelta(minutes=45)
+    # Duration is untouched by a move.
+    assert data["end_time"] - data["start_time"] == timedelta(hours=2)
+    dialog.close()
+
+
+def test_move_row_exposes_four_steps():
+    from jobtracker.ui.widgets.session_list import MOVE_STEPS, build_move_row
+
+    _application()
+    assert [seconds for _label, seconds in MOVE_STEPS] == [-3600, -900, 900, 3600]
+    seen: list[int] = []
+    row = build_move_row(seen.append)
+    buttons = [row.itemAt(i).widget() for i in range(row.count())]
+    assert [b.text() for b in buttons] == ["−1h", "−15m", "+15m", "+1h"]
+    for button in buttons:
+        button.click()
+    assert seen == [-3600, -900, 900, 3600]
+
+
+def test_duration_dialog_caps_minutes_and_rejects_zero(service, monkeypatch):
+    from jobtracker.ui.widgets import session_dialog as session_dialog_module
+    from jobtracker.ui.widgets.session_dialog import DurationDialog
+
+    _application()
+    dialog = DurationDialog()
+    assert dialog.minutes_input.maximum() == 59
+    dialog.minutes_input.setValue(90)
+    assert dialog.minutes_input.value() == 59  # clamped, never a full hour
+
+    dialog.hours_input.setValue(3)
+    dialog.minutes_input.setValue(7)
+    assert dialog.total_minutes() == 187
+
+    # Zero duration is refused instead of being silently dropped by the 30s rule.
+    warned: list[str] = []
+    monkeypatch.setattr(
+        session_dialog_module,
+        "warning",
+        lambda _parent, title, _text, **_kw: warned.append(title),
+    )
+    dialog.hours_input.setValue(0)
+    dialog.minutes_input.setValue(0)
+    dialog._validate_and_accept()
+    assert warned == ["Duration Too Short"]
+    dialog.close()
+
+
+def test_quick_add_row_has_trimmed_durations_and_custom(service):
+    from PySide6.QtWidgets import QPushButton
+
+    from jobtracker.ui.widgets.manage_sessions_dialog import (
+        QUICK_DURATIONS,
+        ManageSessionsDialog,
+    )
+
+    qt_app = _application()
+    assert [label for label, _m in QUICK_DURATIONS] == [
+        "15m", "30m", "1h", "1h 15m", "2h",
+    ]
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    qt_app.processEvents()
+    labels = {b.text() for b in manager.findChildren(QPushButton)}
+    for gone in ("45m", "1h 30m", "2h 30m"):
+        assert gone not in labels
+    assert "Custom…" in labels
+
+    # The custom duration flows into a real session ending now.
+    manager._quick_add(187)
+    qt_app.processEvents()
+    sessions = service.get_sessions_for_subject(subject.id)
+    assert len(sessions) == 1
+    assert sessions[0].duration_seconds == 187 * 60
+    manager.close()
+
+
+def test_sessions_list_move_row_shifts_selected_session(service):
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 6, 20, 14, 0)
+    session = service.add_session(subject.id, start, start + timedelta(hours=1))
+
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    qt_app.processEvents()
+
+    manager._shift_selected(-900)
+    qt_app.processEvents()
+    moved = service.get_session(session.id)
+    assert datetime.fromisoformat(moved.start_time) == start - timedelta(minutes=15)
+    assert moved.duration_seconds == 3600
+    # The moved session stays selected so nudges can be chained.
+    assert manager._list.selected_session()["session_id"] == session.id
+    manager.close()
+
+
+def test_both_session_lists_share_one_component_and_styling(service):
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.session_list import SessionListView
+
+    qt_app = _application()
+    day, subject_a, _b, first, _second = _day_with_two_sessions(service)
+
+    manager = ManageSessionsDialog(subject_a.id, service)
+    day_dialog = DaySessionsDialog(service, day)
+    manager.show()
+    day_dialog.show()
+    qt_app.processEvents()
+
+    # Literally the same widget class and the same selection styling.
+    assert isinstance(manager._list, SessionListView)
+    assert isinstance(day_dialog._list, SessionListView)
+    assert "item:selected" in manager._list.styleSheet()
+    assert manager._list.styleSheet() == day_dialog._list.styleSheet()
+
+    # Both expose the same selection API returning row dicts.
+    assert manager._list.selected_session()["session_id"] == first.id
+    assert day_dialog._list.selected_session()["session_id"] == first.id
+    manager.close()
+    day_dialog.close()
+
+
+def test_colour_suggestions_ignore_archived_subjects(database, monkeypatch):
+    """New-subject colour hints must only avoid ACTIVE subject colours."""
+    from jobtracker.ui.widgets.subject_dialog import SubjectDialog
+
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        archived = window.service.add_subject("Old thing", "#22C55E", "")
+        window.service.add_subject("Active thing", "#3B82F6", "")
+        window.service.archive_subject(archived.id)
+
+        window._new_subject()
+        qt_app.processEvents()
+        dialog = window.findChild(SubjectDialog)
+        assert dialog is not None
+        # The archived subject's colour is not treated as taken.
+        assert "#22C55E" not in dialog._existing_colors
+        assert "#3B82F6" in dialog._existing_colors
+        dialog.reject()
+        qt_app.processEvents()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_running_session_guard_message_reads_correctly(monkeypatch):
+    """The guard is built from a verb, so it must not produce 'editd'."""
+    from jobtracker.ui.widgets import session_list
+
+    _application()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        session_list,
+        "warning",
+        lambda _parent, _title, text, **_kw: messages.append(text),
+    )
+    live_row = {"session_id": None, "subject_name": "Physics"}
+    for action in ("edit", "duplicate", "delete", "move"):
+        assert session_list.require_editable(None, live_row, action) is False
+    assert [m.split("then you can ")[1] for m in messages] == [
+        "edit it here.",
+        "duplicate it here.",
+        "delete it here.",
+        "move it here.",
+    ]
+
+
+def test_enter_edits_the_selection_in_both_session_dialogs(service):
+    """Enter must mean the same thing in both lists (it used to close one)."""
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+
+    qt_app = _application()
+    day, subject_a, _b, first, _second = _day_with_two_sessions(service)
+    enter = QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.NoModifier)
+
+    for dialog in (
+        ManageSessionsDialog(subject_a.id, service),
+        DaySessionsDialog(service, day),
+    ):
+        dialog.show()
+        qt_app.processEvents()
+        assert dialog.claims_inline_key(enter) is True
+        assert dialog.handle_inline_key(enter) is True
+        QTest.qWait(30)
+        qt_app.processEvents()
+        editor = dialog.findChild(SessionDialog)
+        assert editor is not None, f"{type(dialog).__name__} ignored Enter"
+        editor.reject()
+        qt_app.processEvents()
+        # Neither dialog closed itself on Enter.
+        assert dialog.isVisible()
+        dialog.close()
+
+
+def test_duplicate_action_is_shared_by_both_dialogs(service):
+    """Both dialogs must call one duplicate implementation, not copies."""
+    from jobtracker.ui.widgets import day_sessions_dialog, manage_sessions_dialog
+    from jobtracker.ui.widgets import session_list
+
+    assert day_sessions_dialog.session_list is session_list
+    assert manage_sessions_dialog.session_list is session_list
+    assert hasattr(session_list, "duplicate_session")
+    # No dialog reimplements the service call itself.
+    for module in (day_sessions_dialog, manage_sessions_dialog):
+        source = open(module.__file__, encoding="utf-8").read()
+        assert "service.duplicate_session(" not in source
+
+
+def test_quick_add_records_the_exact_duration_across_midnight(service):
+    """Quick-add must never silently shorten a session at the day boundary."""
+    from jobtracker.core import timeutils
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    qt_app.processEvents()
+
+    # 2h ending 00:30 -> starts 22:30 the previous calendar day.
+    end = datetime(2026, 6, 21, 0, 30)
+    manager._quick_add(120, end=end)
+    qt_app.processEvents()
+    sessions = service.get_sessions_for_subject(subject.id)
+    assert len(sessions) == 1
+    assert sessions[0].duration_seconds == 2 * 3600
+    start = datetime.fromisoformat(sessions[0].start_time)
+    assert start == datetime(2026, 6, 20, 22, 30)
+    # Both ends belong to one logical day: the day it began.
+    assert timeutils.logical_day(start) == timeutils.logical_day(end) == date(2026, 6, 20)
+
+    # A long custom duration is stored in full, not trimmed to today.
+    manager._quick_add(12 * 60, end=datetime(2026, 6, 25, 10, 0))
+    qt_app.processEvents()
+    longest = max(
+        service.get_sessions_for_subject(subject.id),
+        key=lambda s: s.duration_seconds,
+    )
+    assert longest.duration_seconds == 12 * 3600
+    manager.close()
+
+
+def test_switch_prompt_ignores_a_stale_premise(database, monkeypatch):
+    """Answering Yes must not act if the timer state changed meanwhile."""
+    import jobtracker.ui.subjects_mixin as subjects_mixin_module
+
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        first = window.service.add_subject("First", "#111111", "")
+        second = window.service.add_subject("Second", "#222222", "")
+        window._reload_subjects()
+        window._start_tracking(first.id)
+        qt_app.processEvents()
+
+        # Capture the prompt's callback instead of answering immediately.
+        pending: list = []
+        monkeypatch.setattr(
+            subjects_mixin_module,
+            "question",
+            lambda _p, _t, _x, on_finished, **_kw: pending.append(on_finished),
+        )
+        window._start_tracking(second.id)
+        assert pending, "expected a switch prompt"
+
+        # The user stops tracking while the prompt is still open, then says Yes.
+        window.service.stop_active_subject()
+        pending[0](QMessageBox.Yes)
+        qt_app.processEvents()
+
+        # Nothing was started from the stale prompt.
+        assert window.service.active_session is None
+        assert window.service.db.get_open_sessions() == []
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+
+def test_goal_card_transient_refresh_keeps_focus_star_consistent(service):
+    from jobtracker.ui.widgets.todo_task_item import TodoTaskItemWidget
+    from jobtracker.core.themes import DEFAULT_TOKENS
+
+    _application()
+    goal = service.add_todo_task("Focus me", "", None)
+    service.toggle_goal_focused(goal.id)
+    card = TodoTaskItemWidget(service.get_goal(goal.id), DEFAULT_TOKENS)
+    assert card.focus_btn.isVisibleTo(card) and card.focus_btn.text() == "★"
+
+    # Completing through a transient refresh must hide the star, not strand it.
+    service.complete_goal(goal.id)
+    card.apply_transient(service.get_goal(goal.id), (0, 0))
+    assert not card.focus_btn.isVisibleTo(card)
+    assert DEFAULT_TOKENS["ACCENT"] not in card.styleSheet()

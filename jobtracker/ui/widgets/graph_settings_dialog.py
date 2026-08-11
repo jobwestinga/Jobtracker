@@ -12,7 +12,7 @@ Settings are read/written through the TrackerService, not the database directly.
 from datetime import date
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QSpinBox, QCheckBox, QDateEdit,
 )
 from PySide6.QtCore import Qt, QDate

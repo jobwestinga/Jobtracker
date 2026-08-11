@@ -12,7 +12,7 @@ from jobtracker.core.database import Database
 
 def _seed(service):
     s = service.add_subject("Physics", "#3B82F6", "notes")
-    service.add_session(s.id, datetime(2026, 6, 20, 4, 0), datetime(2026, 6, 20, 5, 0), note="reading")
+    service.add_session(s.id, datetime(2026, 6, 20, 4, 0), datetime(2026, 6, 20, 5, 0))
     # A late-night session that belongs to the previous logical day (03:00 start).
     service.add_session(s.id, datetime(2026, 6, 21, 1, 0), datetime(2026, 6, 21, 2, 0))
     return s
@@ -26,7 +26,7 @@ def test_sessions_csv_has_header_and_rows(service):
     _seed(service)
     text = export_bundle.sessions_csv(service.export_data())
     rows = _rows(text)
-    assert rows[0] == ["subject", "start_time", "end_time", "duration_seconds", "duration_hms", "note"]
+    assert rows[0] == ["subject", "start_time", "end_time", "duration_seconds", "duration_hms"]
     assert len(rows) == 3  # header + 2 sessions
     assert rows[1][0] == "Physics"
 

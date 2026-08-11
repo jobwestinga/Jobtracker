@@ -13,7 +13,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QDateTimeEdit, QDialog, QHBoxLayout, QLabel,
+    QButtonGroup, QDateTimeEdit, QHBoxLayout, QLabel,
     QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
 )
 

@@ -335,11 +335,13 @@ class GoalDetailDialog(InlineDialog):
         self.goal_id = goal_id
         self._tokens = _tokens_from(parent, tokens)
         self._milestone_checks: list[QCheckBox] = []
-        self._number_shortcuts: list[QShortcut] = []
+        # No QShortcuts here on purpose: inline editors share the main QWindow,
+        # so registering 1–9 / Ctrl+Z again makes Qt report ambiguous window
+        # shortcuts before the key reaches this editor. InlineDialog's
+        # application event filter routes those keys to handle_inline_key.
         self.setWindowTitle("Goal")
         self.setMinimumSize(520, 600)
         self._build_ui()
-        self._install_number_shortcuts()
         self._reload()
 
     def _build_ui(self) -> None:
@@ -540,13 +542,6 @@ class GoalDetailDialog(InlineDialog):
                     )
                 )
             )
-
-    def _install_number_shortcuts(self) -> None:
-        # Inline editors share the main QWindow. Registering another set of
-        # QShortcuts for 1–9/Ctrl+Z makes Qt report ambiguous window shortcuts
-        # before a key event reaches the editor. InlineDialog's application
-        # event filter routes these keys through handle_inline_key instead.
-        self._number_shortcuts.clear()
 
     def _perform_undo(self) -> None:
         owner = dialog_owner(self)

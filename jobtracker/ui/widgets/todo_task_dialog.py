@@ -8,7 +8,6 @@ from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDateTimeEdit,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,

@@ -3,17 +3,20 @@ Add / Edit session dialog with sensible datetime defaults
 and start < end validation.
 
 When editing an existing session (and a service is supplied), a Subject
-dropdown lets the session be moved to another subject: same times, same
-duration, same note — only the owning subject changes.
+dropdown lets the session be moved to another subject: same times and duration,
+only the owning subject changes. The Move buttons nudge both ends together.
+
+Sessions have no note field — it was removed from the schema.
 """
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QPushButton, QDateTimeEdit,
+    QComboBox, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QDateTimeEdit, QSpinBox,
 )
 from PySide6.QtCore import QDateTime, QTime, Qt
 
 from .dialog_utils import InlineDialog, configure_window_modal, warning
+from .session_list import build_move_row
 
 
 def apply_session_edits(service, session, data: dict):
@@ -28,8 +31,89 @@ def apply_session_edits(service, session, data: dict):
         subject_id,
         data["start_time"],
         data["end_time"],
-        data["note"],
     )
+
+
+class DurationDialog(InlineDialog):
+    """Ask for an arbitrary duration (hours + minutes) for a quick-add."""
+
+    MAX_HOURS = 99
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        configure_window_modal(self)
+        self.setWindowTitle("Custom Duration")
+        self.setFixedSize(320, 210)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("How long was the session?")
+        title.setStyleSheet("font-weight: 600;")
+        layout.addWidget(title)
+
+        fields = QHBoxLayout()
+        fields.setSpacing(10)
+
+        self.hours_input = QSpinBox(self)
+        self.hours_input.setRange(0, self.MAX_HOURS)
+        self.hours_input.setSuffix(" h")
+        self.hours_input.setMinimumHeight(36)
+        self.hours_input.setAlignment(Qt.AlignCenter)
+        fields.addWidget(self.hours_input)
+
+        self.minutes_input = QSpinBox(self)
+        self.minutes_input.setRange(0, 59)  # minutes never reach a full hour
+        self.minutes_input.setSuffix(" m")
+        self.minutes_input.setMinimumHeight(36)
+        self.minutes_input.setAlignment(Qt.AlignCenter)
+        fields.addWidget(self.minutes_input)
+
+        layout.addLayout(fields)
+
+        hint = QLabel("The session ends now and starts that long ago.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 11px; opacity: 0.8;")
+        layout.addWidget(hint)
+
+        layout.addStretch()
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(10)
+        cancel = QPushButton("Cancel")
+        cancel.setMinimumHeight(34)
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+
+        confirm = QPushButton("Add Session")
+        confirm.setObjectName("primaryBtn")
+        confirm.setMinimumHeight(34)
+        confirm.setCursor(Qt.PointingHandCursor)
+        confirm.clicked.connect(self._validate_and_accept)
+        buttons.addWidget(confirm)
+        layout.addLayout(buttons)
+
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
+            button.setDefault(False)
+        confirm.setAutoDefault(True)
+        confirm.setDefault(True)
+
+    def total_minutes(self) -> int:
+        return self.hours_input.value() * 60 + self.minutes_input.value()
+
+    def _validate_and_accept(self) -> None:
+        # Under a minute would be silently dropped by the 30-second rule.
+        if self.total_minutes() < 1:
+            warning(
+                self,
+                "Duration Too Short",
+                "Enter at least one minute.",
+            )
+            return
+        self.accept()
 
 
 class SessionDialog(InlineDialog):
@@ -48,7 +132,9 @@ class SessionDialog(InlineDialog):
         self.subject_combo: QComboBox | None = None
         self.setWindowTitle("Edit Session" if session else "Add Session")
         show_subject_picker = session is not None and service is not None
-        self.setFixedSize(380, 448 if show_subject_picker else 380)
+        # Sized with ~30px of headroom over the layout's needs, so a larger
+        # system font can grow a little without clipping the buttons.
+        self.setFixedSize(380, 400 if show_subject_picker else 330)
         self._build_ui(show_subject_picker)
 
     def _build_ui(self, show_subject_picker: bool) -> None:
@@ -129,17 +215,14 @@ class SessionDialog(InlineDialog):
             self.end_edit.setDateTime(QDateTime.currentDateTime())
         layout.addWidget(self.end_edit)
 
-        # ── Note ─────────────────────────────────────────────────────────
-        lbl_n = QLabel("Note")
-        lbl_n.setStyleSheet("font-weight: 600;")
-        layout.addWidget(lbl_n)
-
-        self.notes_input = QTextEdit()
-        self.notes_input.setPlaceholderText("Optional session note …")
-        self.notes_input.setMaximumHeight(70)
-        if self.session and self.session.note:
-            self.notes_input.setPlainText(self.session.note)
-        layout.addWidget(self.notes_input)
+        # ── Move ─────────────────────────────────────────────────────────
+        # Nudge the whole session without retyping the datetimes: both fields
+        # move together, so the duration never changes. Nothing is written
+        # until Save.
+        lbl_m = QLabel("Move session")
+        lbl_m.setStyleSheet("font-weight: 600;")
+        layout.addWidget(lbl_m)
+        layout.addLayout(build_move_row(self._shift))
 
         layout.addStretch()
 
@@ -168,6 +251,11 @@ class SessionDialog(InlineDialog):
         save.setAutoDefault(True)
         save.setDefault(True)
 
+    def _shift(self, seconds: int) -> None:
+        """Move both ends by the same amount (duration is preserved)."""
+        self.start_edit.setDateTime(self.start_edit.dateTime().addSecs(seconds))
+        self.end_edit.setDateTime(self.end_edit.dateTime().addSecs(seconds))
+
     def _validate_and_accept(self) -> None:
         start = self.start_edit.dateTime()
         end = self.end_edit.dateTime()
@@ -187,5 +275,4 @@ class SessionDialog(InlineDialog):
             "subject_id": subject_id,
             "start_time": self.start_edit.dateTime().toPython(),
             "end_time": self.end_edit.dateTime().toPython(),
-            "note": self.notes_input.toPlainText().strip(),
         }

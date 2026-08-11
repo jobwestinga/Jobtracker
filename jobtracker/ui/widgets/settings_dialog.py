@@ -88,7 +88,6 @@ class SettingsDialog(InlineDialog):
         self._palette_btns: list[QPushButton] = []
         max_cols = 6
         for idx, name in enumerate(PALETTE_NAMES):
-            pal = PALETTES[name]
             btn = QPushButton()
             btn.setFixedSize(48, 48)
             btn.setCursor(Qt.PointingHandCursor)

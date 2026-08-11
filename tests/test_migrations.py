@@ -63,7 +63,9 @@ def test_legacy_database_migrates_without_losing_rows(tmp_path):
             )
         }
 
-        assert {"note", "last_active_at"} <= session_columns
+        assert "last_active_at" in session_columns
+        # Session notes were removed from the schema on purpose.
+        assert "note" not in session_columns
         assert "template_id" in goal_columns
         assert {"milestones", "goal_templates"} <= tables
         indexes = {
@@ -116,3 +118,48 @@ def test_existing_templates_gain_default_schedule_days(tmp_path):
         assert templates["Monthly"].recurrence_day == 1
     finally:
         migrated.connection.close()
+
+
+def test_legacy_note_column_is_dropped_and_data_survives(tmp_path):
+    """An old database with sessions.note migrates cleanly on open."""
+    import sqlite3
+
+    path = tmp_path / "legacy_notes.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+            color TEXT NOT NULL, notes TEXT DEFAULT '', sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL,
+            start_time TIMESTAMP NOT NULL, end_time TIMESTAMP,
+            duration_seconds INTEGER DEFAULT 0, note TEXT
+        );
+        INSERT INTO tasks (name, color) VALUES ('Physics', '#3B82F6');
+        INSERT INTO sessions (task_id, start_time, end_time, duration_seconds, note)
+        VALUES (1, '2026-06-20T09:00:00', '2026-06-20T10:00:00', 3600, 'old note');
+        """
+    )
+    con.commit()
+    con.close()
+
+    db = Database(path)
+    try:
+        columns = {
+            row["name"]
+            for row in db.connection.execute("PRAGMA table_info(sessions)")
+        }
+        assert "note" not in columns
+        # The session itself is untouched; only the column is gone.
+        sessions = db.get_sessions_for_subject(1)
+        assert len(sessions) == 1
+        assert sessions[0].duration_seconds == 3600
+        assert sessions[0].start_time == '2026-06-20T09:00:00'
+        # Idempotent: opening again is a no-op.
+        again = Database(path)
+        again.connection.close()
+    finally:
+        db.connection.close()

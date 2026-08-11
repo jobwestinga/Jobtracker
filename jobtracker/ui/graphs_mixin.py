@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime
+from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -173,11 +174,16 @@ class GraphsMixin:
         if self._graph_custom_range:
             start_day, end_day = self._graph_custom_range
             return start_day, end_day, grouping_for_span(start_day, end_day)
-        today = logical_day(datetime.now(), self.service.get_day_start())
+        day_start = self.service.get_day_start()
+        # Anchor the preset on the real today, then stretch only the END so
+        # sessions scheduled ahead are visible. Anchoring on a future day would
+        # slide the whole window forward and hide real past days.
+        today = logical_day(datetime.now(), day_start)
         window = graph_preset_window(self._graph_range_preset, today)
         grouping = grouping_for_preset(self._graph_range_preset)
         if window is not None:
-            return window[0], window[1], grouping
+            end_day = max(window[1], self.service.graph_end_day(day_start))
+            return window[0], end_day, grouping
         return None, None, grouping
 
     def _range_label(self) -> str:
@@ -195,7 +201,7 @@ class GraphsMixin:
         self._graph_legend.show()
         if seen:
             parts = [
-                f"<span style='color:{color};'>■</span> {name}"
+                f"<span style='color:{color};'>■</span> {escape(name)}"
                 for name, color in seen.items()
             ]
             self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
@@ -236,8 +242,9 @@ class GraphsMixin:
         if start_day is None or end_day is None:
             earliest_iso = self.service.get_earliest_session_date()
             parsed = parse_iso(earliest_iso) if earliest_iso else None
-            start_day = logical_day(parsed, day_start) if parsed else today
-            end_day = today
+            last_day = self.service.graph_end_day(day_start)
+            start_day = logical_day(parsed, day_start) if parsed else last_day
+            end_day = last_day
 
         day_keys, sessions = self.service.get_agenda_data(start_day, end_day, day_start)
 
