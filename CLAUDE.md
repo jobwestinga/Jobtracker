@@ -190,10 +190,16 @@ stop rule. Number-key shortcuts use the same confirm path — never a silent sto
   a milestone on a completed goal reopens it so the invariant stays true.
 - Completed goals remain queryable and reopenable; their milestones are never
   hidden or deleted by completion.
-- Active daily/weekly/monthly templates are checked on startup and approximately
-  once per minute while the app is open. `last_generated` stores the logical
-  period key. A due template inserts one ordinary editable goal at the top;
-  prior unfinished instances remain. Generation must stay idempotent.
+- Active daily/weekly/monthly templates are checked on startup and when the
+  Goals tab is opened. `last_generated` stores the logical period key. A due
+  template inserts one ordinary editable goal at the top. Generation must stay
+  idempotent within a period.
+- **Generation is purely ADDITIVE.** Prior unfinished instances stay in the
+  active list on purpose — the user wants a visible backlog of what still needs
+  doing. Do not add auto-expiry, "missed" states, or any automatic removal; an
+  earlier attempt at that was explicitly rejected.
+- Weekly templates fire on or after their scheduled weekday (`>=`), so a
+  template is never skipped just because the app wasn't opened that day.
 - The authoritative JSON backup includes goals, milestones, templates, their ID
   relationships, and settings. Restore must preserve repeated generated goals
   that legitimately share a title.
@@ -277,3 +283,32 @@ concatenating hex digits.
 - Concise, direct solutions over abstractions. Match surrounding code.
 - Don't rewrite the whole app or do large UI rewrites for cleanup. Prefer small,
   tested, reversible changes. Run the relevant tests after changes.
+
+## Layout and visual conventions
+
+Tried and **rejected** by the user — don't reintroduce these:
+
+- A capped/centred content column. Content is deliberately **full-bleed**: the
+  screen should look filled at fullscreen width.
+- A dark contrast stroke around the bar-chart totals. The numerals keep only
+  their coloured glow (`_intensity_style` tiers) over `TEXT_PRIMARY`.
+- Any special colouring for today's agenda column. Every column is styled
+  identically; the current-time marker line is the only "now" cue.
+
+Current conventions:
+
+- Card and chart surfaces are **near-opaque** (`*_A248`, panels at alpha 238) so
+  the animated wash never shows through content. Don't lower these back.
+- Subject/goal rows carry colour only in the dot and the left border; body text
+  stays neutral. Chart fills keep full colour.
+- Row heights are a deliberate middle ground: subject cards 68px, goal cards
+  72px. Neither the old airy 78px+hint-text nor the 58px crush.
+- Daily axis labels read `Mon 03` (weekday + day). No gridlines on the bar chart
+  by choice — the two edge labels are the whole axis.
+- Agenda blocks are a neutral base + ~35% subject tint + a 3px saturated left
+  bar, with labels elided and clipped to their block.
+- The goal ✓ is a quiet ring (`TEXT_DIMMED`) that turns `ACCENT_GREEN` on hover;
+  a permanently saturated green circle fought with the card palette.
+- A card's description must never wrap: `_ElidedLabel` truncates it and needs an
+  **Expanding** size policy, otherwise Qt spreads the row's slack evenly and
+  pushes the badge and ✓ into mid-card.

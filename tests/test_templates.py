@@ -51,6 +51,7 @@ def test_before_3am_counts_as_previous_logical_day(service):
 
 
 def test_new_item_on_next_logical_day_and_old_remains(service):
+    """Generation is purely additive: yesterday's instance stays as backlog."""
     service.add_goal_template("Daily", "", "daily", ["X"])
     c1 = service.generate_due_goal_instances(now=datetime(2026, 6, 20, 10, 0))
     c2 = service.generate_due_goal_instances(now=datetime(2026, 6, 21, 10, 0))

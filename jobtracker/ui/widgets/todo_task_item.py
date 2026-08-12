@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QProgressBar,
     QPushButton,
     QToolTip,
     QVBoxLayout,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.models import TodoTask
+from .labels import ElidedLabel
 
 # Default celebratory star palette (used when no theme colors are supplied).
 _DEFAULT_STAR_COLORS = ["#FACC15", "#22C55E", "#FDE68A", "#FFFFFF"]
@@ -121,28 +123,27 @@ def _star_polygon(radius: float, points: int = 5) -> QPolygonF:
 
 
 class _CheckButton(QPushButton):
-    def __init__(self, parent=None) -> None:
+    """Quiet completion ring that only turns green on hover.
+
+    A permanently saturated green circle fought with the card's own palette;
+    this reads as part of the row until you reach for it.
+    """
+
+    def __init__(self, tokens: dict | None = None, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedSize(28, 28)
+        tokens = tokens or {}
+        self.setFixedSize(22, 22)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Complete goal")
         self.setProperty("no_drag", True)
         self.setFlat(True)
+        idle = tokens.get("TEXT_DIMMED", "#6F7D90")
+        done = tokens.get("ACCENT_GREEN", "#22C55E")
         self.setStyleSheet(
-            """
-            QPushButton {
-                background-color: transparent;
-                border: 1.5px solid #22C55E;
-                border-radius: 14px;
-                color: #22C55E;
-                font-weight: 900;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #22C55E;
-                color: white;
-            }
-            """
+            "QPushButton { background-color: transparent; border: 1.4px solid "
+            f"{idle}; border-radius: 11px; color: {idle}; font-weight: 800;"
+            " font-size: 11px; }"
+            f"QPushButton:hover {{ border-color: {done}; color: {done}; }}"
         )
         self.setText("✓")
 
@@ -182,10 +183,10 @@ class TodoTaskItemWidget(QFrame):
     def _build_ui(self) -> None:
         t = self._t
         self.setObjectName("todoTaskCard")
-        self.setMinimumHeight(60)
+        self.setMinimumHeight(72)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 8, 12, 8)
+        layout.setContentsMargins(14, 11, 12, 11)
         layout.setSpacing(8)
         self._root_layout = layout
         self._shortcut_badge = None
@@ -193,7 +194,7 @@ class TodoTaskItemWidget(QFrame):
         info = QVBoxLayout()
         info.setSpacing(3)
 
-        self.name_lbl = QLabel(self.todo_task.name)
+        self.name_lbl = ElidedLabel(self.todo_task.name)
         self.name_lbl.setStyleSheet(
             f"font-size: 14px; font-weight: 650; color: {t['TEXT_PRIMARY']}; background: transparent;"
         )
@@ -201,6 +202,13 @@ class TodoTaskItemWidget(QFrame):
 
         self.progress_lbl = QLabel()
         info.addWidget(self.progress_lbl)
+
+        # Thin milestone progress bar, shown only when there are milestones.
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(3)
+        self.progress_bar.setMaximumWidth(180)
+        info.addWidget(self.progress_bar)
         self._apply_progress_label()
 
         if getattr(self.todo_task, "deadline", None):
@@ -211,19 +219,27 @@ class TodoTaskItemWidget(QFrame):
             info.addWidget(target_lbl)
 
         if self.todo_task.notes:
-            notes_lbl = QLabel(self.todo_task.notes)
-            notes_lbl.setWordWrap(True)
+            notes_lbl = ElidedLabel(self.todo_task.notes)
             notes_lbl.setStyleSheet(
                 f"font-size: 11px; color: {t['TEXT_SECONDARY']}; background: transparent;"
             )
+            notes_lbl.setToolTip(self.todo_task.notes)
             info.addWidget(notes_lbl)
 
-        layout.addLayout(info)
-        layout.addStretch()
+        # The ✓ sits beside the title rather than at the far edge of a wide card.
+        self.check_btn = _CheckButton(t, self)
+        if self.todo_task.is_completed:
+            self.check_btn.hide()
+        self.check_btn.clicked.connect(self._on_check_clicked)
+        layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
+
+        # No trailing stretch: the info column owns the free width, otherwise the
+        # description elides at half the card and leaves a dead gap.
+        layout.addLayout(info, 1)
 
         # Weekly-focus star: quiet outline when off, theme accent when on.
         self.focus_btn = QPushButton(self)
-        self.focus_btn.setFixedSize(28, 28)
+        self.focus_btn.setFixedSize(22, 22)
         self.focus_btn.setCursor(Qt.PointingHandCursor)
         self.focus_btn.setFlat(True)
         self.focus_btn.setProperty("no_drag", True)
@@ -232,14 +248,6 @@ class TodoTaskItemWidget(QFrame):
             self.focus_btn.hide()
         self.focus_btn.clicked.connect(self._on_focus_clicked)
         layout.addWidget(self.focus_btn, 0, Qt.AlignVCenter)
-
-        # No explicit "Open" button: clicking anywhere on the card opens the
-        # detail view (see mouseReleaseEvent). The ✓ only completes.
-        self.check_btn = _CheckButton(self)
-        if self.todo_task.is_completed:
-            self.check_btn.hide()
-        self.check_btn.clicked.connect(self._on_check_clicked)
-        layout.addWidget(self.check_btn, 0, Qt.AlignVCenter)
 
     def install_shortcut_badge(self) -> None:
         """Create the keycap only after the card is owned by its list."""
@@ -283,6 +291,28 @@ class TodoTaskItemWidget(QFrame):
         self.progress_lbl.setText(text)
         self.progress_lbl.setStyleSheet(
             f"font-size: 11px; font-weight: 600; color: {color}; background: transparent;"
+        )
+        self._apply_progress_bar(done, total, color)
+
+    def _apply_progress_bar(self, done: int, total: int, color: str) -> None:
+        bar = getattr(self, "progress_bar", None)
+        if bar is None:
+            return
+        if total <= 0:
+            bar.hide()
+            return
+        bar.show()
+        bar.setMaximum(total)
+        bar.setValue(done)
+        # Chained gets: a caller may pass a partial token dict.
+        # Deliberately understated: a hairline groove, no border. It should
+        # read as a subtle fill next to the milestone count, not as chrome.
+        track = self._t.get("BG_TERTIARY") or self._t.get("BG_SECONDARY", "#161B24")
+        bar.setStyleSheet(
+            "QProgressBar { border: none; border-radius: 1px; background: "
+            f"{track};"
+            " } QProgressBar::chunk { border-radius: 1px; background: "
+            f"{color}; }}"
         )
 
     def apply_transient(self, todo_task: TodoTask, progress: tuple) -> None:
@@ -345,7 +375,7 @@ class TodoTaskItemWidget(QFrame):
         color = accent if focused else t.get("TEXT_DIMMED", "#6F7D90")
         self.focus_btn.setStyleSheet(
             "QPushButton { background-color: transparent; border: none; "
-            f"color: {color}; font-size: 17px; font-weight: 600; "
+            f"color: {color}; font-size: 15px; font-weight: 600; "
             "} QPushButton:hover { "
             f"color: {accent}; "
             "}"

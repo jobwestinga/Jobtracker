@@ -201,6 +201,9 @@ class GoalsMixin:
         dialog = GoalDetailDialog(
             self.service, goal_id, self, tokens=self._tokens
         )
+        # Ticking a milestone updates the card's progress bar immediately,
+        # not only once the dialog is closed.
+        dialog.progress_changed.connect(self._reload_tasks)
         open_dialog(
             dialog,
             lambda _result, _dialog: self._reload_tasks(),

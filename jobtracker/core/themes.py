@@ -205,10 +205,10 @@ FX_STYLES: Dict[str, Dict[str, str]] = {
     },
     "Clean": {
         "CARD_BORDER_STYLE": "1px solid {BORDER_COLOR}",
-        "CARD_BG":           "{BG_SECONDARY_A220}",
-        "CARD_HOVER_BG":     "{BG_TERTIARY_A230}",
+        "CARD_BG":           "{BG_SECONDARY_A248}",
+        "CARD_HOVER_BG":     "{BG_TERTIARY_A248}",
         "CARD_HOVER_BORDER": "1px solid {ACCENT_A64}",
-        "TIMER_BG":          "{BG_SECONDARY_A220}",
+        "TIMER_BG":          "{BG_SECONDARY_A248}",
         "TIMER_BORDER":      "1.5px solid {ACCENT}",
         "IDLE_BORDER":       "1.5px dashed {BORDER_COLOR}",
         "RADIUS":            "14px",
@@ -217,10 +217,10 @@ FX_STYLES: Dict[str, Dict[str, str]] = {
     },
     "Glow": {
         "CARD_BORDER_STYLE": "1px solid {ACCENT_A85}",
-        "CARD_BG":           "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_SECONDARY_A160}, stop:1 {BG_TERTIARY_A160})",
-        "CARD_HOVER_BG":     "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_TERTIARY_A180}, stop:1 {BG_SECONDARY_A180})",
+        "CARD_BG":           "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_SECONDARY_A248}, stop:1 {BG_TERTIARY_A248})",
+        "CARD_HOVER_BG":     "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_TERTIARY_A248}, stop:1 {BG_SECONDARY_A248})",
         "CARD_HOVER_BORDER": "1.8px solid {ACCENT}",
-        "TIMER_BG":          "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_PRIMARY_A160}, stop:0.5 {BG_SECONDARY_A160}, stop:1 {BG_PRIMARY_A160})",
+        "TIMER_BG":          "qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {BG_SECONDARY_A248}, stop:0.5 {BG_TERTIARY_A248}, stop:1 {BG_SECONDARY_A248})",
         "TIMER_BORDER":      "1.5px solid {ACCENT}",
         "IDLE_BORDER":       "1.5px dashed {BORDER_COLOR}",
         "RADIUS":            "18px",
@@ -229,10 +229,10 @@ FX_STYLES: Dict[str, Dict[str, str]] = {
     },
     "Space": {
         "CARD_BORDER_STYLE": "1px solid {TEXT_PRIMARY_A120}",
-        "CARD_BG":           "{BG_SECONDARY_A140}",
-        "CARD_HOVER_BG":     "{BG_TERTIARY_A170}",
+        "CARD_BG":           "{BG_SECONDARY_A248}",
+        "CARD_HOVER_BG":     "{BG_TERTIARY_A248}",
         "CARD_HOVER_BORDER": "1.4px solid {TEXT_PRIMARY_A170}",
-        "TIMER_BG":          "{BG_SECONDARY_A130}",
+        "TIMER_BG":          "{BG_SECONDARY_A240}",
         "TIMER_BORDER":      "1px solid {ACCENT_A170}",
         "IDLE_BORDER":       "1px dashed {BORDER_COLOR_A150}",
         "RADIUS":            "20px",
@@ -272,7 +272,7 @@ def get_tokens(fx_name: str = "Glow", palette_name: str = "Ocean") -> dict:
         if not base:
             continue
         for alpha in (64, 85, 115, 120, 130, 140, 150, 155, 160, 170, 175, 180,
-                      190, 195, 205, 220, 230):
+                      190, 195, 205, 220, 230, 240, 248):
             palette[f"{key}_A{alpha}"] = _rgba(base, alpha)
 
     fx_raw = FX_STYLES.get(fx_name, FX_STYLES["Glow"])

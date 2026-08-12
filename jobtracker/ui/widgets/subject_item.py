@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.models import Subject
+from .labels import ElidedLabel
 
 
 def format_duration(seconds: int) -> str:
@@ -112,13 +113,13 @@ class SubjectItemWidget(QFrame):
 
     def _build_ui(self) -> None:
         t = self._t
-        self.setMinimumHeight(78)
+        self.setMinimumHeight(68)
         self.setCursor(Qt.PointingHandCursor)
         self._apply_normal_style()
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 14, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 11, 12, 11)
+        layout.setSpacing(10)
         self._root_layout = layout
         self._shortcut_badge = None
 
@@ -130,9 +131,9 @@ class SubjectItemWidget(QFrame):
         layout.addWidget(dot, 0, Qt.AlignTop | Qt.AlignLeft)
 
         info = QVBoxLayout()
-        info.setSpacing(4)
+        info.setSpacing(3)
 
-        self._name_lbl = QLabel(self.subject.name)
+        self._name_lbl = ElidedLabel(self.subject.name)
         self._name_lbl.setStyleSheet(
             f"font-size: 15px; font-weight: 650; color: {t['TEXT_PRIMARY']}; background: transparent;"
         )
@@ -140,25 +141,19 @@ class SubjectItemWidget(QFrame):
 
         stats_text = format_duration(self.total_seconds)
         self._stats_lbl = QLabel(f"Tracked: {stats_text}" if self.total_seconds else "No time tracked yet")
-        color = self.subject.color if self.total_seconds else t["TEXT_DIMMED"]
+        color = t["TEXT_SECONDARY"] if self.total_seconds else t["TEXT_DIMMED"]
         self._stats_lbl.setStyleSheet(
             f"font-size: 12px; font-weight: 500; color: {color}; background: transparent;"
         )
         info.addWidget(self._stats_lbl)
 
         if self.subject.notes:
-            notes_lbl = QLabel(self.subject.notes)
-            notes_lbl.setWordWrap(True)
+            notes_lbl = ElidedLabel(self.subject.notes)
+            notes_lbl.setToolTip(self.subject.notes)
             notes_lbl.setStyleSheet(
                 f"font-size: 11px; color: {t['TEXT_SECONDARY']}; background: transparent;"
             )
             info.addWidget(notes_lbl)
-
-        hint_lbl = QLabel("Click to start tracking, drag to reorder")
-        hint_lbl.setStyleSheet(
-            f"font-size: 10px; color: {t['TEXT_DIMMED']}; background: transparent;"
-        )
-        info.addWidget(hint_lbl)
 
         layout.addLayout(info)
         layout.addStretch()
@@ -339,7 +334,7 @@ class SubjectItemWidget(QFrame):
         self._stats_lbl.setText(
             f"Tracked: {stats_text}" if total_seconds else "No time tracked yet"
         )
-        color = self.subject.color if total_seconds else self._t["TEXT_DIMMED"]
+        color = self._t["TEXT_SECONDARY"] if total_seconds else self._t["TEXT_DIMMED"]
         self._stats_lbl.setStyleSheet(
             f"font-size: 12px; font-weight: 500; color: {color}; background: transparent;"
         )

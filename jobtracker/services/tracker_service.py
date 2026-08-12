@@ -865,7 +865,8 @@ class TrackerService:
         a period (safe to call on every launch). Returns the new goal ids.
 
         Uncompleted goals from previous periods are never touched — they simply
-        remain in the list.
+        remain in the list. Generation is purely additive: nothing is ever
+        auto-removed, so a skipped day stays visible as a backlog item.
         """
         now = now or datetime.now()
         day_start = self.get_day_start()

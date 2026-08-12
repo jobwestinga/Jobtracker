@@ -14,7 +14,8 @@ def test_week_labels_follow_iso_8601_across_year_boundary():
 
 def test_month_and_day_labels_are_specific():
     assert _bucket_label("2026-06-01", "monthly") == "Jun 26"
-    assert _bucket_label("2026-06-18", "daily") == "06-18"
+    # Daily bars read as weekday + day number ("Thu 18"), not a month pair.
+    assert _bucket_label("2026-06-18", "daily") == "Thu 18"
 
 
 def test_weekly_threshold_reduction_reaches_red_near_sixty_hours():

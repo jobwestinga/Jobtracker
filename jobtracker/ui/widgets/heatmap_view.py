@@ -12,7 +12,7 @@ from ...core.themes import DEFAULT_TOKENS
 from .paint_utils import HoverCard
 
 MIN_CELL = 14
-MAX_CELL = 28
+MAX_CELL = 32
 GAP = 4
 TOP = 28
 LEFT = 42
@@ -27,10 +27,16 @@ def _is_light(color: QColor) -> bool:
 
 
 def _scale_colors(tokens: dict) -> tuple[QColor, QColor]:
-    """Return visually quiet zero and unmistakable best-day colors."""
+    """Quiet zero colour and an unmistakable best-day colour.
+
+    The scale follows the theme accent so the heatmap belongs to the palette
+    instead of always being GitHub green.
+    """
     background = QColor(tokens.get("BG_PRIMARY", "#0B1120"))
-    low = QColor(tokens.get("BG_TERTIARY", "#1A2640"))
-    high = QColor("#008F3B" if _is_light(background) else "#4DFF88")
+    low = QColor(tokens.get("BG_PRIMARY", "#0B1120")).lighter(135)
+    high = QColor(tokens.get("ACCENT", "#4DFF88"))
+    # Keep the busiest day clearly separated from the page behind it.
+    high = high.darker(115) if _is_light(background) else high.lighter(118)
     return low, high
 
 
@@ -151,6 +157,18 @@ class _HeatmapCanvas(QWidget):
         painter.setRenderHint(QPainter.Antialiasing, True)
         tokens = self._tokens or DEFAULT_TOKENS
 
+        # Panel behind the grid, matching the bar chart and agenda. Without it
+        # the animated background showed straight through the cells and the
+        # low-intensity days became unreadable against it.
+        panel = QRectF(self.rect().adjusted(0, 0, -1, -1))
+        border = QColor(tokens["BORDER_COLOR"])
+        border.setAlpha(160)
+        surface = QColor(tokens["BG_SECONDARY"])
+        surface.setAlpha(238)
+        painter.setPen(border)
+        painter.setBrush(surface)
+        painter.drawRoundedRect(panel, 12, 12)
+
         if self._first_monday is None:
             painter.setPen(QColor(tokens["TEXT_DIMMED"]))
             painter.drawText(self.rect(), Qt.AlignCenter, "No tracked data yet")
@@ -261,12 +279,19 @@ class HeatmapWidget(QWidget):
         )
         self._hint.setStyleSheet("font-size: 11px;")
 
+        # The grid is a fixed 7 rows: pin the panel to exactly the height those
+        # rows need, rather than stretching it into a mostly-empty card. Fixed
+        # (not maximum) because with no stretch the panel would otherwise
+        # collapse to its minimum hint and shrink the cells.
+        self._scroll.setFixedHeight(TOP + BOTTOM + 7 * MAX_CELL + 6 * GAP + 14)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.addWidget(self._scroll, 1)
+        layout.addWidget(self._scroll, 0)
         layout.addWidget(self._legend_canvas)
         layout.addWidget(self._hint)
+        layout.addStretch(1)
 
     def set_tokens(self, tokens: dict) -> None:
         self._tokens = tokens

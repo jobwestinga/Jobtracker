@@ -170,7 +170,7 @@ class _AgendaCanvas(QWidget):
 
         outer = self.rect().adjusted(0, 0, -1, -1)
         p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 160), 1))
-        p.setBrush(_with_alpha(t["BG_SECONDARY"], 120))
+        p.setBrush(_with_alpha(t["BG_SECONDARY"], 238))
         p.drawRoundedRect(outer, 12, 12)
 
         if not self._day_keys:
@@ -245,7 +245,7 @@ class _AgendaCanvas(QWidget):
             col_x = chart.left() + idx * (col_width + gap)
 
             try:
-                day_label = datetime.fromisoformat(day_key).strftime("%m-%d")
+                day_label = datetime.fromisoformat(day_key).strftime("%a %d")
             except ValueError:
                 day_label = day_key
             p.setPen(QColor(t["TEXT_DIMMED"]))
@@ -258,6 +258,8 @@ class _AgendaCanvas(QWidget):
 
             col_rect = QRectF(col_x, chart.top(), col_width, chart.height())
             self._column_hits.append((QRectF(col_rect), day_key))
+            # Every column is styled identically, today included; the
+            # current-time marker line is the only "now" cue.
             p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 60), 0.5))
             p.setBrush(_with_alpha(t["BG_SECONDARY"], 60))
             p.drawRoundedRect(col_rect, 5, 5)
@@ -295,21 +297,38 @@ class _AgendaCanvas(QWidget):
                     )
                     rect = QRectF(col_x + 1, sy, col_width - 2, sh)
                     self._block_hits.append((QRectF(rect), sr, day_key))
-                    color = QColor(sr["color"])
-                    color.setAlpha(210)
-                    p.setPen(Qt.NoPen)
-                    p.setBrush(color)
-                    p.drawRect(rect)
+                    base = QColor(sr["color"])
 
-                    if sh > 16 and col_width > 24:
-                        p.setPen(QColor("#FFFFFF"))
-                        p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
-                        text_rect = rect.adjusted(2, 1, -2, -1)
+                    # Tinted body + saturated left bar, like a calendar event.
+                    # The tint sits on a neutral base first: composited straight
+                    # onto the warm panel, greens turned olive.
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(_with_alpha(t["BG_PRIMARY"], 235))
+                    p.drawRect(rect)
+                    fill = QColor(base)
+                    fill.setAlpha(90)
+                    p.setBrush(fill)
+                    p.drawRect(rect)
+                    p.setBrush(base)
+                    p.drawRect(QRectF(rect.left(), rect.top(), 3.0, rect.height()))
+
+                    if sh > 14 and col_width > 24:
+                        text_rect = rect.adjusted(7, 1, -3, -1)
+                        p.save()
+                        # Clip so the label can never paint outside its block.
+                        p.setClipRect(text_rect)
+                        p.setFont(QFont("SF Pro Text", 8, QFont.DemiBold))
+                        metrics = p.fontMetrics()
+                        label = metrics.elidedText(
+                            sr["name"], Qt.ElideRight, int(text_rect.width())
+                        )
+                        p.setPen(QColor(t["TEXT_PRIMARY"]))
                         p.drawText(
                             text_rect,
-                            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
-                            sr["name"],
+                            Qt.AlignLeft | Qt.AlignTop,
+                            label,
                         )
+                        p.restore()
                 p.restore()
 
     # ── hover / click ─────────────────────────────────────────────────────

@@ -1284,7 +1284,7 @@ def test_template_dialog_edits_schedule_and_milestone_descriptions(service):
     dialog.close()
 
 
-def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
+def test_heatmap_panel_hugs_grid_with_continuous_accent_intensity():
     qt_app = _application()
     heatmap = HeatmapWidget()
     heatmap.resize(700, 600)
@@ -1297,15 +1297,28 @@ def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
     )
     heatmap.show()
     qt_app.processEvents()
-    assert heatmap._scroll.maximumHeight() > 10000
+    # The panel hugs its 7-row grid instead of stretching into a hollow card,
+    # but must still be tall enough for full-size cells.
+    from jobtracker.ui.widgets.heatmap_view import MAX_CELL
+
+    assert heatmap._scroll.maximumHeight() >= 7 * MAX_CELL
+    assert heatmap._scroll.maximumHeight() < 600
     assert heatmap._canvas._metrics()[0] > 20
     cell = heatmap._canvas._metrics()[0]
-    assert (heatmap.width() - LEFT) // (cell + GAP) >= 20
+    # Cells grew so the grid fills its area instead of floating in dead space;
+    # at the real capped content width this still shows ~5 months at once.
+    assert (heatmap.width() - LEFT) // (cell + GAP) >= 16
+    heatmap.resize(1000, 600)
+    qt_app.processEvents()
+    wide_cell = heatmap._canvas._metrics()[0]
+    assert (heatmap.width() - LEFT) // (wide_cell + GAP) >= 20
+    heatmap.resize(700, 600)
+    qt_app.processEvents()
     assert _intensity_ratio(0, 8 * 3600) == 0
     assert _intensity_ratio(30 * 60, 8 * 3600) == 0.0625
     assert _intensity_ratio(8 * 3600, 8 * 3600) == 1
     low, high = _scale_colors(
-        {"BG_PRIMARY": "#0B1120", "BG_TERTIARY": "#1A2640"}
+        {"BG_PRIMARY": "#0B1120", "BG_TERTIARY": "#1A2640", "ACCENT": "#F59E0B"}
     )
     half = _mix_color(low, high, 0.5)
     assert half != low
@@ -1314,7 +1327,13 @@ def test_heatmap_uses_full_height_and_continuous_single_hue_intensity():
     assert _visual_ratio(0) == 0
     assert _visual_ratio(0.25) > 0.25
     assert _visual_ratio(1) == 1
-    assert high == QColor("#4DFF88")
+    # The busiest-day colour now follows the theme accent instead of a fixed
+    # GitHub green, so the heatmap belongs to the selected palette.
+    assert high == QColor("#F59E0B").lighter(118)
+    other = _scale_colors(
+        {"BG_PRIMARY": "#0B1120", "BG_TERTIARY": "#1A2640", "ACCENT": "#3B82F6"}
+    )[1]
+    assert other != high
 
     cell, origin_x, origin_y = heatmap._canvas._metrics()
     heatmap.activateWindow()
@@ -2023,8 +2042,6 @@ def test_day_dialog_has_no_history_button_and_manager_still_preselects(service):
 def test_agenda_click_opens_editor_for_that_session_in_main_window(
     database, monkeypatch
 ):
-    from PySide6.QtWidgets import QDialog
-
     from jobtracker.ui.widgets.session_dialog import SessionDialog
 
     qt_app, window = _window(database, monkeypatch)

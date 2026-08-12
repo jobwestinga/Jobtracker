@@ -46,7 +46,7 @@ def _bucket_label(date_iso: str, grouping: str) -> str:
         return f"W{iso_week:02d}"
     if grouping == "monthly":
         return bucket_date.strftime("%b %y")
-    return bucket_date.strftime("%m-%d")
+    return bucket_date.strftime("%a %d")
 
 
 def _merge_adjacent_segments(segments: list[dict]) -> list[dict]:
@@ -162,7 +162,7 @@ class _GraphCanvas(QWidget):
 
         outer = self.rect().adjusted(0, 0, -1, -1)
         p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], 160), 1))
-        p.setBrush(_with_alpha(t["BG_SECONDARY"], 120))
+        p.setBrush(_with_alpha(t["BG_SECONDARY"], 238))
         p.drawRoundedRect(outer, 12, 12)
 
         chart = self._chart_rect()
@@ -246,18 +246,18 @@ class _GraphCanvas(QWidget):
                 text_rect = QRectF(x - 28, chart.top() - 28, bar_width + 56, 24)
 
                 # Strong days get a wide soft halo behind the contour so big
-                # totals visibly pop, especially fullscreen.
+                # totals visibly pop, especially fullscreen. No dark stroke:
+                # it read as an ugly black outline.
                 if strong:
                     p.setPen(QPen(_with_alpha(c_hex, 80), 1))
                     for ox, oy in [(-2, -2), (2, -2), (-2, 2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]:
                         p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
 
-                # Draw the shiny contour (multi-offset outer stroke)
+                # Shiny coloured contour (multi-offset outer stroke)
                 p.setPen(QPen(_with_alpha(c_hex, 220), 1))
                 for ox, oy in [(-1, -1), (1, -1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
                     p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
 
-                # Draw the main text overtop
                 p.setPen(QColor(t["TEXT_PRIMARY"]))
                 p.drawText(text_rect, Qt.AlignCenter, text)
 

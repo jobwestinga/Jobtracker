@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QDate, QPoint, QTimer, Qt
+from PySide6.QtCore import QDate, QPoint, QTimer, Qt, Signal
 from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -322,6 +322,10 @@ class GoalDialog(InlineDialog):
 class GoalDetailDialog(InlineDialog):
     """Focused, read-only definition with a polished milestone checklist."""
 
+    # Emitted whenever milestone progress changes, so the card behind the
+    # dialog updates live instead of waiting for the dialog to close.
+    progress_changed = Signal()
+
     def __init__(
         self,
         service,
@@ -601,6 +605,7 @@ class GoalDetailDialog(InlineDialog):
         source: QCheckBox,
     ) -> None:
         self.service.set_milestone_done(milestone_id, checked)
+        self.progress_changed.emit()
         owner = dialog_owner(self)
         if hasattr(owner, "_register_undo"):
             owner._register_undo(

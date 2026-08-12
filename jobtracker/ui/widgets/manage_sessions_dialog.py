@@ -128,6 +128,10 @@ class ManageSessionsDialog(InlineDialog):
         layout.addLayout(build_move_row(self._shift_selected))
 
         # ── Actions ───────────────────────────────────────────────────────
+        actions_label = QLabel("Session actions:")
+        actions_label.setStyleSheet("font-weight: 600; font-size: 12px;")
+        layout.addWidget(actions_label)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
