@@ -102,14 +102,22 @@ The desktop keeps a local SQLite **mirror** that is a disposable read cache, so
 the app still opens and shows history with the server unreachable, and writes made
 offline wait in an ordered outbox.
 
-**Done:** phase 1 — cross-machine row identity (`uid`), device ownership of
-running sessions, device-scoped crash recovery. Phase 2 — the server above, live
-and **seeded from the Mac's migrated database**, so both sides hold byte-identical
-uids for all 1,830 rows (verified by hashing the sorted uid list per table on
-each side). Any future seed must preserve that property or the first sync
-duplicates everything. **Not built yet:** the desktop sync client (`jobtracker/sync/`, the
-mirror and outbox) and the phone PWA. **The desktop app still talks to no network
-at all** — it reads and writes its own local SQLite exactly as before.
+**Built and in daily use:**
+
+1. Cross-machine row identity (`uid`), device ownership of running sessions,
+   device-scoped crash recovery.
+2. The server above, **seeded from the Mac's migrated database**, so both sides
+   hold byte-identical uids for all 1,830 rows (verified by hashing the sorted
+   uid list per table on each side). Any future seed must preserve that property
+   or the first sync duplicates everything.
+3. The desktop sync client — mirror, outbox, background thread, Settings section.
+   **Sync is off by default**; with it off the app is exactly the pre-network app.
+4. The phone app in `web/`: timer, sessions, goals with inline milestones,
+   graphs, settings.
+
+**Left from the original plan:** making the phone app open and work with no
+signal at all (a service worker caching the shell). Its *writes* already survive
+being offline; the page itself still needs a connection to load.
 
 ## Hard rules (do not break)
 
