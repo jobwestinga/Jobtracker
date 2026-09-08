@@ -73,6 +73,12 @@ them does.
 - Tab order matches the desktop's pages: Goals, Subjects, Sessions, Graphs.
 - It polls every 60s while on screen, and never while a sheet is open — a
   refresh redraws everything and would yank a half-filled form away.
+- `sw.js` makes it open with no signal. **Network-first everywhere**, falling
+  back to the cache: the app is deployed by rsync and reloaded by hand, so a
+  cache-first shell would keep serving yesterday's JavaScript after a deploy.
+  Bump `VERSION` in `sw.js` when the shell changes. The worker never caches or
+  replays writes — the app's own outbox does that, and a second replay mechanism
+  would be a way to send an operation twice.
 
 Rules for the server:
 
@@ -115,9 +121,9 @@ offline wait in an ordered outbox.
 4. The phone app in `web/`: timer, sessions, goals with inline milestones,
    graphs, settings.
 
-**Left from the original plan:** making the phone app open and work with no
-signal at all (a service worker caching the shell). Its *writes* already survive
-being offline; the page itself still needs a connection to load.
+All six phases of the original plan are done. The remaining known limitation is
+that **subjects can only be created on the Mac** — the phone starts, edits and
+reports on them but has no create/archive UI.
 
 ## Hard rules (do not break)
 

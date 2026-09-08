@@ -450,3 +450,20 @@ def test_after_midnight_work_belongs_to_the_previous_day(api):
     assert placed, "after-midnight session was not mapped past hour 24"
     assert placed[0]["day"] == today
     assert placed[0]["start_h"] == 25.0
+
+
+def test_the_service_worker_is_served_from_the_root(api):
+    """A worker served from a subpath can only control that subpath, so it must
+    sit at / to cover the whole app."""
+    response = api.get("/sw.js")
+    assert response.status_code == 200
+    assert "javascript" in response.headers.get("content-type", "")
+    assert "jobtracker-v" in response.text
+
+
+def test_the_offline_shell_is_cacheable_without_a_token(api):
+    """The worker precaches these at install time, before any token exists."""
+    api.headers.pop("Authorization")
+    for path in ("/", "/index.html", "/app.js", "/api.js", "/styles.css",
+                 "/manifest.webmanifest", "/icon.png", "/sw.js"):
+        assert api.get(path).status_code == 200, path

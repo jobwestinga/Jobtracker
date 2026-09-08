@@ -97,9 +97,10 @@ async function refresh({ quiet = false } = {}) {
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return showSetup("That token was rejected.");
     const waiting = pendingCount();
+    const showing = state.snapshot ? ", showing the last data" : "";
     banner(
       err.offline
-        ? `Offline${waiting ? ` — ${waiting} change(s) waiting` : ""}`
+        ? `Offline${waiting ? ` — ${waiting} change(s) waiting` : ""}${showing}`
         : `Problem: ${err.message}`,
       "error",
       0,
@@ -1044,6 +1045,14 @@ setInterval(() => {
   if (!document.hidden && getToken() && !sheetOpen) refresh({ quiet: true });
 }, 60000);
 window.addEventListener("online", () => refresh({ quiet: true }));
+
+// Register the service worker so the app opens with no signal. Failing to
+// register is not worth surfacing: it only costs offline support.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
 
 if (getToken()) {
   $("app").classList.remove("hidden");
