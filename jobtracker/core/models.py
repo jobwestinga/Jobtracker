@@ -1,6 +1,11 @@
 from dataclasses import dataclass
 from typing import Optional
 
+# Every shared model carries ``uid``. Rows are read with ``Model(**dict(row))``
+# over ``SELECT *``, so a column added to the table MUST have a field here or
+# every read raises TypeError. ``id`` stays local to one database; ``uid`` is the
+# identity that travels to the server (see core/sync_policy.py).
+
 
 @dataclass
 class Subject:
@@ -11,6 +16,7 @@ class Subject:
     created_at: str
     sort_order: int = 0
     is_archived: int = 0
+    uid: Optional[str] = None
 
 
 @dataclass
@@ -32,6 +38,7 @@ class TodoTask:
     # Weekly focus: the user highlights goals they are concentrating on now.
     # Purely visual emphasis + manual toggle; never affects completion rules.
     is_focused: int = 0
+    uid: Optional[str] = None
 
 
 @dataclass
@@ -43,6 +50,7 @@ class Milestone:
     is_done: int
     sort_order: int
     created_at: str
+    uid: Optional[str] = None
 
 
 @dataclass
@@ -61,6 +69,7 @@ class GoalTemplate:
     is_active: int
     sort_order: int
     created_at: str
+    uid: Optional[str] = None
 
 
 @dataclass
@@ -76,6 +85,11 @@ class Session:
     # Heartbeated ~once per minute while active; used by future crash/ghost-time
     # recovery. None for historical rows and for imported backups.
     last_active_at: Optional[str] = None
+    uid: Optional[str] = None
+    # Which install started this session. Only the owning device may auto-close
+    # it during crash recovery, so one machine can never end a timer another
+    # machine is running. None for historical rows and imported backups.
+    device_id: Optional[str] = None
 
     @property
     def subject_id(self) -> int:

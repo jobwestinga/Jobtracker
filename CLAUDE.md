@@ -6,22 +6,45 @@ live here.
 
 ## What this app is
 
-- A **local-only, macOS desktop time tracker**. PySide6 (Qt 6 Widgets) + SQLite.
+- A **self-hosted, personal time tracker**. A macOS desktop app (PySide6 /
+  Qt 6 Widgets + SQLite) and — as of the multi-device work — an iPhone web client
+  talking to **the user's own server**. Single user, two devices, no third parties.
 - **Subjects** are the timed entities — you start/stop a timer on a subject and
   it records sessions. **Goals are a separate, outcome-focused area** with
   descriptions and milestones. They are intentionally **not** connected to
   timed subjects.
-- Personal-use, single-user, single-machine. Keep it **simple and personal**.
+- Personal-use and single-user. Keep it **simple and personal**.
 - Architecture layers: `core` (config, models, database, themes, timeutils,
-  logging) → `services` (TrackerService) → `ui` (PySide6 widgets).
+  sync_policy, logging) → `services` (TrackerService) → `ui` (PySide6 widgets).
+  `core` and `services` contain **no Qt imports** and must stay that way: the
+  server imports and runs the same `TrackerService` the desktop app runs, which
+  is what keeps the two from ever disagreeing about a rule.
+
+## Where the multi-device work stands
+
+Approved plan: the server holds the one authoritative database; the Mac app and
+the iPhone are equal clients of it. There is deliberately **no two-way merge
+algorithm** — that whole class of sync bug is designed out rather than tested for.
+The desktop keeps a local SQLite **mirror** that is a disposable read cache, so
+the app still opens and shows history with the server unreachable, and writes made
+offline wait in an ordered outbox.
+
+**Done so far (phase 1):** cross-machine row identity (`uid`), device ownership of
+running sessions, and device-scoped crash recovery. **Not built yet:** the server,
+the API, the outbox, the phone client. Nothing in the app talks to a network today.
 
 ## Hard rules (do not break)
 
 - **Never commit.** The user commits manually. Do not run `git commit`, `git
   push`, or open PRs unless explicitly told to.
-- **No network behavior of any kind.** No telemetry, no cloud sync, no accounts,
-  no update checker, no remote logging, no external APIs. The app must work
-  fully offline and keep all data on the user's machine.
+- **The only remote the app may ever talk to is the user's own server.** No
+  telemetry, no analytics, no accounts with anyone else, no update checker, no
+  remote logging, no third-party APIs, no cloud provider. All data stays on
+  machines the user controls.
+- **The desktop app must keep working with the server unreachable.** It opens,
+  shows all history from its local mirror, and accepts changes into the outbox.
+  Sync is also switchable off entirely, which returns the app to pure-local
+  behaviour. Never make a UI path block on a network call.
 - **No cross-platform work.** macOS only. Don't add Windows/Linux packaging.
 - **Don't delete an unfinished (active) session automatically.** Active-session
   recovery must keep resuming the primary open session, never silently drop it.
@@ -83,6 +106,13 @@ After ANY code change, before reporting back to the user:
 
 - Tests are **pytest**, in `tests/`. Run them with `python -m pytest`
   (install dev deps with `pip install -r requirements-dev.txt`).
+- **Pick the interpreter deliberately.** The checked-out `venv/` has PySide6 but
+  **no pytest**, and `python3` on PATH resolves to that venv, so a bare
+  `python3 -m pytest` fails with `No module named pytest`. The interpreter that
+  has both pytest and PySide6 is the framework build:
+  `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest`
+  (it is also what the "fast path" rebuild in *Definition of done* uses). Suite
+  is ~278 tests and runs in a couple of seconds.
 - **Tests must never touch real user data.** `tests/conftest.py` sets
   `JOBTRACKER_DB_PATH` to a throwaway temp file *before* importing the package
   (which redirects the module-level `Database()` singleton), and each test gets
@@ -107,10 +137,29 @@ After ANY code change, before reporting back to the user:
     query and the import legacy-key handling.
 - `last_active_at` (sessions) is a heartbeat timestamp updated ~once/minute while
   active. One UPDATE, no history rows. Keep it cheap.
-- Prompt 3 adds two tables and one nullable column, all additive:
-  `milestones` (FK to legacy `todo_tasks`), `goal_templates`, and
-  `todo_tasks.template_id`. The `todo_tasks`/`TodoTask` names remain for
-  compatibility; user-facing terminology is **Goals**.
+- Tables: `tasks` (subjects), `sessions`, `todo_tasks` (goals), `settings`,
+  `milestones` (FK to `todo_tasks`), `goal_templates`. The
+  `tasks`/`todo_tasks`/`TodoTask` names are legacy and stay for compatibility;
+  user-facing terminology is **Subjects** and **Goals**. The **API uses the clean
+  names** (`subjects`, `goals`) and maps to the legacy tables — that is how we get
+  good nomenclature without the risky table rename.
+- Additive columns currently added by `_init_db()`: `tasks.sort_order`,
+  `tasks.is_archived`, `sessions.last_active_at`, `todo_tasks.template_id`,
+  `todo_tasks.is_focused` (weekly focus, 0/1),
+  `goal_templates.recurrence_day` (weekday 1–7 for weekly, day-of-month for
+  monthly), `uid` on all five synced tables, and `sessions.device_id`. All
+  guarded by `_column_exists`.
+- **A column added to a synced table needs a matching field on its dataclass.**
+  Rows are read as `Model(**dict(row))` over `SELECT *`
+  ([database.py](jobtracker/core/database.py)), so a new column with no field on
+  the model raises `TypeError` on *every* read. Add it to
+  [models.py](jobtracker/core/models.py) in the same change.
+- **Downgrade hazard:** once a database has been opened by a build that has the
+  `uid` columns, an older JobTracker build cannot read it (same `SELECT *` reason).
+  Pre-migration backups live in `~/JobTracker-backups/`.
+- The **only** non-additive migration is the `sessions.note` DROP (needs SQLite
+  ≥ 3.35; older versions leave the column in place and it is simply unused).
+  Don't add a second one casually.
 
 ## Logging
 
@@ -139,6 +188,22 @@ logic in widgets:
   quit to `DATA_DIR/backups/` (`autobackup_*.json`, newest 10 kept). Only
   `autobackup_*` files are ever pruned; a backup failure must never block
   quitting.
+- `core/sync_policy.py` — what is shared between machines and how rows are
+  identified (`SYNCED_TABLES`, `SYNCED_SETTING_KEYS`, `new_uid()`, the uid
+  triggers). See "Row identity across machines" below.
+
+The UI shell is `ui/app.py` (`MainWindow`) plus three mixins —
+`SubjectsMixin`, `GoalsMixin`, `GraphsMixin`. `MainWindow` owns the single
+`TrackerService` as `self.service`; **widgets and mixins never touch `Database`
+directly**, they go through the injected service (dialogs take it as a
+constructor argument). Page order in the stack is **0 = Goals, 1 = Subjects,
+2 = Graphs** — several shortcut handlers test the index literally.
+
+`ui/widgets/dialog_utils.py` and `ui/widgets/reorderable_list.py` are shared UI
+infrastructure; see the two sections below before adding dialogs or list cards.
+
+Goal editing lives in `ui/widgets/goal_dialog.py` (`GoalDialog`). An unused
+`todo_task_dialog.py` used to sit beside it and was deleted — don't recreate it.
 
 Service methods doing the analytics (all logical-day aware, include the live
 session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`,
@@ -180,11 +245,101 @@ and, in the UI, always behind a confirm prompt: the running session keeps
 ticking until the user confirms, and the old session gets the normal sub-30s
 stop rule. Number-key shortcuts use the same confirm path — never a silent stop.
 
+## Row identity across machines, and who owns a running timer
+
+`core/sync_policy.py` is the single source of truth for what is shared and how a
+row is identified. Both the desktop and (later) the server import it.
+
+- **Integer row ids are private to one database and never cross the network.**
+  Each database keeps its own autoincrement ids for foreign keys, Qt item data,
+  and every existing query — which is why none of that code had to change. The
+  `uid` (UUID4) is the only identity that travels.
+- A uid is minted by an **`AFTER INSERT` trigger**, one per synced table, rather
+  than by the ~40 write methods. No write path can forget, including
+  `import_data()` and anything added later. The trigger fires only
+  `WHEN NEW.uid IS NULL`, so an explicit uid — from a restored backup — is kept
+  instead of being forked.
+- Backups carry uids, so restoring one preserves cross-machine identity. A uid
+  that would collide is dropped and re-minted (`_importable_uid`) rather than
+  failing the restore.
+- `SYNCED_SETTING_KEYS` is an allowlist: only `day_start_time` describes the data.
+  Theme, graph range/hours, and `todo_order_mode` are per-machine and must not
+  sync — the phone does not get to dictate the Mac's window state. `device_id` is
+  in `DEVICE_LOCAL_SETTING_KEYS` and is explicitly skipped by `import_data()`:
+  two installs sharing one device id would both claim the same running timer.
+
+**Crash recovery is device-scoped, and this is load-bearing.**
+`TrackerService.recover_open_sessions()` closes stale open sessions — so it may
+run **once per process** (app launch, server start), never per request. Construct
+with `recover=False` for a service that is only answering a query; that path
+adopts the open session without closing anything. Recovery only ever touches
+sessions whose `device_id` is this install's **or NULL** (historical rows, imported
+backups). A session stamped with another device's id is left completely alone —
+that is what stops the Mac from ending a timer the phone is running, and it is the
+multi-device form of the existing "never drop an unfinished session" rule.
+
+## Dialogs are inline, never native windows (macOS constraint)
+
+**Never show a `QDialog` as its own window, and never reparent one into the
+main window.** On macOS `QDialog.done()` can recreate the dialog's original
+native `NSWindow` after it has been reparented; in native fullscreen macOS then
+promotes that orphan into its own Space. Every editor in this app therefore
+subclasses `InlineDialog` (a plain `QWidget` for its whole lifetime) from
+`ui/widgets/dialog_utils.py`, which provides the `QDialog`-shaped API the code
+expects (`accept/reject/done/result/finished/accepted/rejected`, plus
+`Accepted`/`Rejected`).
+
+- Show one with `open_dialog(dialog, on_finished)`; it hosts the widget in an
+  `_InlineDialogLayer` over the main window and hands the result to the
+  callback. Message boxes go through `information/warning/critical/question`
+  from the same module — they build an inline `_InlineMessageDialog`, so they
+  are **callback-based, not blocking**. Don't call `QMessageBox.exec()`.
+- `dialog_owner(dialog)` returns the caller-supplied parent (the inline layer
+  reparents), which is how nested dialogs reach `MainWindow` helpers such as
+  `_register_undo`.
+- The window property `_jt_inline_dialog_count` tracks open inline dialogs; the
+  global shortcuts refuse to fire while it is non-zero.
+- Same family of macOS bugs: `ReorderableCardList` hides shortcut badges during
+  a drag, and `subjects_mixin._update_tracking_state_inplace()` mutates the
+  existing cards on start/stop instead of rebuilding the list. Rebuilding the
+  card list mid-interaction is what trips the fullscreen compositor. Keep both.
+
+## Keyboard shortcuts and the one-step undo
+
+Installed in `MainWindow._install_shortcuts()`, all `Qt.WindowShortcut`, all
+gated on `_shortcut_focus_allows_navigation()` (no inline dialog, popup, modal,
+or text-entry widget focused):
+
+- `←` / `→` — move between the three pages.
+- `1`–`9` — act on that row of the current page: open the goal (Goals page) or
+  start/switch to that subject (Subjects page). Kept as **per-digit**
+  `QShortcut`s so the switch-confirm prompt can disable the one conflicting key
+  while it is open (two live shortcuts on one key are ambiguous to Qt and
+  neither fires). Badges renumber with the list order.
+- `Esc` — leave the Completed-goals or Archived-subjects view.
+- `W` / `M` / `Y` / `A` — graph range presets (Graphs page only); they write
+  `graph_range` and clear any custom range.
+- `Ctrl+Z` / `⌘Z` — the undo.
+
+Undo is **one in-memory step, not a stack**: `_register_undo(callback)` stores a
+single reversible action and `_perform_undo()` consumes it and reloads.
+Currently registered by archive/unarchive of a subject, subject and goal
+reordering, and goal-dialog actions. Keep it deliberately small — don't grow it
+into a general undo stack, and don't register anything destructive that can't be
+reversed by the stored callback alone.
+
 ## Goals, milestones, and recurring generation
 
 - A Goal is stored in the legacy `todo_tasks` table. It has a title
-  (`name`), description (`notes`), completion state, order, and optional
-  `template_id`. Do not reconnect it to timed Subjects.
+  (`name`), description (`notes`), completion state, order, an optional
+  `template_id`, and the weekly-focus flag `is_focused`. Do not reconnect it to
+  timed Subjects.
+- **Weekly focus is a plain flag, not a mode.** `toggle_goal_focused()` flips
+  `todo_tasks.is_focused`; the card shows ★/☆ (accent when focused) and the
+  context menu offers "Focus This Week" / "Remove Weekly Focus" on active goals
+  only. It **must never affect completion rules, ordering, or generation** — it
+  is a visual marker that survives the JSON backup round-trip
+  (`tests/test_focus.py`). No auto-clearing at week end.
 - Completion is manual and milestone-gated in `TrackerService.complete_goal()`:
   all milestones must be checked, unless the goal has none. Adding or unchecking
   a milestone on a completed goal reopens it so the invariant stays true.
@@ -198,8 +353,16 @@ stop rule. Number-key shortcuts use the same confirm path — never a silent sto
   active list on purpose — the user wants a visible backlog of what still needs
   doing. Do not add auto-expiry, "missed" states, or any automatic removal; an
   earlier attempt at that was explicitly rejected.
-- Weekly templates fire on or after their scheduled weekday (`>=`), so a
+- `goal_templates.recurrence_day` holds the schedule: ISO weekday 1–7 for
+  weekly, day-of-month for monthly (clamped to the month's length), ignored for
+  daily. `_template_is_due()` fires **on or after** that day (`>=`), so a
   template is never skipped just because the app wasn't opened that day.
+- A template title may contain the `{date}` placeholder; it is replaced with the
+  generated instance's logical date (`_template_instance_title`).
+- The Goals page has an active list and a **Completed** view (toggle button /
+  `Esc`). Goals are *completed*, never "archived" — archiving is a Subjects-only
+  concept. Reopening happens from the goal dialog ("Reopen Goal") via
+  `uncomplete_goal()`.
 - The authoritative JSON backup includes goals, milestones, templates, their ID
   relationships, and settings. Restore must preserve repeated generated goals
   that legitimately share a title.
@@ -263,8 +426,17 @@ Rules when extending:
 - Animations pause when the app is unfocused/minimized (`FxBackgroundWidget.
   set_animating`, driven by `applicationStateChanged` / `changeEvent`). Don't
   reintroduce always-on full-window repaints.
-- Settings/graph dialogs persist via the `db` settings table; new graph keys:
-  `graph_grouping`, `graph_custom_start`, `graph_custom_end` (range == "custom").
+- Settings/graph dialogs persist via the `db` settings table. Current graph
+  keys: `graph_range` (`weeks|months|year|all|custom`), `graph_view_mode`
+  (`bar|agenda|heatmap`), `graph_custom_start` / `graph_custom_end` (only when
+  range == "custom"), `graph_hour_start` / `graph_hour_end` (agenda window,
+  defaults 6 / 23), `graph_fit_horizontal` (default "1"), `graph_autofit_hours`
+  (default "0"). Other keys: `theme_fx`, `theme_palette`, `day_start_time`,
+  `todo_order_mode` (`manual|deadline`), `device_id`. Only `day_start_time` is
+  shared between machines — see `core/sync_policy.py`.
+- **`graph_grouping` is obsolete.** Grouping is derived from the selected range
+  (`grouping_for_preset` / `grouping_for_span`), and `MainWindow.__init__`
+  deletes the stale setting once at launch. Don't persist grouping again.
 
 ## Colours in stylesheets
 

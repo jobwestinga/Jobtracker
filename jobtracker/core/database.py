@@ -3,11 +3,15 @@ SQLite persistence layer for JobTracker.
 
 Tables:
   tasks      — timed subjects (name, color, notes, manual sort order)
-  sessions   — task_id -> tasks.id, start/end times, duration, optional note
+  sessions   — task_id -> tasks.id, start/end times, duration, owning device
   todo_tasks — goals (legacy table name retained), completion and manual order
   milestones — ordered checklist items belonging to goals
   goal_templates — daily/weekly/monthly generators for normal goal instances
   settings   — key/value store for user preferences
+
+Every shared table also carries a ``uid``: the row identity used when talking to
+the server. Integer ids remain private to this database and never travel — see
+``core/sync_policy.py``.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from datetime import datetime
 from typing import List, Optional, Union
 from pathlib import Path
 
+from . import sync_policy
 from .config import DB_PATH
 from .models import Subject, Session, TodoTask, Milestone, GoalTemplate
 
@@ -195,6 +200,35 @@ class Database:
                 "WHERE recurrence IN ('weekly', 'monthly')"
             )
 
+        # ── Sync identity (additive, reversible) ─────────────────────────
+        #
+        # Every shared row gets a ``uid``: the identity that travels between
+        # this machine and the server. Integer ids stay exactly as they are and
+        # remain private to this database (see core/sync_policy.py). Dropping
+        # the sync feature later would leave these columns unused, not broken.
+        for table in sync_policy.SYNCED_TABLES:
+            if not self._column_exists(table, "uid"):
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN uid TEXT")
+            # Backfill rows that predate the column, then guarantee uniqueness.
+            # Done in one UPDATE per table rather than row-by-row in Python:
+            # 1200+ sessions would otherwise be 1200 round trips on first launch.
+            cur.execute(
+                f"UPDATE {table} SET uid = {sync_policy.UUID4_SQL} WHERE uid IS NULL"
+            )
+            cur.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_uid ON {table}(uid)"
+            )
+            # Mint a uid for every future insert, whoever writes it. A trigger
+            # rather than 10 edited INSERT statements: no write path can forget,
+            # including `import_data()` and any code added later.
+            cur.execute(sync_policy.uid_trigger_sql(table))
+
+        # Which install owns a running session. Only the owning device may
+        # auto-close it during crash recovery, so the Mac can never end a timer
+        # the phone is running. NULL for historical rows and imported backups.
+        if not self._column_exists("sessions", "device_id"):
+            cur.execute("ALTER TABLE sessions ADD COLUMN device_id TEXT")
+
         # Main analytics/stat queries filter by start time and subject. These
         # additive indexes keep graph switching responsive as history grows.
         cur.execute(
@@ -222,6 +256,26 @@ class Database:
         cur = self.connection.cursor()
         cur.execute(f"PRAGMA table_info({table})")
         return any(row["name"] == column for row in cur.fetchall())
+
+    def _importable_uid(self, table: str, value) -> Optional[str]:
+        """The uid to give an imported row, or None to let the trigger mint one.
+
+        Backups carry uids so that restoring one keeps each row's cross-machine
+        identity instead of silently forking it. A uid already used in this table
+        is dropped rather than allowed to violate the unique index — the row
+        still imports, it just gets a fresh identity.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return None
+        uid = value.strip()
+        cur = self.connection.cursor()
+        cur.execute(f"SELECT 1 FROM {table} WHERE uid = ?", (uid,))
+        if cur.fetchone():
+            logger.warning(
+                "Import: uid %s already present in %s; assigning a new one", uid, table
+            )
+            return None
+        return uid
 
     def _next_sort_order(self, table: str) -> int:
         cur = self.connection.cursor()
@@ -322,6 +376,22 @@ class Database:
         self.connection.execute("DELETE FROM settings WHERE key = ?", (key,))
         self.connection.commit()
 
+    def get_or_create_device_id(self) -> str:
+        """This install's stable identity, minted on first use.
+
+        Used to decide who owns a running session: only the device that started
+        one may auto-close it during crash recovery. Deliberately stored in
+        ``settings`` and excluded from backups' restore path, so copying a
+        database or a backup to another machine does not clone its identity.
+        """
+        existing = self.get_setting(sync_policy.DEVICE_ID_SETTING, "")
+        if existing.strip():
+            return existing.strip()
+        device_id = sync_policy.new_uid()
+        self.set_setting(sync_policy.DEVICE_ID_SETTING, device_id)
+        logger.info("Assigned this install device_id %s", device_id)
+        return device_id
+
     # ── Subjects (timed) ─────────────────────────────────────────────────
     def add_subject(self, name: str, color: str, notes: str) -> Subject:
         normalized_name = (name or "").strip()
@@ -409,7 +479,9 @@ class Database:
         )
 
     # ── Sessions ─────────────────────────────────────────────────────────
-    def start_session(self, subject_id: int) -> Session:
+    def start_session(
+        self, subject_id: int, device_id: Optional[str] = None
+    ) -> Session:
         if self.get_subject(subject_id) is None:
             raise ValueError(f"Cannot start session for missing subject id {subject_id}")
         cur = self.connection.cursor()
@@ -417,8 +489,9 @@ class Database:
         # Seed last_active_at with the start time so a session is always
         # "known active" from the moment it begins.
         cur.execute(
-            "INSERT INTO sessions (task_id, start_time, last_active_at) VALUES (?, ?, ?)",
-            (subject_id, start_time, start_time),
+            "INSERT INTO sessions (task_id, start_time, last_active_at, device_id) "
+            "VALUES (?, ?, ?, ?)",
+            (subject_id, start_time, start_time, device_id),
         )
         self.connection.commit()
         return self.get_session(cur.lastrowid)
@@ -1022,8 +1095,8 @@ class Database:
 
             cur.execute(
                 "INSERT INTO tasks "
-                "(name, color, notes, sort_order, is_archived, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(name, color, notes, sort_order, is_archived, created_at, uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     subject["name"],
                     subject.get("color", "#3B82F6"),
@@ -1031,6 +1104,7 @@ class Database:
                     subject.get("sort_order", self._next_sort_order("tasks")),
                     subject.get("is_archived", 0),
                     subject.get("created_at", datetime.now().isoformat()),
+                    self._importable_uid("tasks", subject.get("uid")),
                 ),
             )
             if legacy_id is not None:
@@ -1061,14 +1135,17 @@ class Database:
             # purpose since session notes were removed from the schema.
             cur.execute(
                 "INSERT INTO sessions "
-                "(task_id, start_time, end_time, duration_seconds, last_active_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "(task_id, start_time, end_time, duration_seconds, last_active_at, "
+                "device_id, uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     new_subject_id,
                     sess["start_time"],
                     sess.get("end_time"),
                     sess.get("duration_seconds", 0),
                     sess.get("last_active_at"),
+                    sess.get("device_id"),
+                    self._importable_uid("sessions", sess.get("uid")),
                 ),
             )
 
@@ -1099,8 +1176,8 @@ class Database:
                 cur.execute(
                     "INSERT INTO goal_templates "
                     "(title, notes, recurrence, recurrence_day, milestones_json, "
-                    "last_generated, is_active, sort_order, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "last_generated, is_active, sort_order, created_at, uid) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         tpl["title"],
                         tpl.get("notes", ""),
@@ -1113,6 +1190,7 @@ class Database:
                         tpl.get("is_active", 1),
                         tpl.get("sort_order", self._next_sort_order("goal_templates")),
                         tpl.get("created_at", datetime.now().isoformat()),
+                        self._importable_uid("goal_templates", tpl.get("uid")),
                     ),
                 )
                 new_template_id = int(cur.lastrowid)
@@ -1162,8 +1240,8 @@ class Database:
             cur.execute(
                 "INSERT INTO todo_tasks "
                 "(name, notes, deadline, is_completed, sort_order, created_at, "
-                "template_id, is_focused) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "template_id, is_focused, uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     item["name"],
                     item.get("notes", ""),
@@ -1173,6 +1251,7 @@ class Database:
                     item.get("created_at", datetime.now().isoformat()),
                     new_template_id,
                     item.get("is_focused", 0),
+                    self._importable_uid("todo_tasks", item.get("uid")),
                 ),
             )
             if legacy_goal_id is not None:
@@ -1200,8 +1279,9 @@ class Database:
             if cur.fetchone():
                 continue
             cur.execute(
-                "INSERT INTO milestones (goal_id, title, note, is_done, sort_order, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO milestones "
+                "(goal_id, title, note, is_done, sort_order, created_at, uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     new_goal_id,
                     ms["title"],
@@ -1209,6 +1289,7 @@ class Database:
                     ms.get("is_done", 0),
                     ms.get("sort_order", 0),
                     ms.get("created_at", datetime.now().isoformat()),
+                    self._importable_uid("milestones", ms.get("uid")),
                 ),
             )
 
@@ -1218,6 +1299,11 @@ class Database:
             key = setting.get("key")
             value = setting.get("value")
             if not isinstance(key, str) or not isinstance(value, str) or not key:
+                continue
+            if key in sync_policy.DEVICE_LOCAL_SETTING_KEYS:
+                # Restoring a backup must not make this machine claim another
+                # machine's identity — two installs sharing a device_id would
+                # both think they own the same running session.
                 continue
             cur.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "

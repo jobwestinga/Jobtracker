@@ -48,21 +48,77 @@ def _threshold_period_days(
 
 
 class TrackerService:
-    def __init__(self, database: Optional[Database] = None) -> None:
+    def __init__(
+        self,
+        database: Optional[Database] = None,
+        *,
+        device_id: Optional[str] = None,
+        recover: bool = True,
+    ) -> None:
+        """``recover`` runs crash recovery, which CLOSES sessions and so must
+        happen exactly once per process — at app launch or server start, never
+        per request. Pass ``recover=False`` when constructing a service that is
+        only answering a query."""
         self.db: Database = database if database is not None else _global_db
-
-        # Recover from crashes that left one or more sessions open.
-        open_sessions = self.db.get_open_sessions()
-        self.active_session: Optional[Session] = open_sessions[0] if open_sessions else None
+        self.device_id: str = device_id or self.db.get_or_create_device_id()
+        self.active_session: Optional[Session] = None
         self.active_subject: Optional[Subject] = None
+
+        if recover:
+            self.recover_open_sessions()
+        else:
+            self._adopt_open_session()
+
+    # ── Crash recovery ──────────────────────────────────────────────────
+    def _owned_open_sessions(self) -> list[Session]:
+        """Open sessions this install is allowed to touch, newest first.
+
+        A session stamped with ANOTHER device's id belongs to that device's
+        timer — the phone's running session must survive the Mac starting up.
+        A NULL device_id means "no owner recorded" (historical rows, imported
+        backups, sessions from before this column existed), which this install
+        adopts so old data keeps recovering exactly as it used to.
+        """
+        return [
+            s
+            for s in self.db.get_open_sessions()
+            if s.device_id is None or s.device_id == self.device_id
+        ]
+
+    def _adopt_open_session(self) -> None:
+        """Pick up the newest open session we own, without closing anything."""
+        owned = self._owned_open_sessions()
+        self.active_session = owned[0] if owned else None
+        self.active_subject = (
+            self.db.get_subject(self.active_session.subject_id)
+            if self.active_session
+            else None
+        )
+
+    def recover_open_sessions(self) -> None:
+        """Reconcile sessions left open by a crash. Destructive — see __init__.
+
+        Non-destructive for the primary session: it is resumed, never deleted.
+        Sessions owned by another device are left completely alone.
+        """
+        owned = self._owned_open_sessions()
+        foreign = len(self.db.get_open_sessions()) - len(owned)
+        if foreign:
+            logger.info(
+                "Recovery: leaving %d open session(s) owned by another device alone",
+                foreign,
+            )
+
+        self.active_session = owned[0] if owned else None
+        self.active_subject = None
 
         # Close stale parallel open sessions to keep a single active timer
         # invariant. The newest open session is kept as active. Any unexpected
         # extras are closed but explicitly preserved even when shorter than the
         # normal 30-second minimum: unfinished recovery data is never deleted.
-        if len(open_sessions) > 1:
+        if len(owned) > 1:
             now = datetime.now()
-            for stale in open_sessions[1:]:
+            for stale in owned[1:]:
                 if stale.id is None:
                     continue
                 started_at = timeutils.parse_iso(stale.start_time)
@@ -196,7 +252,10 @@ class TrackerService:
         if self.active_session:
             return False
         try:
-            self.active_session = self.db.start_session(subject_id)
+            # Stamp the owner so another device's recovery never closes this.
+            self.active_session = self.db.start_session(
+                subject_id, device_id=self.device_id
+            )
         except ValueError:
             return False
         if self.active_session.id is None:
