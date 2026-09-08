@@ -27,24 +27,27 @@ Lives in `server/`, runs on the user's own Ubuntu 24.04 droplet, and imports
 the desktop runs**, which is why a rule like milestone-gated completion cannot
 drift between clients.
 
-- Base URL: **`https://prod-main-1.tailea7b54.ts.net:8443`** — tailnet only, real
-  Let's Encrypt certificate via `tailscale cert`. uvicorn binds `127.0.0.1:8099`
+- **This repository is public.** The server's hostname, its login, and the
+  tailnet address live in `deploy/server.env`, which is gitignored. Read that
+  file for the real values; never paste them into a tracked file, and never put
+  an API token in the repo at all.
+- Base URL: `https://$JT_TAILNET_HOST:$JT_HTTPS_PORT` — tailnet only, real Let's
+  Encrypt certificate via `tailscale cert`. uvicorn binds `127.0.0.1:$JT_API_PORT`
   and `tailscale serve` publishes it. Nothing of JobTracker's is on a public port.
-- **Port 8443, not 443, because Caddy (in Docker) already binds `0.0.0.0:443`**
-  for the user's websites and therefore intercepts tailnet traffic on 443 and
-  fails the handshake with no matching cert. Don't "fix" this by changing Caddy.
+- **HTTPS is on 8443, not 443, because Caddy (in Docker) already binds
+  `0.0.0.0:443`** for the user's websites and therefore intercepts tailnet
+  traffic on 443 and fails the handshake with no matching cert. Don't "fix" this
+  by changing Caddy — it serves live sites.
 - Tailscale Serve routes on the **Host header**, so a request to the bare IP gets
-  a 404 — always use the tailnet name. The server itself runs with
-  `--accept-dns=false`, so MagicDNS does not resolve *on the server*; test from
-  there with `curl --resolve <name>:8443:100.71.1.89`.
-- Layout on the server: code `~/jobtracker/app`, venv `~/jobtracker/venv`,
-  database `~/jobtracker/data/jobtracker.db`, hashed tokens
-  `~/jobtracker/secrets/tokens.json` (0600), nightly backups
-  `~/jobtracker/backups` (cron 04:17, 30 days, SQLite online-backup API).
-- systemd unit `jobtracker-api.service`; deploy with the rsync line in
-  `deploy/`. `--accept-dns=false` was used on the server so Tailscale does not
-  touch DNS for the user's other sites — a side effect is that MagicDNS names do
-  **not** resolve *on the server itself*.
+  a 404 — always use the tailnet name. The server runs with `--accept-dns=false`
+  so Tailscale never touches DNS for the user's other sites; the side effect is
+  that MagicDNS does not resolve *on the server itself*, so test from there with
+  `curl --resolve "$JT_TAILNET_HOST:$JT_HTTPS_PORT:$JT_TAILNET_IP"`.
+- Deploy with `./deploy/install.sh` (renders the unit file from the template and
+  restarts the service). Do not commit a rendered unit file.
+- Layout under `$JT_ROOT`: code `app/`, venv `venv/`, database
+  `data/jobtracker.db`, hashed tokens `secrets/tokens.json` (0600), nightly
+  backups `backups/` (cron 04:17, 30 days, SQLite online-backup API).
 - Endpoints: `/health` (no auth), `/ops` (the only write path), `/sync/pull`,
   `/sync/integrity`, `/api/snapshot`, `/api/active`, `/api/graphs/*`,
   `/api/sessions/day/{day}`.

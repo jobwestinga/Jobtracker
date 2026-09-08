@@ -27,3 +27,12 @@ daily_summary*.csv
 # PyInstaller
 *.manifest
 *.spec.bak
+
+# Deployment values specific to one person's server (public repo — keep these out)
+deploy/server.env
+# Certificates, keys, API tokens
+*.crt
+*.key
+*.pem
+tokens.json
+.env

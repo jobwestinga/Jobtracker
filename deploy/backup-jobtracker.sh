@@ -4,9 +4,11 @@
 # Uses SQLite's online backup API through the venv's Python rather than the
 # sqlite3 CLI: one less package to install, and it is explicitly safe to run
 # while the API is serving requests (no torn copy, no locking the writer out).
+#
+# JT_ROOT is substituted by deploy/install.sh from deploy/server.env.
 set -euo pipefail
 
-ROOT=/home/job090305/jobtracker
+ROOT="${JT_ROOT:-__JT_ROOT__}"
 DB="$ROOT/data/jobtracker.db"
 OUT="$ROOT/backups"
 PYTHON="$ROOT/venv/bin/python"
