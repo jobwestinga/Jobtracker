@@ -163,11 +163,20 @@ def sync_pull(
         service = svc()
         changes, cursor = feed.changes_since(service.db, since, limit)
         head = feed.current_seq(service.db.connection)
+        # Shared settings are not rows, so they never appear in the change feed.
+        # Sending them with every pull is what makes a day-start changed on the
+        # phone actually reach the Mac; the set is tiny (currently one key).
+        settings = {
+            key: service.get_setting(key)
+            for key in sorted(sync_policy.SYNCED_SETTING_KEYS)
+            if service.get_setting(key)
+        }
     return {
         "changes": changes,
         "seq": cursor,
         "head": head,
         "more": cursor < head,
+        "settings": settings,
     }
 
 

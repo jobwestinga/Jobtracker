@@ -5,7 +5,7 @@
 // a rule: the logical day, the milestone gate and the sub-30-second rule all
 // stay on the server, where the desktop app's own code enforces them.
 
-import { api, send, flush, pendingCount, getToken, setToken, ApiError, uuid } from "./api.js";
+import { api, send, flush, pendingCount, getToken, setToken, clearToken, ApiError, uuid } from "./api.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -779,6 +779,72 @@ function addGoalSheet() {
   });
 }
 
+
+// ── settings ────────────────────────────────────────────────────────────
+
+function settingsSheet() {
+  openSheet("Settings", (body) => {
+    // Day start is a SHARED setting: changing it here changes it on the Mac too,
+    // because it describes the data rather than this device. Theme and graph
+    // preferences stay per-machine and deliberately are not offered here.
+    const dayRow = el("div", "set-row");
+    dayRow.append(el("div", "k", "Day starts at"));
+    const daySelect = document.createElement("select");
+    for (let hour = 0; hour < 24; hour += 1) {
+      const option = el("option", null, `${pad(hour)}:00`);
+      option.value = `${pad(hour)}:00`;
+      if (option.value === state.context?.day_start) option.selected = true;
+      daySelect.append(option);
+    }
+    daySelect.onchange = async () => {
+      await act("set_setting", { key: "day_start_time", value: daySelect.value });
+      closeSheet();
+      banner("Day start updated — this changes it on your Mac too", "ok");
+    };
+    dayRow.append(daySelect);
+    body.append(dayRow);
+    body.append(el("p", "set-note",
+      "Late-night work counts towards the day it started. Shared with your Mac."));
+
+    const info = [
+      ["Today (logical)", state.context?.today || "—"],
+      ["Server time", (state.context?.server_time || "—").replace("T", " ")],
+      ["Subjects", String((state.snapshot?.subjects || []).filter((x) => !x.is_archived).length)],
+      ["Sessions stored", String((state.snapshot?.sessions || []).length)],
+      ["Goals", String((state.snapshot?.goals || []).length)],
+      ["Waiting to send", String(pendingCount())],
+    ];
+    for (const [key, value] of info) {
+      const row = el("div", "set-row");
+      row.append(el("div", "k", key), el("div", "v", value));
+      body.append(row);
+    }
+
+    const retry = el("button", "secondary wide", "Send anything waiting");
+    retry.onclick = async () => {
+      const outcome = await flush();
+      banner(outcome.ok
+        ? (outcome.sent ? `Sent ${outcome.sent} change(s)` : "Nothing waiting")
+        : "Still offline — will keep trying", outcome.ok ? "ok" : "error");
+      closeSheet();
+      refresh({ quiet: true });
+    };
+    body.append(retry);
+
+    const reload = el("button", "secondary wide", "Reload app");
+    reload.onclick = () => location.reload();
+    body.append(reload);
+
+    const out = el("button", "danger wide", "Disconnect this phone");
+    out.onclick = () => {
+      if (!confirm("Remove the token from this phone? Your data stays on the server.")) return;
+      clearToken();
+      location.reload();
+    };
+    body.append(out);
+  });
+}
+
 // ── timer actions ───────────────────────────────────────────────────────
 
 async function startTimer(subject) {
@@ -852,6 +918,7 @@ document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
   };
 });
 $("refresh").onclick = () => refresh();
+$("open-settings").onclick = () => settingsSheet();
 $("stop-btn").onclick = () => stopTimer();
 $("day-prev").onclick = async () => { state.day = addDays(state.day, -1); await loadDay(); render(); };
 $("day-next").onclick = async () => { state.day = addDays(state.day, 1); await loadDay(); render(); };
@@ -869,6 +936,17 @@ $("setup-token").onkeydown = (event) => { if (event.key === "Enter") trySetup();
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && getToken()) refresh({ quiet: true });
 });
+
+// The Mac syncs whenever its window gains focus, which is why a change made on
+// the phone seems to appear there instantly. Without this the reverse was not
+// true: a phone sitting open would not notice work done on the laptop. Only
+// while actually on screen, so it costs nothing in the background.
+setInterval(() => {
+  const sheetOpen = !$("sheet").classList.contains("hidden");
+  // Not while a sheet is open: a refresh redraws everything and would pull a
+  // half-filled form out from under the user.
+  if (!document.hidden && getToken() && !sheetOpen) refresh({ quiet: true });
+}, 60000);
 window.addEventListener("online", () => refresh({ quiet: true }));
 
 if (getToken()) {

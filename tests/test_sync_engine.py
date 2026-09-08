@@ -582,3 +582,26 @@ def test_matching_clocks_produce_no_complaint(world):
 
 def test_integrity_reports_the_servers_wall_clock(world):
     assert world.client.integrity().get("server_time")
+
+
+def test_a_shared_setting_changed_elsewhere_reaches_the_mirror(world):
+    """Settings are not rows, so they never appear in the change feed. Without
+    this the day-start could be changed on the phone and the Mac would keep
+    bucketing days by the old boundary forever."""
+    world.engine.sync()
+    assert world.mirror.get_setting("day_start_time", "03:00") in ("", "03:00")
+
+    world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "set_setting",
+        "params": {"key": "day_start_time", "value": "05:00"}}]})
+    world.engine.sync()
+
+    assert world.mirror.get_setting("day_start_time") == "05:00"
+
+
+def test_a_pull_does_not_touch_device_local_settings(world):
+    world.mirror.set_setting("theme_fx", "Nebula")
+    world.mirror.set_setting("graph_range", "months")
+    world.engine.sync()
+    assert world.mirror.get_setting("theme_fx") == "Nebula"
+    assert world.mirror.get_setting("graph_range") == "months"

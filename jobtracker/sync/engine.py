@@ -165,6 +165,15 @@ class SyncEngine:
                         result.applied += 1
             self.db.connection.commit()
 
+            # The server is the only writer of record, so its value wins. A
+            # change made here was already queued as an operation and comes back
+            # through this same path.
+            for key, value in (response.get("settings") or {}).items():
+                if key in sync_policy.SYNCED_SETTING_KEYS and value:
+                    if self.db.get_setting(key) != value:
+                        self.db.set_setting(key, value)
+                        result.messages.append(f"{key} is now {value}")
+
             cursor = int(response.get("seq", cursor))
             state.set_value(self.db.connection, state.LAST_SEQ, cursor)
             if not response.get("more"):

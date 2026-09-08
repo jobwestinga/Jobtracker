@@ -49,8 +49,30 @@ drift between clients.
   `data/jobtracker.db`, hashed tokens `secrets/tokens.json` (0600), nightly
   backups `backups/` (cron 04:17, 30 days, SQLite online-backup API).
 - Endpoints: `/health` (no auth), `/ops` (the only write path), `/sync/pull`,
-  `/sync/integrity`, `/api/snapshot`, `/api/active`, `/api/graphs/*`,
-  `/api/sessions/day/{day}`.
+  `/sync/integrity`, `/api/snapshot`, `/api/active`, `/api/context`,
+  `/api/graphs/*`, `/api/sessions/day/{day}`. Static files for the phone app are
+  mounted at `/` **last**, because a mount there shadows every route added after it.
+
+## The phone app (`web/`)
+
+Plain HTML/CSS/ES modules — no framework, no bundler, no npm. Deploying it is
+the same rsync that ships the server, and changing a colour needs nothing
+installed. Served by the API itself; static files need no token, the data behind
+them does.
+
+- **It never re-implements a rule.** It asks `/api/context` for the logical day
+  rather than deriving it, and the milestone gate, the sub-30-second rule and all
+  graph totals stay on the server. That is what stops the phone's numbers from
+  disagreeing with the Mac's.
+- Writes go through the same idempotent operations, with a `localStorage` outbox
+  when there is no signal. Anything already queued is sent first, so a delete can
+  never overtake the create it refers to.
+- Every action paints optimistically before the request goes out (a tap that
+  waited a round trip felt broken), then the refresh that follows replaces the
+  guess with the server's answer.
+- Tab order matches the desktop's pages: Goals, Subjects, Sessions, Graphs.
+- It polls every 60s while on screen, and never while a sheet is open — a
+  refresh redraws everything and would yank a half-filled form away.
 
 Rules for the server:
 
@@ -371,6 +393,10 @@ first stops a pull from overwriting an edit still sitting in the outbox.
   every local row, which would discard unsent work. `sync()` enforces this.
 - Only `SYNCED_SETTING_KEYS` are restored by a resync, so a phone can never
   overwrite this machine's theme or graph range.
+- **Shared settings ride along with every `/sync/pull`**, because settings are
+  not rows and so never appear in the change feed. Without that, a `day_start_time`
+  changed on the phone would only reach the Mac if a full re-download happened to
+  be triggered — the Mac would keep bucketing days by the old boundary.
 
 **TLS trap, already hit once:** the python.org framework build — the one
 PyInstaller freezes into the .app — does not read the macOS keychain. It looks in
