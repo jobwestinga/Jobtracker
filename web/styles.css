@@ -1,0 +1,186 @@
+/* Mobile-first, dark, and close to the desktop app's Ocean palette so the two
+   read as one product. Deliberately hand-written: no framework, no build step,
+   nothing to install to change a colour. */
+
+:root {
+  --bg: #0B1220;
+  --panel: #131C2E;
+  --panel-2: #1A2438;
+  --line: #263149;
+  --text: #E6ECF7;
+  --dim: #8A98B0;
+  --accent: #3B82F6;
+  --green: #10B981;
+  --red: #EF4444;
+  --amber: #F59E0B;
+  --radius: 14px;
+  /* Room for the iPhone's home indicator and notch. */
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  overscroll-behavior-y: none;
+}
+
+.hidden { display: none !important; }
+.muted { color: var(--dim); font-size: 14px; }
+.error { color: var(--red); font-size: 14px; min-height: 20px; }
+
+/* ── setup ─────────────────────────────────────────────────────────── */
+.setup {
+  padding: calc(var(--safe-t) + 48px) 24px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.setup h1 { margin: 0; font-size: 28px; }
+.setup label { font-size: 13px; color: var(--dim); margin-top: 8px; }
+
+/* ── chrome ────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  padding: calc(var(--safe-t) + 12px) 16px 12px;
+  background: rgba(11, 18, 32, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.topbar h1 { margin: 0; font-size: 20px; font-weight: 700; }
+
+.banner {
+  margin: 10px 16px 0; padding: 10px 12px;
+  border-radius: 10px; font-size: 14px;
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.4); }
+
+.view { padding: 12px 16px calc(var(--safe-b) + 92px); }
+
+/* Big touch targets: this is used one-handed, often in a hurry. */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: rgba(19, 28, 46, 0.96);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  padding-bottom: var(--safe-b);
+}
+.tab {
+  appearance: none; border: 0; background: none; color: var(--dim);
+  font-size: 11px; padding: 10px 0 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.tab span { font-size: 20px; line-height: 1; }
+.tab.on { color: var(--accent); }
+
+/* ── cards and lists ───────────────────────────────────────────────── */
+.list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.card.tappable:active { background: var(--panel-2); }
+
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-size: 13px; color: var(--dim); margin-top: 2px; }
+
+.active-card {
+  border-color: var(--green);
+  background: linear-gradient(180deg, rgba(16,185,129,0.12), var(--panel));
+  margin-bottom: 4px;
+}
+.active-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.active-body { flex: 1; min-width: 0; }
+.active-name { font-weight: 700; }
+.active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; }
+
+/* ── buttons and inputs ────────────────────────────────────────────── */
+button { font: inherit; cursor: pointer; }
+.primary, .danger, .ghost, .secondary {
+  border-radius: 10px; border: 1px solid var(--line);
+  padding: 12px 14px; font-weight: 600;
+  background: var(--panel-2); color: var(--text);
+}
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.danger { background: var(--red); border-color: var(--red); color: #fff; padding: 10px 14px; }
+.ghost { background: transparent; }
+.wide { width: 100%; margin-top: 14px; }
+.icon-btn {
+  background: none; border: 0; color: var(--dim);
+  font-size: 20px; padding: 6px 10px; border-radius: 8px;
+}
+
+input, select, textarea {
+  width: 100%; padding: 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text); font: inherit;
+}
+/* 16px keeps iOS from zooming the page when a field is focused. */
+input, select { font-size: 16px; }
+
+.seg { display: flex; gap: 8px; }
+.seg-btn {
+  flex: 1; padding: 9px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--dim);
+  font-size: 14px; font-weight: 600;
+}
+.seg-btn.on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
+
+.day-nav { display: flex; align-items: center; gap: 8px; }
+.day-label { flex: 1; text-align: center; font-weight: 700; }
+.day-total { text-align: center; margin-top: 6px; }
+
+/* ── goals ─────────────────────────────────────────────────────────── */
+.check {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--dim); background: none; color: transparent;
+  flex: 0 0 auto; display: grid; place-items: center; font-size: 14px;
+}
+.check.done { border-color: var(--green); background: var(--green); color: #fff; }
+.check.blocked { opacity: 0.4; }
+.star { background: none; border: 0; font-size: 20px; color: var(--dim); padding: 4px 6px; }
+.star.on { color: var(--amber); }
+.bar { height: 4px; border-radius: 2px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+
+/* ── bottom sheet ──────────────────────────────────────────────────── */
+.sheet-wrap {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: flex-end;
+}
+.sheet {
+  width: 100%; max-height: 88vh; overflow-y: auto;
+  background: var(--panel);
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid var(--line);
+  padding: 16px 16px calc(var(--safe-b) + 20px);
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.sheet-head h2 { margin: 0; font-size: 18px; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 9px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text); font-size: 14px;
+}
+.ms-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.ms-row .grow { font-size: 15px; }
+.spinner { text-align: center; color: var(--dim); padding: 28px; }

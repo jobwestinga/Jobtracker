@@ -547,3 +547,38 @@ def test_mirror_converges_after_an_interleaved_mess(world):
     assert sorted(mirror_names(world, "todo_tasks")) == ["Offline A", "Offline B"]
     assert state.pending_count(world.mirror.connection) == 0
     assert world.engine.verify(result) is True
+
+
+# ── clock skew ──────────────────────────────────────────────────────────
+
+
+def test_a_server_in_another_timezone_is_reported(world):
+    """Naive local timestamps mean a server in the wrong timezone files work
+    hours off, and every row still looks perfectly valid."""
+    from datetime import datetime, timedelta
+    from jobtracker.sync.engine import SyncResult
+
+    real_integrity = world.client.integrity
+
+    def skewed():
+        report = real_integrity()
+        report["server_time"] = (datetime.now() - timedelta(hours=2)).isoformat()
+        return report
+
+    world.client.integrity = skewed
+    result = SyncResult()
+    world.engine.verify(result)
+
+    assert any("clock" in m for m in result.messages), result.messages
+
+
+def test_matching_clocks_produce_no_complaint(world):
+    from jobtracker.sync.engine import SyncResult
+
+    result = SyncResult()
+    world.engine.verify(result)
+    assert not any("clock" in m for m in result.messages)
+
+
+def test_integrity_reports_the_servers_wall_clock(world):
+    assert world.client.integrity().get("server_time")

@@ -205,6 +205,16 @@ class SettingsDialog(InlineDialog):
         sync_row.addWidget(self.sync_status_lbl, 1)
         layout.addLayout(sync_row)
 
+        # Keep the status line live while the dialog is open. A one-shot check
+        # after the button was pressed left "Syncing…" on screen for good if the
+        # pass took longer than the delay, and the only way to see the result was
+        # to close and reopen Settings. The timer is parented to the dialog, so
+        # it stops when the dialog goes.
+        self._sync_status_timer = QTimer(self)
+        self._sync_status_timer.setInterval(600)
+        self._sync_status_timer.timeout.connect(self._refresh_sync_status)
+        self._sync_status_timer.start()
+
         layout.addStretch()
 
         # ── Actions ──────────────────────────────────────────────────────
@@ -458,7 +468,7 @@ class SettingsDialog(InlineDialog):
             return
         started = main.sync_now()
         self.sync_status_lbl.setText("Syncing…" if started else "A sync is already running")
-        QTimer.singleShot(1500, self._refresh_sync_status)
+        # The polling timer takes it from here and shows the real outcome.
 
     def _refresh_sync_status(self) -> None:
         try:

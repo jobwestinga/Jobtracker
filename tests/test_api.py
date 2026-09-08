@@ -369,3 +369,47 @@ def test_snapshot_contains_every_table_and_the_head(api):
     for table in sync_policy.SYNCED_TABLES:
         assert sync_policy.API_NAMES[table] in snapshot
     assert isinstance(snapshot["head"], int)
+
+
+# ── the phone app ───────────────────────────────────────────────────────
+
+
+def test_context_reports_the_servers_logical_day(api):
+    """The phone must not work out "today" itself: the logical day starts at
+    03:00, and a second implementation is a second thing that can disagree."""
+    body = api.get("/api/context").json()
+    assert body["day_start"] == "03:00"
+    assert len(body["today"]) == 10  # YYYY-MM-DD
+    assert body["server_time"]
+
+
+def test_context_follows_a_changed_day_start(api):
+    do(api, "set_setting", {"key": "day_start_time", "value": "06:00"})
+    assert api.get("/api/context").json()["day_start"] == "06:00"
+
+
+def test_the_phone_app_is_served(api):
+    for path, expected in (
+        ("/", "text/html"),
+        ("/app.js", "javascript"),
+        ("/styles.css", "css"),
+        ("/manifest.webmanifest", "json"),
+    ):
+        response = api.get(path)
+        assert response.status_code == 200, path
+        assert expected in response.headers.get("content-type", ""), path
+
+
+def test_static_files_do_not_require_a_token(api):
+    """The page has to load before it can ask for a token."""
+    api.headers.pop("Authorization")
+    assert api.get("/").status_code == 200
+    assert api.get("/app.js").status_code == 200
+    # The data behind it still does.
+    assert api.get("/api/snapshot").status_code == 401
+
+
+def test_mounting_the_app_did_not_shadow_the_api(api):
+    """A mount at "/" swallows every route registered after it."""
+    for path in ("/health", "/api/context", "/api/snapshot", "/sync/integrity", "/ops/known"):
+        assert api.get(path).status_code == 200, path

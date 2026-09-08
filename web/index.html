@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover + the safe-area padding in the CSS keeps the bottom bar
+     clear of the iPhone home indicator once this is on the home screen. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JobTracker">
+<meta name="theme-color" content="#0B1220">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="stylesheet" href="/styles.css">
+<title>JobTracker</title>
+</head>
+<body>
+
+<!-- One-time setup: the token is entered here and kept in localStorage. -->
+<section id="setup" class="screen setup hidden">
+  <h1>JobTracker</h1>
+  <p class="muted">Connect this phone to your server.</p>
+  <label for="setup-token">Access token</label>
+  <input id="setup-token" type="password" autocomplete="off" autocapitalize="off"
+         autocorrect="off" spellcheck="false" placeholder="paste the iphone token">
+  <button id="setup-save" class="primary">Connect</button>
+  <p id="setup-error" class="error"></p>
+</section>
+
+<main id="app" class="hidden">
+  <header class="topbar">
+    <h1 id="view-title">Today</h1>
+    <button id="refresh" class="icon-btn" aria-label="Refresh">&#8635;</button>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <!-- Today: the running timer and one-tap start. -->
+  <section id="view-today" class="view">
+    <div id="active-card" class="card active-card hidden">
+      <div class="active-dot" id="active-dot"></div>
+      <div class="active-body">
+        <div class="active-name" id="active-name">—</div>
+        <div class="active-elapsed" id="active-elapsed">0:00:00</div>
+      </div>
+      <button id="stop-btn" class="danger">Stop</button>
+    </div>
+    <p id="idle-note" class="muted">Nothing is running. Tap a subject to start.</p>
+    <div id="subject-list" class="list"></div>
+  </section>
+
+  <!-- Sessions for one logical day. -->
+  <section id="view-sessions" class="view hidden">
+    <div class="day-nav">
+      <button id="day-prev" class="ghost">&#8592;</button>
+      <div id="day-label" class="day-label">—</div>
+      <button id="day-next" class="ghost">&#8594;</button>
+    </div>
+    <div id="day-total" class="muted day-total"></div>
+    <div id="session-list" class="list"></div>
+    <button id="add-session" class="primary wide">+ Add session</button>
+  </section>
+
+  <!-- Goals and their milestones. -->
+  <section id="view-goals" class="view hidden">
+    <div class="seg">
+      <button id="goals-active" class="seg-btn on">Active</button>
+      <button id="goals-done" class="seg-btn">Completed</button>
+    </div>
+    <div id="goal-list" class="list"></div>
+    <button id="add-goal" class="primary wide">+ Add goal</button>
+  </section>
+
+  <nav class="tabbar">
+    <button class="tab on" data-view="today"><span>&#9201;</span>Today</button>
+    <button class="tab" data-view="sessions"><span>&#128197;</span>Sessions</button>
+    <button class="tab" data-view="goals"><span>&#9873;</span>Goals</button>
+  </nav>
+</main>
+
+<!-- A single reusable sheet, filled in by whichever action opened it. -->
+<div id="sheet" class="sheet-wrap hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="sheet-title">—</h2>
+      <button id="sheet-close" class="icon-btn" aria-label="Close">&#10005;</button>
+    </div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

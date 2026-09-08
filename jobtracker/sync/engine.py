@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from ..core import sync_policy
+from ..core import sync_policy, timeutils
 from ..core.database import Database
 from . import state
 from .client import SyncClient, SyncError
@@ -173,6 +173,7 @@ class SyncEngine:
     def verify(self, result: SyncResult) -> bool:
         """Compare the mirror with the server. True when they agree."""
         report = self.client.integrity()
+        self._check_clock(report, result)
         cur = self.db.connection.cursor()
         for api_name, expected in report.get("tables", {}).items():
             table = sync_policy.TABLE_FOR_API_NAME.get(api_name)
@@ -186,6 +187,29 @@ class SyncEngine:
                 )
                 return False
         return True
+
+    @staticmethod
+    def _check_clock(report: dict, result: SyncResult) -> None:
+        """Complain if the server's wall clock is not ours.
+
+        JobTracker stores naive local times. If the server sits in another
+        timezone, a session started from the phone is filed hours off and nothing
+        else would ever notice — the rows look perfectly valid.
+        """
+        stamp = report.get("server_time")
+        if not stamp:
+            return
+        server_now = timeutils.parse_iso(stamp)
+        if server_now is None:
+            return
+        skew = abs((datetime.now() - server_now).total_seconds())
+        if skew > 300:
+            message = (
+                f"server clock is {round(skew / 60)} min from this machine's; "
+                "sessions will be recorded at the wrong time"
+            )
+            logger.warning("Sync: %s", message)
+            result.messages.append(message)
 
     def full_resync(self, result: SyncResult) -> None:
         """Throw the mirror away and rebuild it from the server.

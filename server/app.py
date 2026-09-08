@@ -19,11 +19,13 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import date, datetime
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from jobtracker.core import sync_policy, timeutils
@@ -190,7 +192,14 @@ def sync_integrity(device: str = Depends(require_device)) -> dict:
                 "hash": digest,
             }
         head = feed.current_seq(service.db.connection)
-    return {"tables": tables, "head": head}
+    # The wall clock rides along so a client can notice the server drifting
+    # into another timezone: times are stored naive, so a mismatch silently
+    # files work at the wrong hour.
+    return {
+        "tables": tables,
+        "head": head,
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+    }
 
 
 # ── reads ───────────────────────────────────────────────────────────────
@@ -273,6 +282,25 @@ def api_active(device: str = Depends(require_device)) -> dict:
     }
 
 
+@app.get("/api/context")
+def api_context(device: str = Depends(require_device)) -> dict:
+    """Today, as the server reckons it.
+
+    The logical day starts at 03:00 by default, so "today" is not simply the
+    calendar date. The phone asks rather than working it out, because a second
+    implementation of that rule is a second thing that can disagree with the Mac.
+    """
+    with _lock:
+        service = svc()
+        day_start = service.get_day_start()
+        today = timeutils.logical_day(datetime.now(), day_start)
+        return {
+            "today": today.isoformat(),
+            "day_start": timeutils.day_start_to_str(day_start),
+            "server_time": datetime.now().isoformat(timespec="seconds"),
+        }
+
+
 @app.get("/api/graphs/breakdown")
 def api_breakdown(
     grouping: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
@@ -319,6 +347,21 @@ def api_heatmap(device: str = Depends(require_device)) -> dict:
     return {"days": data}
 
 
+def _mount_web() -> None:
+    """Serve the phone app from this same server.
+
+    Mounted last, after every API route, because a mount at "/" would otherwise
+    swallow them. The app is static files only — no build step, nothing to
+    install — so deploying it is the same rsync that ships the server.
+    """
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    if not web_dir.is_dir():
+        logger.warning("No web/ directory next to the server; phone app not served")
+        return
+    app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
+    logger.info("Serving the phone app from %s", web_dir)
+
+
 @app.get("/api/sessions/day/{day}")
 def api_sessions_for_day(day: str, device: str = Depends(require_device)) -> dict:
     try:
@@ -350,3 +393,7 @@ def api_sessions_for_day(day: str, device: str = Depends(require_device)) -> dic
                 }
             )
     return {"day": day, "sessions": out}
+
+
+# Registered last on purpose: a mount at "/" shadows anything added after it.
+_mount_web()

@@ -38,6 +38,7 @@ trap 'rm -rf "$TMP"' EXIT
 sed -e "s|__JT_SSH_USER__|$JT_SSH_USER|g" \
     -e "s|__JT_ROOT__|$JT_ROOT|g" \
     -e "s|__JT_API_PORT__|$JT_API_PORT|g" \
+    -e "s|__JT_TIMEZONE__|${JT_TIMEZONE:-UTC}|g" \
     "$HERE/jobtracker-api.service.template" > "$TMP/jobtracker-api.service"
 sed -e "s|__JT_ROOT__|$JT_ROOT|g" "$HERE/backup-jobtracker.sh" > "$TMP/backup-jobtracker.sh"
 

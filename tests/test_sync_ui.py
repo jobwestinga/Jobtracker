@@ -177,6 +177,58 @@ def test_blank_token_field_keeps_the_existing_token(database, monkeypatch):
         window.close()
 
 
+def test_the_status_line_keeps_updating_while_the_dialog_is_open(database, monkeypatch):
+    """It used to be checked once, 1.5s after the button. A slower sync left
+    "Syncing…" on screen until Settings was closed and reopened."""
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        dialog = SettingsDialog(window, service=window.service)
+        assert dialog._sync_status_timer.isActive()
+        assert dialog._sync_status_timer.isSingleShot() is False
+
+        class FakeResult:
+            def summary(self):
+                return "Up to date (updated 3)"
+
+        class FakeController:
+            busy = False
+            last_result = FakeResult()
+
+        window._sync_controller = FakeController()
+        database.set_setting(sync_settings.ENABLED_KEY, "1")
+        sync_settings.set_server_url(window.service, "https://example.invalid:8443")
+        sync_settings.write_token("token")
+
+        dialog.sync_status_lbl.setText("Syncing…")
+        dialog._refresh_sync_status()
+        assert dialog.sync_status_lbl.text() == "Up to date (updated 3)"
+        dialog.deleteLater()
+    finally:
+        window._sync_controller = None
+        window.close()
+
+
+def test_the_status_line_reports_a_sync_in_progress(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        database.set_setting(sync_settings.ENABLED_KEY, "1")
+        sync_settings.set_server_url(window.service, "https://example.invalid:8443")
+        sync_settings.write_token("token")
+
+        class BusyController:
+            busy = True
+            last_result = None
+
+        window._sync_controller = BusyController()
+        dialog = SettingsDialog(window, service=window.service)
+        dialog._refresh_sync_status()
+        assert "Syncing" in dialog.sync_status_lbl.text()
+        dialog.deleteLater()
+    finally:
+        window._sync_controller = None
+        window.close()
+
+
 def test_the_token_never_lands_in_a_backup(database, monkeypatch):
     """export_data() copies the settings table, so a token stored there would
     ride along into every exported backup."""

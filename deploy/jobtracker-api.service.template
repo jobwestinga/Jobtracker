@@ -10,6 +10,11 @@ WorkingDirectory=__JT_ROOT__/app
 Environment=JOBTRACKER_DB_PATH=__JT_ROOT__/data/jobtracker.db
 Environment=JOBTRACKER_TOKENS_PATH=__JT_ROOT__/secrets/tokens.json
 Environment=PYTHONUNBUFFERED=1
+# JobTracker stores plain local wall-clock times, with no timezone attached.
+# A server running in UTC would therefore record a session started from the
+# phone at the wrong hour. Pin the service to the user's own timezone; scoped
+# here rather than system-wide so other services on the box keep theirs.
+Environment=TZ=__JT_TIMEZONE__
 # Bound to localhost only. Other devices reach it through `tailscale serve`, so
 # the API is never listening on a public interface.
 ExecStart=__JT_ROOT__/venv/bin/uvicorn server.app:app --host 127.0.0.1 --port __JT_API_PORT__ --workers 1
