@@ -68,6 +68,30 @@ def _parse_dt(value: Any, label: str) -> datetime:
     return parsed
 
 
+def _adopt_uid(db, table: str, row_id: int, wanted: str | None) -> None:
+    """Give a freshly created row the uid the client already assigned it.
+
+    A client that creates a row while offline mints the uid locally and shows it
+    immediately. When the operation finally reaches the server, the row must end
+    up with *that* uid — otherwise the server would invent a second identity for
+    the same thing and the client would pull it back as a duplicate.
+
+    Ignored when the uid is already taken here: that means this exact row was
+    already created (a retry that outran its own idempotency record), and the
+    existing row is the one to keep.
+    """
+    if not wanted or row_id is None:
+        return
+    existing = db.id_for_uid(table, wanted)
+    if existing is not None and int(existing) != int(row_id):
+        logger.warning("uid %s already used in %s; leaving the new row alone", wanted, table)
+        return
+    db.connection.execute(
+        f"UPDATE {table} SET uid = ? WHERE id = ?", (wanted, int(row_id))
+    )
+    db.connection.commit()
+
+
 def _row(db, table: str, row_id: int) -> dict | None:
     if row_id is None:
         return None
@@ -89,7 +113,8 @@ def _add_subject(svc, p):
     subject = svc.add_subject(p["name"], p.get("color", "#3B82F6"), p.get("notes", ""))
     if subject is None:
         raise OpError("subject could not be created (duplicate or empty name)")
-    return {"subject": _model_row(svc.db, "tasks", subject)}
+    _adopt_uid(svc.db, "tasks", subject.id, p.get("uid"))
+    return {"subject": _row(svc.db, "tasks", subject.id)}
 
 
 @op("update_subject")
@@ -134,7 +159,8 @@ def _start_subject(svc, p):
     sid = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
     if not svc.start_subject(sid):
         raise OpError("could not start: a session is already running", status=409)
-    return {"session": _model_row(svc.db, "sessions", svc.active_session)}
+    _adopt_uid(svc.db, "sessions", svc.active_session.id, p.get("uid"))
+    return {"session": _row(svc.db, "sessions", svc.active_session.id)}
 
 
 @op("stop_active_subject")
@@ -174,7 +200,8 @@ def _add_session(svc, p):
     )
     if session is None:
         raise OpError("session could not be created")
-    return {"session": _model_row(svc.db, "sessions", session)}
+    _adopt_uid(svc.db, "sessions", session.id, p.get("uid"))
+    return {"session": _row(svc.db, "sessions", session.id)}
 
 
 @op("update_session")
@@ -207,7 +234,8 @@ def _duplicate_session(svc, p):
     session = svc.duplicate_session(session_id, to=to)
     if session is None:
         raise OpError("session could not be duplicated")
-    return {"session": _model_row(svc.db, "sessions", session)}
+    _adopt_uid(svc.db, "sessions", session.id, p.get("uid"))
+    return {"session": _row(svc.db, "sessions", session.id)}
 
 
 @op("shift_session")
@@ -227,7 +255,8 @@ def _add_goal(svc, p):
     goal = svc.add_todo_task(p["name"], p.get("notes", ""), p.get("deadline"))
     if goal is None:
         raise OpError("goal could not be created (empty name?)")
-    return {"goal": _model_row(svc.db, "todo_tasks", goal)}
+    _adopt_uid(svc.db, "todo_tasks", goal.id, p.get("uid"))
+    return {"goal": _row(svc.db, "todo_tasks", goal.id)}
 
 
 @op("update_goal")
@@ -284,7 +313,8 @@ def _add_milestone(svc, p):
     milestone = svc.add_milestone(gid, p["title"], p.get("note", ""))
     if milestone is None:
         raise OpError("milestone could not be created (empty title?)")
-    return {"milestone": _model_row(svc.db, "milestones", milestone)}
+    _adopt_uid(svc.db, "milestones", milestone.id, p.get("uid"))
+    return {"milestone": _row(svc.db, "milestones", milestone.id)}
 
 
 @op("update_milestone")

@@ -334,6 +334,36 @@ backups). A session stamped with another device's id is left completely alone �
 that is what stops the Mac from ending a timer the phone is running, and it is the
 multi-device form of the existing "never drop an unfinished session" rule.
 
+## The desktop sync client (`jobtracker/sync/`)
+
+- `state.py` — the local `sync_outbox` and `sync_state` tables. Not synced: they
+  describe this machine's relationship with the server, not the user's data.
+- `client.py` — HTTP over **stdlib `urllib`** on purpose. The app's only
+  third-party dependency is PySide6; keeping it that way means nothing new has
+  to be bundled or signed into the .app.
+- `engine.py` — push, pull, verify, repair. No Qt, so it is fully testable
+  headlessly against an in-process server (`tests/test_sync_engine.py`).
+
+Order within one pass is load-bearing: **push, then pull, then verify.** Pushing
+first stops a pull from overwriting an edit still sitting in the outbox.
+
+- A refused operation **blocks the queue** and is reported; it is never skipped.
+  Skipping would let "recreate" overtake "delete".
+- A create op carries the uid the client already minted (`_adopt_uid` on the
+  server honours it). Without that the server would invent a second identity and
+  the client would pull its own row back as a duplicate.
+- **`full_resync()` must never run while the outbox is non-empty** — it deletes
+  every local row, which would discard unsent work. `sync()` enforces this.
+- Only `SYNCED_SETTING_KEYS` are restored by a resync, so a phone can never
+  overwrite this machine's theme or graph range.
+
+**TLS trap, already hit once:** the python.org framework build — the one
+PyInstaller freezes into the .app — does not read the macOS keychain. It looks in
+its own empty `etc/openssl/`, so a perfectly valid Let's Encrypt certificate
+fails with `CERTIFICATE_VERIFY_FAILED` while `curl` on the same machine succeeds.
+`client.build_ssl_context()` loads `/etc/ssl/cert.pem` (part of macOS, present
+for the frozen app too). Never "fix" a TLS error by disabling verification.
+
 ## Dialogs are inline, never native windows (macOS constraint)
 
 **Never show a `QDialog` as its own window, and never reparent one into the
