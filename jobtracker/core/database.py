@@ -39,6 +39,17 @@ class Database:
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
+        # WAL lets the background sync thread write on its own connection while
+        # the UI thread keeps reading, instead of the two blocking each other.
+        # busy_timeout covers the brief moments when they do collide: wait, don't
+        # raise "database is locked" in the middle of the user's click.
+        try:
+            self.connection.execute("PRAGMA journal_mode = WAL")
+            self.connection.execute("PRAGMA busy_timeout = 5000")
+        except sqlite3.Error:
+            # Some filesystems refuse WAL. Journal mode is a performance choice,
+            # never a correctness one, so carry on with the default.
+            logger.warning("Could not enable WAL journal mode", exc_info=True)
         self._init_db()
 
     # ── Schema ───────────────────────────────────────────────────────────

@@ -343,6 +343,21 @@ multi-device form of the existing "never drop an unfinished session" rule.
   to be bundled or signed into the .app.
 - `engine.py` — push, pull, verify, repair. No Qt, so it is fully testable
   headlessly against an in-process server (`tests/test_sync_engine.py`).
+- `service.py` — `SyncedTrackerService`, the service the UI actually gets when
+  sync is on. Every mutation is applied locally *and* queued as an operation.
+- `qt_worker.py` — the app's only background thread. It opens its **own**
+  database connection (sharing one sqlite3 connection across threads is not
+  safe); `Database.__init__` enables WAL + `busy_timeout` so the UI thread keeps
+  reading while it writes.
+- `settings.py` — the on/off switch and server URL are device-local settings; the
+  **token is kept in its own 0600 file, never in the settings table**, because
+  `export_data()` copies that table into every backup the user exports.
+
+**Redeploy the server whenever `server/ops.py` changes.** A client that emits an
+operation an older server does not know gets a 404 mid-batch — which is safe (the
+queue blocks and nothing is lost) but looks like a sync bug. This has already
+happened once. `tests/test_sync_service.py` checks the client's ops exist on the
+server *in the test process*; only a redeploy makes that true in production.
 
 Order within one pass is load-bearing: **push, then pull, then verify.** Pushing
 first stops a pull from overwriting an edit still sitting in the outbox.

@@ -49,6 +49,8 @@ from ..core.auto_backup import write_auto_backup
 from ..core.config import BACKUPS_DIR
 from ..core.themes import get_tokens
 from ..services.tracker_service import TrackerService
+from ..sync import settings as sync_settings
+from ..sync.service import SyncedTrackerService
 from .styles import build_stylesheet
 from .graphs_mixin import GraphsMixin
 from .goals_mixin import GoalsMixin
@@ -181,7 +183,18 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def __init__(self, app_instance) -> None:
         super().__init__()
         self.app_instance = app_instance
+        # Build the ordinary service first — recovery and all — then upgrade it
+        # to the outbox-backed one only if sync is switched on. Done in this
+        # order so the plain path (and the test seam that replaces
+        # ``TrackerService``) stays exactly as it was: with sync off the app
+        # touches no network and queues nothing.
         self.service = TrackerService()
+        self._sync_on = sync_settings.is_enabled(self.service)
+        if self._sync_on:
+            self.service = SyncedTrackerService(
+                self.service.db, device_id=self.service.device_id, recover=False
+            )
+        self._sync_controller = None
         self.setWindowTitle("JobTracker")
         self.setMinimumSize(560, 760)
         self.resize(680, 920)
@@ -248,6 +261,45 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         # After the window is up, offer recovery for any unfinished session.
         QTimer.singleShot(0, self._maybe_prompt_recovery)
 
+        self._setup_sync()
+
+    # ── sync ────────────────────────────────────────────────────────────
+    def _setup_sync(self) -> None:
+        """Start the background sync thread, if sync is switched on.
+
+        Nothing here is on a UI code path: if the server is unreachable the app
+        simply carries on with its local mirror.
+        """
+        if not self._sync_on or not sync_settings.is_configured(self.service):
+            return
+        from ..sync.qt_worker import SyncController
+
+        self._sync_controller = SyncController(
+            self.service.db.db_path, self.service.device_id, parent=self
+        )
+        self._sync_controller.finished.connect(self._on_sync_finished)
+
+        # On launch, then on a slow timer. Focus and quit trigger it too.
+        QTimer.singleShot(1200, self.sync_now)
+        self._sync_timer = QTimer(self)
+        self._sync_timer.setInterval(5 * 60_000)
+        self._sync_timer.timeout.connect(self.sync_now)
+        self._sync_timer.start()
+
+    def sync_now(self) -> bool:
+        if self._sync_controller is None:
+            return False
+        return self._sync_controller.request(
+            sync_settings.server_url(self.service), sync_settings.read_token()
+        )
+
+    def _on_sync_finished(self, result) -> None:
+        if result.applied or result.deleted or result.repaired:
+            # The mirror changed underneath the widgets, so redraw from it.
+            self._reload()
+        if not result.ok and not result.offline:
+            logger.warning("Sync problem: %s", result.error)
+
     def _install_arrow_direction_filter(self) -> None:
         arrow_filter = getattr(
             self.app_instance, "_jobtracker_arrow_direction_filter", None
@@ -274,6 +326,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
     def _on_app_state_changed(self, state) -> None:
         active = state == Qt.ApplicationActive
+        if active:
+            # Coming back to the window is the moment the user is most likely to
+            # care that the phone's changes have landed.
+            self.sync_now()
         if hasattr(self, "_fx_bg"):
             self._fx_bg.set_animating(active)
         if hasattr(self, "_graph_live_timer"):
@@ -703,7 +759,16 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             )
             return
 
-        # Quit is going through: leave a rotating JSON safety copy behind.
+        # Quit is going through. Push whatever is queued first, but never let
+        # sync delay the quit for long: the outbox is durable, so anything that
+        # does not make it now simply goes at next launch.
+        try:
+            if self.sync_now() and self._sync_controller is not None:
+                self._sync_controller.wait_for_idle(3000)
+        except Exception:
+            logger.exception("Sync on quit failed")
+
+        # Leave a rotating JSON safety copy behind.
         # Never let a backup problem block quitting.
         try:
             write_auto_backup(self.service.export_data(), BACKUPS_DIR)

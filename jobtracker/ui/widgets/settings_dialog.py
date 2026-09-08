@@ -5,6 +5,7 @@ Settings dialog — theme FX, colour palette, and data management.
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QFrame, QMessageBox, QFileDialog, QComboBox,
+    QCheckBox, QLineEdit,
 )
 from PySide6.QtCore import Qt, QTimer
 import json
@@ -16,6 +17,7 @@ from ...services.tracker_service import TrackerService
 from ...core.themes import PALETTES, PALETTE_NAMES, FX_NAMES, get_tokens
 from ...core import export_bundle
 from ...core.timeutils import parse_day_start
+from ...sync import settings as sync_settings
 from .dialog_utils import (
     InlineDialog,
     configure_window_modal,
@@ -35,7 +37,8 @@ class SettingsDialog(InlineDialog):
         # All persistence goes through the service (not the db directly).
         self._svc = service or getattr(parent, "service", None) or TrackerService()
         self.setWindowTitle("Settings")
-        self.setFixedSize(440, 600)
+        # Tall enough for the Sync section too; still fits a 13" MacBook screen.
+        self.setFixedSize(440, 780)
 
         # Load current prefs
         self._fx = self._svc.get_setting("theme_fx", "Glow")
@@ -157,6 +160,50 @@ class SettingsDialog(InlineDialog):
         data_row.addWidget(import_btn)
 
         layout.addLayout(data_row)
+
+        # ── Sync with your server ────────────────────────────────────────
+        sync_lbl = QLabel("Sync")
+        sync_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
+        layout.addWidget(sync_lbl)
+
+        self.sync_enabled_check = QCheckBox("Sync with my server")
+        self.sync_enabled_check.setCursor(Qt.PointingHandCursor)
+        self.sync_enabled_check.setChecked(sync_settings.is_enabled(self._svc))
+        self.sync_enabled_check.setToolTip(
+            "Off means the app is purely local, exactly as before."
+        )
+        layout.addWidget(self.sync_enabled_check)
+
+        self.sync_url_input = QLineEdit(sync_settings.server_url(self._svc))
+        self.sync_url_input.setPlaceholderText("https://your-server:8443")
+        self.sync_url_input.setMinimumHeight(32)
+        layout.addWidget(self.sync_url_input)
+
+        self.sync_token_input = QLineEdit()
+        self.sync_token_input.setEchoMode(QLineEdit.Password)
+        self.sync_token_input.setMinimumHeight(32)
+        # Never render the stored token back into the field. Show that one
+        # exists, and let an empty field mean "leave it alone".
+        self.sync_token_input.setPlaceholderText(
+            "Access token — leave blank to keep the current one"
+            if sync_settings.read_token()
+            else "Access token"
+        )
+        layout.addWidget(self.sync_token_input)
+
+        sync_row = QHBoxLayout()
+        sync_row.setSpacing(10)
+        self.sync_now_btn = QPushButton("Sync Now")
+        self.sync_now_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_now_btn.setMinimumHeight(36)
+        self.sync_now_btn.clicked.connect(self._sync_now)
+        sync_row.addWidget(self.sync_now_btn)
+
+        self.sync_status_lbl = QLabel(self._sync_status_text())
+        self.sync_status_lbl.setStyleSheet("font-size: 11px; opacity: 0.7;")
+        self.sync_status_lbl.setWordWrap(True)
+        sync_row.addWidget(self.sync_status_lbl, 1)
+        layout.addLayout(sync_row)
 
         layout.addStretch()
 
@@ -384,9 +431,54 @@ class SettingsDialog(InlineDialog):
             logger.exception("Import failed")
             critical(self, "Error", f"Import failed:\n{exc}")
 
+    # ── Sync ─────────────────────────────────────────────────────────────
+    def _sync_status_text(self) -> str:
+        """One line describing where sync stands, without leaking the token."""
+        blocked = sync_settings.describe(self._svc)
+        if blocked:
+            return blocked
+        main = self._resolve_main_window()
+        controller = getattr(main, "_sync_controller", None) if main else None
+        if controller is None:
+            return "Enabled — restart to connect"
+        if controller.busy:
+            return "Syncing…"
+        result = controller.last_result
+        return result.summary() if result is not None else "Ready"
+
+    def _sync_now(self) -> None:
+        """Save what is in the fields first, so the button uses them right away."""
+        self._persist_sync_settings()
+        main = self._resolve_main_window()
+        if main is None or not hasattr(main, "sync_now"):
+            self.sync_status_lbl.setText("Restart the app to start syncing")
+            return
+        if getattr(main, "_sync_controller", None) is None:
+            self.sync_status_lbl.setText("Restart the app to start syncing")
+            return
+        started = main.sync_now()
+        self.sync_status_lbl.setText("Syncing…" if started else "A sync is already running")
+        QTimer.singleShot(1500, self._refresh_sync_status)
+
+    def _refresh_sync_status(self) -> None:
+        try:
+            self.sync_status_lbl.setText(self._sync_status_text())
+        except RuntimeError:
+            pass  # dialog closed while the timer was pending
+
+    def _persist_sync_settings(self) -> None:
+        sync_settings.set_enabled(self._svc, self.sync_enabled_check.isChecked())
+        sync_settings.set_server_url(self._svc, self.sync_url_input.text())
+        typed = self.sync_token_input.text().strip()
+        # An empty field means "keep the token I already have", so a user editing
+        # the server address does not silently wipe their credentials.
+        if typed:
+            sync_settings.write_token(typed)
+
     # ── Result ───────────────────────────────────────────────────────────
     def get_settings(self) -> dict:
         hour = self.day_start_combo.currentData()
+        self._persist_sync_settings()
         return {
             "theme_fx": self._fx,
             "theme_palette": self._palette,

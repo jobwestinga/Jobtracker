@@ -349,6 +349,70 @@ def _set_milestone_order(svc, p):
     return {"ok": True}
 
 
+# ── recurring templates ─────────────────────────────────────────────────
+#
+# Generation runs HERE and only here. If each client generated its own instances
+# they would each create a goal for the same period and each set `last_generated`
+# locally, so the two machines would disagree about a period that had already
+# been produced. One generator, pulled by everyone, keeps it idempotent.
+
+
+@op("add_template")
+def _add_template(svc, p):
+    template = svc.add_goal_template(
+        p["title"],
+        p.get("notes", ""),
+        p.get("recurrence", "daily"),
+        p.get("milestone_titles") or [],
+        p.get("recurrence_day"),
+    )
+    if template is None:
+        raise OpError("template could not be created (empty title?)")
+    _adopt_uid(svc.db, "goal_templates", template.id, p.get("uid"))
+    return {"template": _row(svc.db, "goal_templates", template.id)}
+
+
+@op("update_template")
+def _update_template(svc, p):
+    tid = _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+    template = svc.update_goal_template(
+        tid,
+        p["title"],
+        p.get("notes", ""),
+        p.get("recurrence", "daily"),
+        p.get("milestone_titles") or [],
+        p.get("recurrence_day"),
+    )
+    if template is None:
+        raise OpError("template could not be updated")
+    return {"template": _row(svc.db, "goal_templates", tid)}
+
+
+@op("set_template_active")
+def _set_template_active(svc, p):
+    tid = _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+    svc.set_goal_template_active(tid, bool(p["active"]))
+    return {"template": _row(svc.db, "goal_templates", tid)}
+
+
+@op("delete_template")
+def _delete_template(svc, p):
+    svc.delete_goal_template(
+        _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+    )
+    return {"ok": True}
+
+
+@op("generate_due_goals")
+def _generate_due_goals(svc, p):
+    """Create this period's goal instances. Idempotent within a period, so a
+    client may call it on every launch without producing duplicates."""
+    created = svc.generate_due_goal_instances()
+    return {
+        "created": [svc.db.uid_for_id("todo_tasks", gid) for gid in created],
+    }
+
+
 # ── settings ────────────────────────────────────────────────────────────
 
 
