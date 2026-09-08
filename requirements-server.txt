@@ -1,0 +1,5 @@
+# Server-only dependencies. The desktop app does not need these, and the server
+# does not need PySide6 — jobtracker.core/services import no Qt.
+-r requirements-base.txt
+fastapi>=0.115
+uvicorn[standard]>=0.32

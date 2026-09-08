@@ -46,6 +46,75 @@ DEVICE_LOCAL_SETTING_KEYS: frozenset[str] = frozenset({"device_id"})
 DEVICE_ID_SETTING = "device_id"
 
 
+# The API speaks clean names; SQL keeps the legacy ones. This is how the good
+# nomenclature is reached without the risky `tasks` -> `subjects` table rename.
+API_NAMES: dict[str, str] = {
+    "tasks": "subjects",
+    "todo_tasks": "goals",
+    "goal_templates": "templates",
+    "sessions": "sessions",
+    "milestones": "milestones",
+}
+TABLE_FOR_API_NAME: dict[str, str] = {v: k for k, v in API_NAMES.items()}
+
+# Foreign keys hold LOCAL integer ids, which are meaningless on another machine.
+# Each one is translated to the referenced row's uid on the way out and back to a
+# local id on the way in: column -> (referenced table, name used on the wire).
+FOREIGN_KEYS: dict[str, dict[str, tuple[str, str]]] = {
+    "sessions": {"task_id": ("tasks", "subject_uid")},
+    "milestones": {"goal_id": ("todo_tasks", "goal_uid")},
+    "todo_tasks": {"template_id": ("goal_templates", "template_uid")},
+}
+
+# Columns that are private to one database and must never be sent.
+PRIVATE_COLUMNS: frozenset[str] = frozenset({"id"})
+
+
+def to_wire(database, table: str, row: dict) -> dict:
+    """Convert a raw DB row into the shape other machines understand.
+
+    Strips local integer ids and rewrites foreign keys as uids. If this function
+    ever lets an integer id through, two machines will eventually disagree about
+    which row is which — hence the test that asserts no payload contains one.
+    """
+    fks = FOREIGN_KEYS.get(table, {})
+    wire: dict = {}
+    for column, value in row.items():
+        if column in PRIVATE_COLUMNS:
+            continue
+        if column in fks:
+            ref_table, wire_name = fks[column]
+            wire[wire_name] = (
+                database.uid_for_id(ref_table, value) if value is not None else None
+            )
+            continue
+        wire[column] = value
+    return wire
+
+
+def from_wire(database, table: str, payload: dict) -> dict:
+    """Inverse of :func:`to_wire`, for applying a row into a local database.
+
+    A foreign key naming a uid this database has never seen resolves to None
+    rather than raising: the referenced row may simply arrive later in the same
+    batch, and the caller re-checks once the batch is applied.
+    """
+    fks = FOREIGN_KEYS.get(table, {})
+    by_wire_name = {wire_name: (col, ref) for col, (ref, wire_name) in fks.items()}
+    row: dict = {}
+    for key, value in payload.items():
+        if key in PRIVATE_COLUMNS:
+            continue
+        if key in by_wire_name:
+            column, ref_table = by_wire_name[key]
+            row[column] = (
+                database.id_for_uid(ref_table, value) if value is not None else None
+            )
+            continue
+        row[key] = value
+    return row
+
+
 def new_uid() -> str:
     """A fresh row identity. UUID4 — collision-free without coordination, which
     is what lets an offline client create a row that the server accepts as-is."""

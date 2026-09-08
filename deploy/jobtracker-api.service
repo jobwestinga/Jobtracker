@@ -1,0 +1,30 @@
+[Unit]
+Description=JobTracker API (authoritative store for the Mac app and the phone)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=job090305
+WorkingDirectory=/home/job090305/jobtracker/app
+Environment=JOBTRACKER_DB_PATH=/home/job090305/jobtracker/data/jobtracker.db
+Environment=JOBTRACKER_TOKENS_PATH=/home/job090305/jobtracker/secrets/tokens.json
+Environment=PYTHONUNBUFFERED=1
+# Bound to localhost only. Reaching it from another device goes through
+# `tailscale serve`, so the API is never listening on a public interface.
+ExecStart=/home/job090305/jobtracker/venv/bin/uvicorn server.app:app --host 127.0.0.1 --port 8099 --workers 1
+Restart=on-failure
+RestartSec=3
+
+# The service needs nothing outside its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/job090305/jobtracker/data /home/job090305/jobtracker/secrets
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

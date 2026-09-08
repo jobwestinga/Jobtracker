@@ -257,6 +257,33 @@ class Database:
         cur.execute(f"PRAGMA table_info({table})")
         return any(row["name"] == column for row in cur.fetchall())
 
+    # ── uid ↔ local id (the network boundary) ────────────────────────────
+    def id_for_uid(self, table: str, uid: str) -> Optional[int]:
+        """Translate a wire identity into this database's local row id.
+
+        Returns None when this database has never seen the uid — the caller
+        decides whether that is a 404 or a row to create.
+        """
+        if table not in sync_policy.SYNCED_TABLES:
+            raise ValueError(f"{table} is not a synced table")
+        if not isinstance(uid, str) or not uid.strip():
+            return None
+        cur = self.connection.cursor()
+        cur.execute(f"SELECT id FROM {table} WHERE uid = ?", (uid.strip(),))
+        row = cur.fetchone()
+        return int(row["id"]) if row else None
+
+    def uid_for_id(self, table: str, row_id: int) -> Optional[str]:
+        """Translate a local row id into the identity other machines know."""
+        if table not in sync_policy.SYNCED_TABLES:
+            raise ValueError(f"{table} is not a synced table")
+        if row_id is None:
+            return None
+        cur = self.connection.cursor()
+        cur.execute(f"SELECT uid FROM {table} WHERE id = ?", (int(row_id),))
+        row = cur.fetchone()
+        return row["uid"] if row else None
+
     def _importable_uid(self, table: str, value) -> Optional[str]:
         """The uid to give an imported row, or None to let the trigger mint one.
 

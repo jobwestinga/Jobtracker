@@ -20,6 +20,54 @@ live here.
   server imports and runs the same `TrackerService` the desktop app runs, which
   is what keeps the two from ever disagreeing about a rule.
 
+## The server (deployed)
+
+Lives in `server/`, runs on the user's own Ubuntu 24.04 droplet, and imports
+`jobtracker.core` + `jobtracker.services` directly — **the same `TrackerService`
+the desktop runs**, which is why a rule like milestone-gated completion cannot
+drift between clients.
+
+- Base URL: **`https://prod-main-1.tailea7b54.ts.net:8443`** — tailnet only, real
+  Let's Encrypt certificate via `tailscale cert`. uvicorn binds `127.0.0.1:8099`
+  and `tailscale serve` publishes it. Nothing of JobTracker's is on a public port.
+- **Port 8443, not 443, because Caddy (in Docker) already binds `0.0.0.0:443`**
+  for the user's websites and therefore intercepts tailnet traffic on 443 and
+  fails the handshake with no matching cert. Don't "fix" this by changing Caddy.
+- Tailscale Serve routes on the **Host header**, so a request to the bare IP gets
+  a 404 — always use the tailnet name. The server itself runs with
+  `--accept-dns=false`, so MagicDNS does not resolve *on the server*; test from
+  there with `curl --resolve <name>:8443:100.71.1.89`.
+- Layout on the server: code `~/jobtracker/app`, venv `~/jobtracker/venv`,
+  database `~/jobtracker/data/jobtracker.db`, hashed tokens
+  `~/jobtracker/secrets/tokens.json` (0600), nightly backups
+  `~/jobtracker/backups` (cron 04:17, 30 days, SQLite online-backup API).
+- systemd unit `jobtracker-api.service`; deploy with the rsync line in
+  `deploy/`. `--accept-dns=false` was used on the server so Tailscale does not
+  touch DNS for the user's other sites — a side effect is that MagicDNS names do
+  **not** resolve *on the server itself*.
+- Endpoints: `/health` (no auth), `/ops` (the only write path), `/sync/pull`,
+  `/sync/integrity`, `/api/snapshot`, `/api/active`, `/api/graphs/*`,
+  `/api/sessions/day/{day}`.
+
+Rules for the server:
+
+- **`/ops` is the only way to write.** Every operation is named after the
+  `TrackerService` method it runs, takes uids, and carries a client-generated
+  `op_id`. The result is stored against that id and replayed on a repeat, so a
+  retry after a dropped connection cannot double-insert. Never add a write path
+  that bypasses `apply_op`.
+- **A batch stops at the first failure** and reports `failed_index`. Do not make
+  it skip and continue: an ordered outbox that lets later writes jump a failed
+  one is exactly how a queue corrupts state.
+- **Recovery runs once at startup**, never per request (it closes sessions).
+  Request handlers that need the live timer call `_adopt_open_session()`.
+- The change feed is produced by SQLite triggers in `server/feed.py`, keyed on
+  **rowid, not uid** — a row's uid is filled by an `AFTER INSERT` trigger, so at
+  INSERT-trigger time `NEW.uid` is still NULL. Rowids are safe to key on because
+  every synced table is `INTEGER PRIMARY KEY AUTOINCREMENT` (never reused). The
+  uid is resolved when the feed is read.
+- Deletes archive the whole row into `deleted_rows` before it goes.
+
 ## Where the multi-device work stands
 
 Approved plan: the server holds the one authoritative database; the Mac app and
@@ -29,9 +77,14 @@ The desktop keeps a local SQLite **mirror** that is a disposable read cache, so
 the app still opens and shows history with the server unreachable, and writes made
 offline wait in an ordered outbox.
 
-**Done so far (phase 1):** cross-machine row identity (`uid`), device ownership of
-running sessions, and device-scoped crash recovery. **Not built yet:** the server,
-the API, the outbox, the phone client. Nothing in the app talks to a network today.
+**Done:** phase 1 — cross-machine row identity (`uid`), device ownership of
+running sessions, device-scoped crash recovery. Phase 2 — the server above, live
+and **seeded from the Mac's migrated database**, so both sides hold byte-identical
+uids for all 1,830 rows (verified by hashing the sorted uid list per table on
+each side). Any future seed must preserve that property or the first sync
+duplicates everything. **Not built yet:** the desktop sync client (`jobtracker/sync/`, the
+mirror and outbox) and the phone PWA. **The desktop app still talks to no network
+at all** — it reads and writes its own local SQLite exactly as before.
 
 ## Hard rules (do not break)
 
