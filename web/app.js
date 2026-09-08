@@ -16,6 +16,9 @@ const state = {
   day: null,
   daySessions: [],
   goalsFilter: "active",
+  expandedGoal: null,
+  graphRange: "7",
+  graphs: null,
   tick: null,
 };
 
@@ -88,6 +91,7 @@ async function refresh({ quiet = false } = {}) {
     state.active = active.active ? active : null;
     if (!state.day) state.day = context.today;
     if (state.view === "sessions") await loadDay();
+    if (state.view === "graphs") await loadGraphs();
     hideBanner();
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return showSetup("That token was rejected.");
@@ -114,11 +118,21 @@ async function loadDay() {
   }
 }
 
-/** Apply a write, then reload. Queued writes report themselves rather than
- *  pretending to have succeeded. */
+/**
+ * Apply a write.
+ *
+ * `optimistic` updates local state and repaints BEFORE the request goes out, so
+ * a tap feels instant instead of waiting a round trip. The server is still the
+ * only authority: the refresh that follows overwrites whatever we guessed, and
+ * on failure it puts the truth back on screen.
+ */
 async function act(op, params, options = {}) {
+  const { optimistic, uid } = options;
+  if (optimistic) {
+    try { optimistic(); render(); } catch { /* never let a guess break the UI */ }
+  }
   try {
-    const outcome = await send(op, params, options);
+    const outcome = await send(op, params, uid ? { uid } : {});
     if (outcome.queued) banner("Saved — will sync when you're back online", "ok");
     await refresh({ quiet: true });
     return outcome;
@@ -129,12 +143,23 @@ async function act(op, params, options = {}) {
   }
 }
 
+/** Local edits to the cached snapshot, used by the optimistic paths above. */
+function patchGoal(uid, changes) {
+  const goal = (state.snapshot?.goals || []).find((g) => g.uid === uid);
+  if (goal) Object.assign(goal, changes);
+}
+function patchMilestone(uid, changes) {
+  const milestone = (state.snapshot?.milestones || []).find((m) => m.uid === uid);
+  if (milestone) Object.assign(milestone, changes);
+}
+
 // ── rendering ───────────────────────────────────────────────────────────
 
+const VIEW_TITLES = { goals: "Goals", today: "Subjects", sessions: "Sessions", graphs: "Graphs" };
+
 function render() {
-  $("view-title").textContent =
-    { today: "Today", sessions: "Sessions", goals: "Goals" }[state.view];
-  for (const view of ["today", "sessions", "goals"]) {
+  $("view-title").textContent = VIEW_TITLES[state.view];
+  for (const view of Object.keys(VIEW_TITLES)) {
     $(`view-${view}`).classList.toggle("hidden", view !== state.view);
   }
   document.querySelectorAll(".tab").forEach((t) =>
@@ -143,6 +168,7 @@ function render() {
   if (state.view === "today") renderToday();
   if (state.view === "sessions") renderSessions();
   if (state.view === "goals") renderGoals();
+  if (state.view === "graphs") renderGraphs();
 }
 
 function renderToday() {
@@ -239,7 +265,11 @@ function renderGoals() {
   list.innerHTML = "";
   const goals = (state.snapshot?.goals || [])
     .filter((g) => (state.goalsFilter === "done" ? g.is_completed : !g.is_completed))
-    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    .sort((a, b) => {
+      // Focused goals first: they are the ones being worked on right now.
+      const focus = (b.is_focused ? 1 : 0) - (a.is_focused ? 1 : 0);
+      return focus || (a.sort_order || 0) - (b.sort_order || 0);
+    });
 
   if (!goals.length) {
     list.append(el("p", "muted",
@@ -248,42 +278,281 @@ function renderGoals() {
   }
 
   for (const goal of goals) {
-    const { done, total } = goalProgress(goal.uid);
-    const card = el("div", "card");
-
-    const check = el("button", "check", "✓");
-    const blocked = total > 0 && done < total && !goal.is_completed;
-    if (goal.is_completed) check.classList.add("done");
-    if (blocked) check.classList.add("blocked");
-    check.onclick = (event) => {
-      event.stopPropagation();
-      if (goal.is_completed) return act("uncomplete_goal", { goal_uid: goal.uid });
-      if (blocked) return banner(`${total - done} milestone(s) still unchecked`);
-      return act("complete_goal", { goal_uid: goal.uid });
-    };
-
-    const body = el("div", "grow");
-    body.append(el("div", "name", goal.name));
-    if (goal.notes) body.append(el("div", "sub", goal.notes));
-    if (total) {
-      body.append(el("div", "sub", `${done}/${total} milestones`));
-      const bar = el("div", "bar");
-      const fill = el("i");
-      fill.style.width = `${(done / total) * 100}%`;
-      bar.append(fill);
-      body.append(bar);
-    }
-    body.onclick = () => goalSheet(goal);
-
-    const star = el("button", `star ${goal.is_focused ? "on" : ""}`, goal.is_focused ? "★" : "☆");
-    star.onclick = (event) => {
-      event.stopPropagation();
-      act("toggle_goal_focused", { goal_uid: goal.uid });
-    };
-
-    card.append(check, body, star);
-    list.append(card);
+    list.append(goalCard(goal));
   }
+}
+
+/**
+ * One goal, with its milestones tickable in place.
+ *
+ * Opening an editor to check something off was the wrong shape: reading the list
+ * and ticking things are the everyday actions, editing is rare. So the card
+ * expands inline and every checkbox is one tap, while editing hides behind "⋯".
+ */
+function goalCard(goal) {
+  const { done, total, items } = goalProgress(goal.uid);
+  const expanded = state.expandedGoal === goal.uid;
+  const wrap = el("div", "card goal-card");
+
+  const head = el("div", "goal-head");
+  const check = el("button", "check", "✓");
+  const blocked = total > 0 && done < total && !goal.is_completed;
+  if (goal.is_completed) check.classList.add("done");
+  if (blocked) check.classList.add("blocked");
+  check.onclick = (event) => {
+    event.stopPropagation();
+    if (goal.is_completed) {
+      return act("uncomplete_goal", { goal_uid: goal.uid },
+        { optimistic: () => patchGoal(goal.uid, { is_completed: 0 }) });
+    }
+    if (blocked) return banner(`${total - done} milestone(s) still to tick`);
+    return act("complete_goal", { goal_uid: goal.uid },
+      { optimistic: () => patchGoal(goal.uid, { is_completed: 1 }) });
+  };
+
+  const body = el("div", "grow");
+  body.append(el("div", "name", goal.name));
+  if (total) {
+    body.append(el("div", "sub", `${done}/${total} milestones`));
+    const bar = el("div", "bar");
+    const fill = el("i");
+    fill.style.width = `${(done / total) * 100}%`;
+    bar.append(fill);
+    body.append(bar);
+  } else if (goal.notes) {
+    body.append(el("div", "sub", goal.notes));
+  }
+  // Tapping the goal expands it rather than opening an editor.
+  body.onclick = () => {
+    state.expandedGoal = expanded ? null : goal.uid;
+    render();
+  };
+
+  const star = el("button", `star ${goal.is_focused ? "on" : ""}`, goal.is_focused ? "★" : "☆");
+  star.onclick = (event) => {
+    event.stopPropagation();
+    act("toggle_goal_focused", { goal_uid: goal.uid },
+      { optimistic: () => patchGoal(goal.uid, { is_focused: goal.is_focused ? 0 : 1 }) });
+  };
+
+  head.append(check, body, star);
+  wrap.append(head);
+
+  if (expanded) {
+    const panel = el("div", "goal-panel");
+    if (goal.notes) panel.append(el("p", "muted goal-notes", goal.notes));
+
+    for (const milestone of items) {
+      const row = el("div", "ms-row");
+      const box = el("button", `check small ${milestone.is_done ? "done" : ""}`, "✓");
+      const label = el("div", "grow", milestone.title);
+      if (milestone.is_done) label.classList.add("struck");
+      const toggle = () =>
+        act("set_milestone_done", { milestone_uid: milestone.uid, done: !milestone.is_done },
+          { optimistic: () => patchMilestone(milestone.uid, { is_done: milestone.is_done ? 0 : 1 }) });
+      box.onclick = toggle;
+      label.onclick = toggle;
+      row.append(box, label);
+      panel.append(row);
+    }
+
+    const add = el("div", "row");
+    const input = Object.assign(document.createElement("input"),
+      { type: "text", placeholder: "Add milestone" });
+    const addBtn = el("button", "secondary", "+");
+    addBtn.onclick = () => {
+      const title = input.value.trim();
+      if (!title) return;
+      input.value = "";
+      act("add_milestone", { goal_uid: goal.uid, title }, { uid: uuid() });
+    };
+    input.onkeydown = (event) => { if (event.key === "Enter") addBtn.onclick(); };
+    add.append(input, addBtn);
+    panel.append(add);
+
+    const more = el("button", "ghost wide", "⋯ Edit or delete this goal");
+    more.onclick = () => goalSheet(goal);
+    panel.append(more);
+    wrap.append(panel);
+  }
+
+  return wrap;
+}
+
+
+// ── graphs ──────────────────────────────────────────────────────────────
+//
+// The server computes every total (same logical-day attribution the desktop
+// uses), so these numbers cannot drift from the Mac's. This code only draws.
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs = {}) => {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+};
+
+async function loadGraphs() {
+  const range = state.graphRange;
+  try {
+    state.graphs = range === "heatmap"
+      ? { kind: "heatmap", data: await api.heatmap() }
+      : { kind: "bars", data: await api.breakdown(
+            range === "365" ? "monthly" : range === "30" ? "weekly" : "daily",
+            Number(range)) };
+  } catch (err) {
+    state.graphs = { kind: "error", message: err.message };
+  }
+}
+
+function renderGraphs() {
+  document.querySelectorAll("#view-graphs .seg-btn").forEach((b) =>
+    b.classList.toggle("on", b.dataset.range === state.graphRange));
+
+  const host = $("graph-body");
+  host.innerHTML = "";
+  $("graph-legend").innerHTML = "";
+
+  if (!state.graphs) {
+    host.append(el("div", "spinner", "Loading…"));
+    return;
+  }
+  if (state.graphs.kind === "error") {
+    host.append(el("p", "muted", `Could not load graphs: ${state.graphs.message}`));
+    return;
+  }
+  if (state.graphs.kind === "heatmap") return drawHeatmap(host, state.graphs.data);
+  return drawBars(host, state.graphs.data);
+}
+
+function drawBars(host, data) {
+  const buckets = data.buckets || [];
+  const total = buckets.reduce((sum, b) => sum + b.total_seconds, 0);
+  $("graph-total").textContent =
+    `${hm(total)} across ${buckets.length} ${data.grouping === "daily" ? "days" : data.grouping === "weekly" ? "weeks" : "months"}`;
+
+  if (!buckets.length) {
+    host.append(el("p", "muted", "Nothing tracked in this range."));
+    return;
+  }
+
+  const peak = Math.max(...buckets.map((b) => b.total_seconds), 1);
+  const chart = el("div", "bars");
+  for (const bucket of buckets) {
+    const column = el("div", "bar-col");
+    const stack = el("div", "bar-stack");
+    // Stack the subjects, tallest contribution at the bottom, like the desktop.
+    const segments = [...bucket.segments].sort((a, b) => b.seconds - a.seconds);
+    for (const segment of segments) {
+      const piece = el("div", "bar-seg");
+      piece.style.height = `${(segment.seconds / peak) * 100}%`;
+      piece.style.background = segment.color || "var(--accent)";
+      piece.title = `${segment.subject_name}: ${hm(segment.seconds)}`;
+      stack.append(piece);
+    }
+    const value = el("div", "bar-val", bucket.total_seconds ? hm(bucket.total_seconds) : "");
+    const label = el("div", "bar-lbl", shortLabel(bucket.date, data.grouping));
+    column.append(value, stack, label);
+    // Tapping a day opens exactly that day, the way the desktop's charts do.
+    if (data.grouping === "daily") {
+      column.onclick = async () => {
+        state.day = bucket.date;
+        state.view = "sessions";
+        await loadDay();
+        render();
+      };
+    }
+    chart.append(column);
+  }
+  host.append(chart);
+
+  // Legend: which colour is which subject, biggest first.
+  const totals = new Map();
+  for (const bucket of buckets) {
+    for (const segment of bucket.segments) {
+      const entry = totals.get(segment.subject_name) || { seconds: 0, color: segment.color };
+      entry.seconds += segment.seconds;
+      totals.set(segment.subject_name, entry);
+    }
+  }
+  const legend = $("graph-legend");
+  [...totals.entries()]
+    .sort((a, b) => b[1].seconds - a[1].seconds)
+    .slice(0, 8)
+    .forEach(([name, entry]) => {
+      const chip = el("div", "legend-item");
+      const dot = el("span", "dot");
+      dot.style.background = entry.color;
+      chip.append(dot, el("span", null, `${name} · ${hm(entry.seconds)}`));
+      legend.append(chip);
+    });
+}
+
+function shortLabel(iso, grouping) {
+  const d = new Date(`${iso}T12:00:00`);
+  if (grouping === "monthly") return d.toLocaleDateString(undefined, { month: "short" });
+  if (grouping === "weekly") return `${d.getDate()}/${d.getMonth() + 1}`;
+  return d.toLocaleDateString(undefined, { weekday: "narrow" });
+}
+
+function drawHeatmap(host, data) {
+  const days = data.days || [];
+  const total = days.reduce((sum, d) => sum + d.total_seconds, 0);
+  $("graph-total").textContent = `${Math.round(total / 3600)} hours over ${days.length} days`;
+  if (!days.length) {
+    host.append(el("p", "muted", "No history yet."));
+    return;
+  }
+
+  const byDate = new Map(days.map((d) => [d.date, d.total_seconds]));
+  const first = new Date(`${days[0].date}T12:00:00`);
+  const last = new Date(`${days[days.length - 1].date}T12:00:00`);
+  // Start on the Monday of the first week: the desktop's weeks are Monday-based.
+  const startOffset = (first.getDay() + 6) % 7;
+  first.setDate(first.getDate() - startOffset);
+
+  const weeks = Math.ceil((last - first) / (7 * 86400000)) + 1;
+  const cell = 13, gap = 3;
+  const width = weeks * (cell + gap);
+  const height = 7 * (cell + gap);
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    width: width, height: height, class: "heat",
+  });
+
+  const peak = Math.max(...days.map((d) => d.total_seconds), 1);
+  const cursor = new Date(first);
+  for (let w = 0; w < weeks; w += 1) {
+    for (let d = 0; d < 7; d += 1) {
+      const iso = `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`;
+      const seconds = byDate.get(iso) || 0;
+      const rect = svgEl("rect", {
+        x: w * (cell + gap), y: d * (cell + gap),
+        width: cell, height: cell, rx: 3,
+        fill: seconds ? "var(--accent)" : "var(--panel-2)",
+        "fill-opacity": seconds ? (0.25 + 0.75 * Math.min(1, seconds / peak)).toFixed(2) : 1,
+      });
+      if (seconds) {
+        rect.style.cursor = "pointer";
+        rect.onclick = async () => {
+          state.day = iso;
+          state.view = "sessions";
+          await loadDay();
+          render();
+        };
+        const title = svgEl("title");
+        title.textContent = `${iso}: ${hm(seconds)}`;
+        rect.append(title);
+      }
+      svg.append(rect);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  const scroller = el("div", "heat-wrap");
+  scroller.append(svg);
+  host.append(scroller);
+  // Newest weeks first, like the desktop heatmap.
+  requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
 }
 
 // ── sheets ──────────────────────────────────────────────────────────────
@@ -395,7 +664,27 @@ function addSessionSheet() {
     row.append(startWrap, endWrap);
     body.append(row);
 
-    const save = el("button", "primary wide", "Add");
+    // The desktop has "Quick Add (ending now)"; the same idea earns its place
+    // even more on a phone, where typing two times is the slow part.
+    const quick = el("div", "chips");
+    for (const [label, minutes] of [["15m", 15], ["30m", 30], ["45m", 45],
+                                    ["1h", 60], ["1h30", 90], ["2h", 120]]) {
+      const chip = el("button", "chip", label);
+      chip.onclick = async () => {
+        const now = new Date();
+        const from = new Date(now.getTime() - minutes * 60000);
+        closeSheet();
+        await act("add_session", {
+          subject_uid: select.value,
+          start_time: localIso(from),
+          end_time: localIso(now),
+        }, { uid: uuid() });
+      };
+      quick.append(chip);
+    }
+    body.append(el("label", null, "Quick add, ending now"), quick);
+
+    const save = el("button", "primary wide", "Add with these times");
     save.onclick = async () => {
       const day = state.day;
       const endDay = end.value < start.value ? addDays(day, 1) : day;
@@ -495,16 +784,25 @@ function addGoalSheet() {
 async function startTimer(subject) {
   if (state.active) {
     if (!confirm(`Switch to ${subject.name}?`)) return;
-    await act("switch_subject", { subject_uid: subject.uid });
+    await act("switch_subject", { subject_uid: subject.uid }, {
+      optimistic: () => { state.active = { subject_uid: subject.uid, elapsed_seconds: 0 }; },
+    });
     return;
   }
-  await act("start_subject", { subject_uid: subject.uid }, { uid: uuid() });
+  // Show the timer running the moment it is tapped. Waiting for the round trip
+  // made a start feel like it had not registered.
+  await act("start_subject", { subject_uid: subject.uid }, {
+    uid: uuid(),
+    optimistic: () => { state.active = { subject_uid: subject.uid, elapsed_seconds: 0 }; },
+  });
 }
 
 async function stopTimer() {
   // Send the phone's clock, so the server applies the sub-30-second rule to the
   // time the user actually stopped rather than to whenever the request lands.
-  await act("stop_active_subject", { end_time: localIso(new Date()) });
+  await act("stop_active_subject", { end_time: localIso(new Date()) }, {
+    optimistic: () => { state.active = null; },
+  });
 }
 
 // ── setup screen ────────────────────────────────────────────────────────
@@ -535,6 +833,21 @@ document.querySelectorAll(".tab").forEach((tab) => {
   tab.onclick = async () => {
     state.view = tab.dataset.view;
     if (state.view === "sessions") await loadDay();
+    if (state.view === "graphs") {
+      state.graphs = null;
+      render();          // paint the spinner first
+      await loadGraphs();
+    }
+    render();
+  };
+});
+
+document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
+  button.onclick = async () => {
+    state.graphRange = button.dataset.range;
+    state.graphs = null;
+    render();
+    await loadGraphs();
     render();
   };
 });

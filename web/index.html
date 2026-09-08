@@ -71,10 +71,23 @@
     <button id="add-goal" class="primary wide">+ Add goal</button>
   </section>
 
-  <nav class="tabbar">
-    <button class="tab on" data-view="today"><span>&#9201;</span>Today</button>
-    <button class="tab" data-view="sessions"><span>&#128197;</span>Sessions</button>
+  <section id="view-graphs" class="view hidden">
+    <div class="seg">
+      <button class="seg-btn on" data-range="7">Week</button>
+      <button class="seg-btn" data-range="30">Month</button>
+      <button class="seg-btn" data-range="365">Year</button>
+      <button class="seg-btn" data-range="heatmap">Heat</button>
+    </div>
+    <div id="graph-total" class="muted day-total"></div>
+    <div id="graph-body"></div>
+    <div id="graph-legend" class="legend"></div>
+  </section>
+
+  <nav class="tabbar four">
     <button class="tab" data-view="goals"><span>&#9873;</span>Goals</button>
+    <button class="tab on" data-view="today"><span>&#9201;</span>Subjects</button>
+    <button class="tab" data-view="sessions"><span>&#128197;</span>Sessions</button>
+    <button class="tab" data-view="graphs"><span>&#128202;</span>Graphs</button>
   </nav>
 </main>
 
