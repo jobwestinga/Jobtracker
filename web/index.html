@@ -75,11 +75,16 @@
   </section>
 
   <section id="view-graphs" class="view hidden">
+    <!-- Two choices, like the desktop: which view, and over what range. -->
     <div class="seg">
+      <button class="seg-btn on" data-mode="bars">Bars</button>
+      <button class="seg-btn" data-mode="agenda">Agenda</button>
+      <button class="seg-btn" data-mode="heatmap">Heat</button>
+    </div>
+    <div class="seg seg-range">
       <button class="seg-btn on" data-range="7">Week</button>
       <button class="seg-btn" data-range="30">Month</button>
       <button class="seg-btn" data-range="365">Year</button>
-      <button class="seg-btn" data-range="heatmap">Heat</button>
     </div>
     <div id="graph-total" class="muted day-total"></div>
     <div id="graph-body"></div>

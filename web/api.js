@@ -67,6 +67,7 @@ export const api = {
   day: (isoDate) => request("GET", `/api/sessions/day/${isoDate}`),
   breakdown: (grouping = "daily", days = 14) =>
     request("GET", `/api/graphs/breakdown?grouping=${grouping}&days=${days}`),
+  agenda: (days = 7) => request("GET", `/api/graphs/agenda?days=${days}`),
   heatmap: () => request("GET", "/api/graphs/heatmap"),
   sendOps: (ops) => request("POST", "/ops", { ops }),
 };

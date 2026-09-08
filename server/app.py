@@ -20,7 +20,7 @@ import os
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -346,6 +346,49 @@ def api_breakdown(
                 }
             )
     return {"grouping": grouping, "buckets": out_buckets}
+
+
+@app.get("/api/graphs/agenda")
+def api_agenda(
+    days: int = Query(default=7, ge=1, le=60),
+    device: str = Depends(require_device),
+) -> dict:
+    """The agenda timeline: sessions placed at their clock position.
+
+    ``start_h``/``end_h`` are agenda hours within the logical day — after-midnight
+    work maps to 24..27 so it renders at the bottom of the day it belongs to
+    rather than padding the top of the next one. The phone only draws these.
+    """
+    with _lock:
+        service = svc()
+        day_start = service.get_day_start()
+        end_day = service.graph_end_day(day_start)
+        start_day = timeutils.logical_day(datetime.now(), day_start) - timedelta(
+            days=days - 1
+        )
+        day_keys, sessions = service.get_agenda_data(start_day, end_day, day_start)
+        out = [
+            {
+                "uid": service.db.uid_for_id("sessions", s["session_id"])
+                if s.get("session_id")
+                else None,
+                "day": s["day"],
+                "subject_uid": service.db.uid_for_id("tasks", s["subject_id"])
+                if s.get("subject_id")
+                else None,
+                "subject_name": s["subject_name"],
+                "color": s["color"],
+                "start_h": s["start_h"],
+                "end_h": s["end_h"],
+                "duration_seconds": s["duration_seconds"],
+            }
+            for s in sessions
+        ]
+    return {
+        "days": day_keys,
+        "sessions": out,
+        "day_start_hour": day_start.hour + day_start.minute / 60.0,
+    }
 
 
 @app.get("/api/graphs/heatmap")

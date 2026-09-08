@@ -241,3 +241,28 @@ input, select { font-size: 16px; }
 .set-row .v { font-variant-numeric: tabular-nums; text-align: right; }
 .set-row select { width: auto; min-width: 110px; }
 .set-note { font-size: 12px; color: var(--dim); margin: 6px 0 14px; }
+
+/* ── agenda ────────────────────────────────────────────────────────── */
+.seg-range { margin-top: 8px; }
+.agenda-wrap { display: flex; margin-top: 14px; }
+.agenda-hours {
+  flex: 0 0 34px; position: relative;
+  font-size: 10px; color: var(--dim);
+}
+.agenda-hours span { position: absolute; right: 4px; transform: translateY(-50%); }
+.agenda-scroll { flex: 1; overflow-x: auto; }
+.agenda-grid { display: flex; gap: 4px; min-width: min-content; }
+.agenda-col { flex: 0 0 46px; }
+.agenda-track {
+  position: relative; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.agenda-block {
+  position: absolute; left: 2px; right: 2px;
+  border-radius: 4px; overflow: hidden;
+  border-left: 3px solid;
+  font-size: 9px; line-height: 1.1; color: var(--text);
+  padding: 2px 3px;
+}
+.agenda-daylbl { font-size: 10px; color: var(--dim); text-align: center; margin-top: 4px; }
+.agenda-daylbl.today { color: var(--accent); font-weight: 700; }

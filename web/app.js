@@ -17,6 +17,7 @@ const state = {
   daySessions: [],
   goalsFilter: "active",
   expandedGoal: null,
+  graphMode: "bars",
   graphRange: "7",
   graphs: null,
   tick: null,
@@ -393,21 +394,31 @@ const svgEl = (tag, attrs = {}) => {
 };
 
 async function loadGraphs() {
-  const range = state.graphRange;
+  const range = Number(state.graphRange);
   try {
-    state.graphs = range === "heatmap"
-      ? { kind: "heatmap", data: await api.heatmap() }
-      : { kind: "bars", data: await api.breakdown(
-            range === "365" ? "monthly" : range === "30" ? "weekly" : "daily",
-            Number(range)) };
+    if (state.graphMode === "heatmap") {
+      state.graphs = { kind: "heatmap", data: await api.heatmap() };
+    } else if (state.graphMode === "agenda") {
+      // The agenda paints clock positions, so a year of columns is meaningless;
+      // the endpoint caps it and the result simply scrolls.
+      state.graphs = { kind: "agenda", data: await api.agenda(Math.min(range, 60)) };
+    } else {
+      state.graphs = { kind: "bars", data: await api.breakdown(
+        range >= 365 ? "monthly" : range >= 30 ? "weekly" : "daily", range) };
+    }
   } catch (err) {
     state.graphs = { kind: "error", message: err.message };
   }
 }
 
 function renderGraphs() {
-  document.querySelectorAll("#view-graphs .seg-btn").forEach((b) =>
+  document.querySelectorAll("#view-graphs [data-mode]").forEach((b) =>
+    b.classList.toggle("on", b.dataset.mode === state.graphMode));
+  document.querySelectorAll("#view-graphs [data-range]").forEach((b) =>
     b.classList.toggle("on", b.dataset.range === state.graphRange));
+  // The heatmap is always all of history, so a range choice would be a lie.
+  document.querySelector("#view-graphs .seg-range")
+    .classList.toggle("hidden", state.graphMode === "heatmap");
 
   const host = $("graph-body");
   host.innerHTML = "";
@@ -422,6 +433,7 @@ function renderGraphs() {
     return;
   }
   if (state.graphs.kind === "heatmap") return drawHeatmap(host, state.graphs.data);
+  if (state.graphs.kind === "agenda") return drawAgenda(host, state.graphs.data);
   return drawBars(host, state.graphs.data);
 }
 
@@ -486,6 +498,89 @@ function drawBars(host, data) {
       chip.append(dot, el("span", null, `${name} · ${hm(entry.seconds)}`));
       legend.append(chip);
     });
+}
+
+
+function drawAgenda(host, data) {
+  const days = data.days || [];
+  const sessions = data.sessions || [];
+  const total = sessions.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
+  $("graph-total").textContent = `${hm(total)} across ${days.length} days`;
+
+  if (!sessions.length) {
+    host.append(el("p", "muted", "Nothing tracked in this range."));
+    return;
+  }
+
+  // Fit the window to the work actually done, but never narrower than a normal
+  // day, so a single early session does not stretch one block over the screen.
+  const lo = Math.min(6, Math.floor(Math.min(...sessions.map((s) => s.start_h))));
+  const hi = Math.max(23, Math.ceil(Math.max(...sessions.map((s) => s.end_h))));
+  const span = Math.max(1, hi - lo);
+  const height = 300;
+  const yFor = (hour) => ((hour - lo) / span) * height;
+
+  const wrap = el("div", "agenda-wrap");
+
+  const gutter = el("div", "agenda-hours");
+  gutter.style.height = `${height}px`;
+  for (let hour = Math.ceil(lo); hour <= hi; hour += span > 12 ? 3 : 2) {
+    const mark = el("span", null, `${pad(hour % 24)}:00`);
+    mark.style.top = `${yFor(hour)}px`;
+    gutter.append(mark);
+  }
+  wrap.append(gutter);
+
+  const scroll = el("div", "agenda-scroll");
+  const grid = el("div", "agenda-grid");
+  const byDay = new Map(days.map((d) => [d, []]));
+  for (const session of sessions) {
+    if (byDay.has(session.day)) byDay.get(session.day).push(session);
+  }
+
+  for (const day of days) {
+    const column = el("div", "agenda-col");
+    const track = el("div", "agenda-track");
+    track.style.height = `${height}px`;
+
+    for (const session of byDay.get(day)) {
+      const top = yFor(session.start_h);
+      const blockHeight = Math.max(3, yFor(session.end_h) - top);
+      const block = el("div", "agenda-block");
+      block.style.top = `${top}px`;
+      block.style.height = `${blockHeight}px`;
+      block.style.borderLeftColor = session.color || "var(--accent)";
+      // Neutral base plus a tint of the subject colour, as on the desktop.
+      block.style.background = `color-mix(in srgb, ${session.color || "#3B82F6"} 35%, var(--panel-2))`;
+      if (blockHeight > 16) block.textContent = session.subject_name;
+      block.title = `${session.subject_name} · ${hm(session.duration_seconds)}`;
+      track.append(block);
+    }
+
+    // Tapping a day opens it in Sessions, where it can actually be edited.
+    track.onclick = async () => {
+      state.day = day;
+      state.view = "sessions";
+      await loadDay();
+      render();
+    };
+
+    const label = el("div", "agenda-daylbl", prettyDayShort(day));
+    if (day === state.context?.today) label.classList.add("today");
+    column.append(track, label);
+    grid.append(column);
+  }
+
+  scroll.append(grid);
+  wrap.append(scroll);
+  host.append(wrap);
+  // Most recent days matter most, so start at the right-hand edge.
+  requestAnimationFrame(() => { scroll.scrollLeft = scroll.scrollWidth; });
+}
+
+function prettyDayShort(iso) {
+  const d = new Date(`${iso}T12:00:00`);
+  return `${d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)} ${d.getDate()}`;
 }
 
 function shortLabel(iso, grouping) {
@@ -910,7 +1005,8 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
   button.onclick = async () => {
-    state.graphRange = button.dataset.range;
+    if (button.dataset.mode) state.graphMode = button.dataset.mode;
+    if (button.dataset.range) state.graphRange = button.dataset.range;
     state.graphs = null;
     render();
     await loadGraphs();

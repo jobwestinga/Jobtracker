@@ -7,6 +7,7 @@ no network, no running server, no fixtures pointing at real data.
 
 import json
 import uuid
+from datetime import date, timedelta
 
 import pytest
 
@@ -413,3 +414,39 @@ def test_mounting_the_app_did_not_shadow_the_api(api):
     """A mount at "/" swallows every route registered after it."""
     for path in ("/health", "/api/context", "/api/snapshot", "/sync/integrity", "/ops/known"):
         assert api.get(path).status_code == 200, path
+
+
+def test_agenda_places_sessions_at_their_clock_position(api):
+    subject_uid = make_subject(api)
+    today = api.get("/api/context").json()["today"]
+    do(api, "add_session", {
+        "subject_uid": subject_uid,
+        "start_time": f"{today}T10:00:00",
+        "end_time": f"{today}T12:30:00",
+    })
+    body = api.get("/api/graphs/agenda?days=3").json()
+
+    assert today in body["days"]
+    assert body["day_start_hour"] == 3.0
+    placed = [s for s in body["sessions"] if s["day"] == today]
+    assert placed and placed[0]["start_h"] == 10.0 and placed[0]["end_h"] == 12.5
+    assert placed[0]["subject_uid"] == subject_uid
+
+
+def test_after_midnight_work_belongs_to_the_previous_day(api):
+    """01:00 is hour 25 of yesterday, not hour 1 of today — the same rule the
+    desktop agenda uses, so the two cannot disagree."""
+    subject_uid = make_subject(api)
+    today = api.get("/api/context").json()["today"]
+    tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+    do(api, "add_session", {
+        "subject_uid": subject_uid,
+        "start_time": f"{tomorrow}T01:00:00",
+        "end_time": f"{tomorrow}T02:00:00",
+    })
+    body = api.get("/api/graphs/agenda?days=3").json()
+
+    placed = [s for s in body["sessions"] if s["start_h"] >= 24]
+    assert placed, "after-midnight session was not mapped past hour 24"
+    assert placed[0]["day"] == today
+    assert placed[0]["start_h"] == 25.0
