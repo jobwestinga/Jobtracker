@@ -217,6 +217,22 @@ def grouping_for_preset(preset: str) -> str:
     }.get(preset, "daily")
 
 
+# "auto" means "let the range decide" (the old, and still default, behaviour).
+GROUPING_CHOICES = ("auto", "daily", "weekly", "monthly")
+
+
+def resolve_grouping(automatic: str, override: Optional[str]) -> str:
+    """Honour an explicit bucket size, else the one the range implies.
+
+    The range-derived default is right most of the time — a year of daily bars
+    is unreadable — but "show me every day of last month" is a legitimate thing
+    to want, so the choice is offered rather than forced.
+    """
+    if override in ("daily", "weekly", "monthly"):
+        return override
+    return automatic
+
+
 def grouping_for_span(start: date, end: date) -> str:
     """Sensible bucket size for a custom from/to range, by its length."""
     days = abs((end - start).days)
@@ -278,7 +294,7 @@ def split_by_logical_day(
 
     A session that crosses a logical-day boundary is divided so each logical day
     receives only the seconds that actually fall within it. Used by analytics
-    that need precise per-day attribution (e.g. a future heatmap / export
+    that need precise per-day attribution (e.g. a future export
     summary). Returns an empty list for non-positive intervals.
 
     NOTE: the current bar-chart aggregation attributes a whole session to the

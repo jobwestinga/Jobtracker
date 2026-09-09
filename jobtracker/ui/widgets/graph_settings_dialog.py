@@ -2,8 +2,8 @@
 Graph Settings dialog — configures the Graphs tab:
 - A single calendar Range (Weeks / Months / Year / All Time) or a one-off custom
   range. The bucket size (daily/weekly/monthly) is chosen automatically from the
-  range, so there is no separate grouping control.
-- View mode (Stacked Bar / Agenda Timeline / Heatmap)
+  range by default, with an explicit override for when that is not wanted.
+- View mode (Stacked Bar / Agenda Timeline)
 - Agenda visible hour range (start / end hour) + auto-fit
 
 Settings are read/written through the TrackerService, not the database directly.
@@ -12,7 +12,7 @@ Settings are read/written through the TrackerService, not the database directly.
 from datetime import date
 
 from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel,
+    QVBoxLayout, QHBoxLayout, QLabel, QWidget, QComboBox,
     QPushButton, QSpinBox, QCheckBox, QDateEdit,
 )
 from PySide6.QtCore import Qt, QDate
@@ -31,7 +31,16 @@ RANGE_OPTIONS = [
 VIEW_OPTIONS = [
     ("Stacked Bar", "bar"),
     ("Agenda Timeline", "agenda"),
-    ("Heatmap", "heatmap"),
+]
+
+# Bucket size for the stacked bars. "auto" keeps the range-derived default, which
+# is right most of the time; the rest exist because "every day of last month" is
+# a reasonable thing to want and used to be impossible.
+GROUPING_OPTIONS = [
+    ("Automatic (from range)", "auto"),
+    ("Every day", "daily"),
+    ("Weeks", "weekly"),
+    ("Months", "monthly"),
 ]
 
 
@@ -80,12 +89,30 @@ class GraphSettingsDialog(InlineDialog):
             self.range_btns.append(btn)
         layout.addLayout(range_row)
 
-        self._grouping_hint = QLabel(
-            "Bar bucket size is chosen automatically from the range."
-        )
+        # Bucket size. "Automatic" is the old behaviour and stays the default —
+        # a year of daily bars is unreadable — but "every day of last month" is a
+        # perfectly reasonable thing to ask for, so it is offered rather than
+        # decided for the user.
+        self._grouping_row = QWidget()
+        grouping_layout = QHBoxLayout(self._grouping_row)
+        grouping_layout.setContentsMargins(0, 0, 0, 0)
+        grouping_layout.setSpacing(8)
+        grouping_label = QLabel("Bar size")
+        grouping_label.setStyleSheet("font-size: 12px;")
+        grouping_layout.addWidget(grouping_label)
+        self.grouping_combo = QComboBox()
+        self.grouping_combo.setCursor(Qt.PointingHandCursor)
+        for label, value in GROUPING_OPTIONS:
+            self.grouping_combo.addItem(label, value)
+        self.grouping_combo.setMinimumHeight(30)
+        grouping_layout.addWidget(self.grouping_combo, 1)
+        layout.addWidget(self._grouping_row)
+
+        self._grouping_hint = QLabel("")
         self._grouping_hint.setWordWrap(True)
         self._grouping_hint.setStyleSheet("font-size: 11px; opacity: 0.75;")
         layout.addWidget(self._grouping_hint)
+        self.grouping_combo.currentIndexChanged.connect(self._update_grouping_hint)
 
         # ── Custom range ─────────────────────────────────────────────────
         self.custom_check = QCheckBox("Use a custom date range")
@@ -110,14 +137,6 @@ class GraphSettingsDialog(InlineDialog):
         self._custom_row = custom_row
         layout.addLayout(custom_row)
 
-        self._heatmap_range_hint = QLabel(
-            "Heatmap always shows all history. It opens on the newest weeks; "
-            "scroll left for older days."
-        )
-        self._heatmap_range_hint.setWordWrap(True)
-        self._heatmap_range_hint.setStyleSheet("font-size: 11px; padding: 6px 0;")
-        self._heatmap_range_hint.hide()
-        layout.addWidget(self._heatmap_range_hint)
 
         # ── View Mode ────────────────────────────────────────────────────
         lbl_mode = QLabel("View Mode")
@@ -218,12 +237,11 @@ class GraphSettingsDialog(InlineDialog):
         self._on_mode_changed()
 
     def _on_custom_toggled(self, checked: bool) -> None:
-        is_heatmap = VIEW_OPTIONS[self._selected_mode][1] == "heatmap"
         for i in range(self._custom_row.count()):
             w = self._custom_row.itemAt(i).widget()
             if w:
-                w.setVisible(not is_heatmap)
-                w.setEnabled(checked and not is_heatmap)
+                w.setVisible(True)
+                w.setEnabled(checked and True)
         if checked:
             self._restyle(self.range_btns, -1)
         else:
@@ -232,13 +250,12 @@ class GraphSettingsDialog(InlineDialog):
     def _on_mode_changed(self) -> None:
         mode = VIEW_OPTIONS[self._selected_mode][1]
         is_agenda = mode == "agenda"
-        is_heatmap = mode == "heatmap"
-        self._range_label.setVisible(not is_heatmap)
+        self._range_label.setVisible(True)
         for btn in self.range_btns:
-            btn.setVisible(not is_heatmap)
-        self.custom_check.setVisible(not is_heatmap)
+            btn.setVisible(True)
+        self.custom_check.setVisible(True)
+        self._grouping_row.setVisible(mode == "bar")
         self._grouping_hint.setVisible(mode == "bar")
-        self._heatmap_range_hint.setVisible(is_heatmap)
         self._on_custom_toggled(self.custom_check.isChecked())
         self.fit_width_check.setVisible(mode in ("bar", "agenda"))
         self.autofit_hours_check.setVisible(is_agenda)
@@ -274,6 +291,13 @@ class GraphSettingsDialog(InlineDialog):
                 mode_idx = idx
                 break
         self._select_mode(mode_idx)
+
+        saved_grouping = self._svc.get_setting("graph_grouping", "auto")
+        grouping_idx = next(
+            (i for i, (_, v) in enumerate(GROUPING_OPTIONS) if v == saved_grouping), 0
+        )
+        self.grouping_combo.setCurrentIndex(grouping_idx)
+        self._update_grouping_hint()
 
         start_raw = self._svc.get_setting("graph_custom_start", "")
         end_raw = self._svc.get_setting("graph_custom_end", "")
@@ -313,6 +337,7 @@ class GraphSettingsDialog(InlineDialog):
         s = self.get_settings()
         self._svc.set_setting("graph_range", s["range_str"])
         self._svc.set_setting("graph_view_mode", s["view_mode"])
+        self._svc.set_setting("graph_grouping", s["grouping"])
         self._svc.set_setting("graph_hour_start", str(s["hour_start"]))
         self._svc.set_setting("graph_hour_end", str(s["hour_end"]))
         self._svc.set_setting("graph_fit_horizontal", "1" if s["fit_horizontal"] else "0")
@@ -321,6 +346,26 @@ class GraphSettingsDialog(InlineDialog):
             self._svc.set_setting("graph_custom_start", s["custom_range"][0].isoformat())
             self._svc.set_setting("graph_custom_end", s["custom_range"][1].isoformat())
         self.accept()
+
+    def _update_grouping_hint(self) -> None:
+        """Say what the current choice means for the range that is selected."""
+        choice = self.grouping_combo.currentData()
+        if choice == "auto":
+            _, preset = RANGE_OPTIONS[self._selected_range]
+            derived = {
+                "weeks": "one bar per day",
+                "months": "one bar per week",
+                "year": "one bar per month",
+                "all": "one bar per month",
+            }.get(preset, "one bar per day")
+            text = f"Chosen from the range — currently {derived}."
+        else:
+            text = {
+                "daily": "One bar per day, however long the range.",
+                "weekly": "One bar per week.",
+                "monthly": "One bar per month.",
+            }[choice]
+        self._grouping_hint.setText(text)
 
     def get_settings(self) -> dict:
         _, range_preset = RANGE_OPTIONS[self._selected_range]
@@ -345,6 +390,7 @@ class GraphSettingsDialog(InlineDialog):
             "view_mode": mode_val,
             "hour_start": self.hour_start_spin.value(),
             "hour_end": self.hour_end_spin.value(),
+            "grouping": self.grouping_combo.currentData(),
             "fit_horizontal": self.fit_width_check.isChecked(),
             "autofit_hours": self.autofit_hours_check.isChecked(),
         }

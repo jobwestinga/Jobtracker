@@ -36,15 +36,6 @@ from jobtracker.ui.widgets.goal_dialog import (
 )
 from jobtracker.ui.widgets.graph_settings_dialog import GraphSettingsDialog
 from jobtracker.ui.widgets.graph_settings_dialog import RANGE_OPTIONS
-from jobtracker.ui.widgets.heatmap_view import (
-    GAP,
-    LEFT,
-    HeatmapWidget,
-    _intensity_ratio,
-    _mix_color,
-    _scale_colors,
-    _visual_ratio,
-)
 from jobtracker.ui.widgets.settings_dialog import SettingsDialog
 from jobtracker.ui.widgets.subject_dialog import SubjectDialog
 from jobtracker.ui.widgets.reorderable_list import ReorderableCardList
@@ -66,7 +57,7 @@ def _window(database, monkeypatch):
     return qt_app, window
 
 
-def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
+def test_main_window_constructs_with_goals_and_graphs(database, monkeypatch):
     database.set_setting("graph_grouping", "weekly")
     qt_app, window = _window(database, monkeypatch)
     try:
@@ -74,18 +65,20 @@ def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
         assert [button.text() for button in window._nav_buttons] == [
             "Goals", "Subjects", "Graphs",
         ]
-        assert database.get_setting("graph_grouping", "") == ""
+        # graph_grouping is a real preference again: an explicit bucket size is
+        # honoured rather than wiped at launch.
+        assert database.get_setting("graph_grouping", "") == "weekly"
+        assert window._graph_grouping == "weekly"
         assert window._recurring_timer.isActive()
         assert window._pages.currentIndex() == 1
-        assert window._graph_stack.count() == 3
+        assert window._graph_stack.count() == 2
         assert not hasattr(window, "_tasks_nav_btn")
-        assert set(window._graph_mode_buttons) == {"bar", "agenda", "heatmap"}
+        assert set(window._graph_mode_buttons) == {"bar", "agenda"}
         window._switch_page(2)
         qt_app.processEvents()
         assert (
             window._graph_mode_buttons["bar"].x()
             < window._graph_mode_buttons["agenda"].x()
-            < window._graph_mode_buttons["heatmap"].x()
             < window._graph_settings_btn.x()
         )
 
@@ -100,13 +93,6 @@ def test_main_window_constructs_with_goals_and_heatmap(database, monkeypatch):
             old_subject.id, old_start, old_start + timedelta(hours=1)
         )
         window._graph_range_preset = "weeks"
-        window._graph_mode_buttons["heatmap"].click()
-        qt_app.processEvents()
-        assert window._graph_stack.currentIndex() == 2
-        assert database.get_setting("graph_view_mode") == "heatmap"
-        assert old_start.date().isoformat() in window._heatmap_view._canvas._data
-        assert "All Time" in window._graph_subtitle.text()
-
         window._graph_mode_buttons["agenda"].click()
         qt_app.processEvents()
         assert window._graph_stack.currentIndex() == 1
@@ -330,7 +316,6 @@ def test_number_shortcuts_are_context_sensitive_and_switching_needs_confirm(
         for key, mode in (
             (Qt.Key_1, "bar"),
             (Qt.Key_2, "agenda"),
-            (Qt.Key_3, "heatmap"),
         ):
             QTest.keyClick(window, key)
             assert window._graph_view_mode == mode
@@ -1281,84 +1266,6 @@ def test_template_dialog_edits_schedule_and_milestone_descriptions(service):
     assert data["milestones"] == [
         {"title": "Review goals", "note": "Check what still matters."}
     ]
-    dialog.close()
-
-
-def test_heatmap_panel_hugs_grid_with_continuous_accent_intensity():
-    qt_app = _application()
-    heatmap = HeatmapWidget()
-    heatmap.resize(700, 600)
-    heatmap.set_data(
-        [
-            {"date": "2026-06-19", "total_seconds": 0},
-            {"date": "2026-06-20", "total_seconds": 30 * 60},
-            {"date": "2026-06-21", "total_seconds": 8 * 3600},
-        ]
-    )
-    heatmap.show()
-    qt_app.processEvents()
-    # The panel hugs its 7-row grid instead of stretching into a hollow card,
-    # but must still be tall enough for full-size cells.
-    from jobtracker.ui.widgets.heatmap_view import MAX_CELL
-
-    assert heatmap._scroll.maximumHeight() >= 7 * MAX_CELL
-    assert heatmap._scroll.maximumHeight() < 600
-    assert heatmap._canvas._metrics()[0] > 20
-    cell = heatmap._canvas._metrics()[0]
-    # Cells grew so the grid fills its area instead of floating in dead space;
-    # at the real capped content width this still shows ~5 months at once.
-    assert (heatmap.width() - LEFT) // (cell + GAP) >= 16
-    heatmap.resize(1000, 600)
-    qt_app.processEvents()
-    wide_cell = heatmap._canvas._metrics()[0]
-    assert (heatmap.width() - LEFT) // (wide_cell + GAP) >= 20
-    heatmap.resize(700, 600)
-    qt_app.processEvents()
-    assert _intensity_ratio(0, 8 * 3600) == 0
-    assert _intensity_ratio(30 * 60, 8 * 3600) == 0.0625
-    assert _intensity_ratio(8 * 3600, 8 * 3600) == 1
-    low, high = _scale_colors(
-        {"BG_PRIMARY": "#0B1120", "BG_TERTIARY": "#1A2640", "ACCENT": "#F59E0B"}
-    )
-    half = _mix_color(low, high, 0.5)
-    assert half != low
-    assert half != high
-    assert _mix_color(low, high, 0.51) != half
-    assert _visual_ratio(0) == 0
-    assert _visual_ratio(0.25) > 0.25
-    assert _visual_ratio(1) == 1
-    # The busiest-day colour now follows the theme accent instead of a fixed
-    # GitHub green, so the heatmap belongs to the selected palette.
-    assert high == QColor("#F59E0B").lighter(118)
-    other = _scale_colors(
-        {"BG_PRIMARY": "#0B1120", "BG_TERTIARY": "#1A2640", "ACCENT": "#3B82F6"}
-    )[1]
-    assert other != high
-
-    cell, origin_x, origin_y = heatmap._canvas._metrics()
-    heatmap.activateWindow()
-    qt_app.processEvents()
-    QTest.mouseMove(
-        heatmap._canvas,
-        QPoint(origin_x + cell // 2, origin_y + 6 * (cell + GAP) + cell // 2),
-    )
-    qt_app.processEvents()
-    assert heatmap._canvas._hover_card.isVisible()
-    assert "Sunday, 21 June 2026" in heatmap._canvas._hover_card.text()
-    assert "8.0 tracked hours" in heatmap._canvas._hover_card.text()
-    heatmap.close()
-
-
-def test_heatmap_mode_hides_date_range_settings():
-    qt_app = _application()
-    dialog = GraphSettingsDialog()
-    dialog._select_mode(2)
-    dialog.show()
-    qt_app.processEvents()
-    assert dialog._range_label.isHidden()
-    assert dialog.custom_check.isHidden()
-    assert dialog._heatmap_range_hint.isVisible()
-    assert all(button.isHidden() for button in dialog.range_btns)
     dialog.close()
 
 
@@ -2528,3 +2435,88 @@ def test_every_session_list_edit_path_can_delete(service, monkeypatch):
     qt_app.processEvents()
     assert service.get_session(second.id) is None
     day_dialog.close()
+
+
+def test_graph_settings_offers_a_bucket_size_and_persists_it(database, monkeypatch):
+    """The desktop half of the same choice the phone got."""
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        from jobtracker.ui.widgets.graph_settings_dialog import (
+            GROUPING_OPTIONS,
+            GraphSettingsDialog,
+        )
+
+        assert [value for _, value in GROUPING_OPTIONS] == [
+            "auto", "daily", "weekly", "monthly",
+        ]
+
+        dialog = GraphSettingsDialog(window, service=window.service)
+        # Defaults to automatic, i.e. exactly the old behaviour.
+        assert dialog.grouping_combo.currentData() == "auto"
+
+        daily_idx = [v for _, v in GROUPING_OPTIONS].index("daily")
+        dialog.grouping_combo.setCurrentIndex(daily_idx)
+        from PySide6.QtWidgets import QDialog
+
+        window._finish_graph_settings(QDialog.Accepted, dialog)
+
+        assert window._graph_grouping == "daily"
+        dialog.deleteLater()
+    finally:
+        window.close()
+
+
+def test_bucket_size_override_changes_the_bars_drawn(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("Physics", "#3B82F6", "")
+        base = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+        for offset in range(28):
+            day = base - timedelta(days=offset)
+            window.service.add_session(subject.id, day, day + timedelta(hours=1))
+
+        window._graph_range_preset = "months"
+        window._graph_custom_range = None
+
+        window._graph_grouping = "auto"
+        _, _, automatic = window._window_and_grouping()
+        assert automatic == "weekly"
+
+        window._graph_grouping = "daily"
+        _, _, overridden = window._window_and_grouping()
+        assert overridden == "daily"
+
+        window._reload_graphs()
+        qt_app.processEvents()
+        assert len(window._graph_view._canvas._data) > 7
+    finally:
+        window.close()
+
+
+def test_a_saved_heatmap_view_mode_falls_back_to_bars(database, monkeypatch):
+    """Anyone whose last view was the removed heatmap must not get a blank page."""
+    database.set_setting("graph_view_mode", "heatmap")
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        assert window._graph_view_mode == "bar"
+        assert database.get_setting("graph_view_mode") == "bar"
+    finally:
+        window.close()
+
+
+def test_graph_number_shortcuts_cover_only_the_two_views(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        window._switch_page(2)
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(window, Qt.Key_2)
+        assert window._graph_view_mode == "agenda"
+        # 3 used to be the heatmap; it must now do nothing rather than break.
+        QTest.keyClick(window, Qt.Key_3)
+        assert window._graph_view_mode == "agenda"
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()

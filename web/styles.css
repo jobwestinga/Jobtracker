@@ -43,7 +43,7 @@ html, body {
 
 /* ── chrome ────────────────────────────────────────────────────────── */
 .topbar {
-  position: sticky; top: 0; z-index: 5;
+  flex: 0 0 auto; z-index: 5;
   padding: calc(var(--safe-t) + 12px) 16px 12px;
   background: rgba(11, 18, 32, 0.92);
   backdrop-filter: blur(12px);
@@ -60,11 +60,15 @@ html, body {
 }
 .banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.4); }
 
-.view { padding: 12px 16px calc(var(--safe-b) + 92px); }
+/* The app is a fixed frame: header, one scrolling middle, tab bar. Nothing
+   here depends on page height, so switching tabs cannot move the chrome. */
+#app { display: flex; flex-direction: column; height: 100dvh; }
+#views { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.view { padding: 12px 16px 20px; }
 
 /* Big touch targets: this is used one-handed, often in a hurry. */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  flex: 0 0 auto; z-index: 6;
   display: grid; grid-template-columns: repeat(3, 1fr);
   background: rgba(19, 28, 46, 0.96);
   backdrop-filter: blur(12px);
@@ -217,7 +221,7 @@ input, select { font-size: 16px; }
   justify-content: flex-start;
   background: var(--panel); border-radius: 6px; overflow: hidden;
 }
-.bar-seg { width: 100%; min-height: 2px; }
+.bar-seg { width: 100%; min-height: 1px; }
 .bar-val { font-size: 10px; color: var(--dim); text-align: center; height: 12px; }
 .bar-lbl { font-size: 10px; color: var(--dim); text-align: center; }
 
@@ -243,7 +247,7 @@ input, select { font-size: 16px; }
 .set-note { font-size: 12px; color: var(--dim); margin: 6px 0 14px; }
 
 /* ── agenda ────────────────────────────────────────────────────────── */
-.seg-range { margin-top: 8px; }
+.seg-range, .seg-group { margin-top: 8px; }
 .agenda-wrap { display: flex; margin-top: 14px; }
 .agenda-hours {
   flex: 0 0 34px; position: relative;
@@ -266,3 +270,7 @@ input, select { font-size: 16px; }
 }
 .agenda-daylbl { font-size: 10px; color: var(--dim); text-align: center; margin-top: 4px; }
 .agenda-daylbl.today { color: var(--accent); font-weight: 700; }
+
+.swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
+.swatch.used { opacity: 0.35; }
+.swatch.picked { border-color: var(--text); transform: scale(1.08); }

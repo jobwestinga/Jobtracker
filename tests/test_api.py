@@ -136,7 +136,6 @@ def test_no_endpoint_leaks_a_local_row_id(api):
         "/sync/pull?since=0",
         "/sync/integrity",
         "/api/graphs/breakdown",
-        "/api/graphs/heatmap",
         "/api/sessions/day/2026-06-01",
     ):
         response = api.get(path)
@@ -467,3 +466,99 @@ def test_the_offline_shell_is_cacheable_without_a_token(api):
     for path in ("/", "/index.html", "/app.js", "/api.js", "/styles.css",
                  "/manifest.webmanifest", "/icon.png", "/sw.js"):
         assert api.get(path).status_code == 200, path
+
+
+# ── grouping override over the API (what the phone's Days/Weeks/Months does) ──
+
+
+@pytest.mark.parametrize("grouping", ["daily", "weekly", "monthly"])
+def test_breakdown_accepts_every_bucket_size(api, grouping):
+    subject_uid = make_subject(api)
+    today = api.get("/api/context").json()["today"]
+    do(api, "add_session", {
+        "subject_uid": subject_uid,
+        "start_time": f"{today}T10:00:00",
+        "end_time": f"{today}T12:00:00",
+    })
+    body = api.get(f"/api/graphs/breakdown?grouping={grouping}&days=30").json()
+    assert body["grouping"] == grouping
+    assert sum(b["total_seconds"] for b in body["buckets"]) == 7200
+
+
+def test_breakdown_refuses_a_bucket_size_it_does_not_know(api):
+    assert api.get("/api/graphs/breakdown?grouping=hourly").status_code == 422
+
+
+def test_a_month_can_be_shown_day_by_day(api):
+    """The phone's Month+Days combination, end to end."""
+    subject_uid = make_subject(api)
+    today = date.fromisoformat(api.get("/api/context").json()["today"])
+    for offset in range(20):
+        day = (today - timedelta(days=offset)).isoformat()
+        do(api, "add_session", {
+            "subject_uid": subject_uid,
+            "start_time": f"{day}T10:00:00",
+            "end_time": f"{day}T11:00:00",
+        })
+
+    daily = api.get("/api/graphs/breakdown?grouping=daily&days=30").json()["buckets"]
+    weekly = api.get("/api/graphs/breakdown?grouping=weekly&days=30").json()["buckets"]
+
+    assert len(daily) == 30
+    assert len(daily) > len(weekly)
+    assert sum(b["total_seconds"] for b in daily) == 20 * 3600
+
+
+def test_segments_carry_what_a_stacked_bar_needs(api):
+    """The phone stacks by SUBJECT, so each segment must name its subject and
+    colour. Summing them per subject has to reproduce the bucket total."""
+    physics = make_subject(api, "Physics")
+    maths = make_subject(api, "Maths")
+    today = api.get("/api/context").json()["today"]
+    for uid, start, end in ((physics, "09:00", "10:00"), (physics, "11:00", "12:00"),
+                            (maths, "13:00", "15:00")):
+        do(api, "add_session", {
+            "subject_uid": uid,
+            "start_time": f"{today}T{start}:00",
+            "end_time": f"{today}T{end}:00",
+        })
+
+    bucket = [b for b in api.get("/api/graphs/breakdown?grouping=daily&days=2").json()["buckets"]
+              if b["date"] == today][0]
+    per_subject = {}
+    for segment in bucket["segments"]:
+        assert segment["color"].startswith("#")
+        assert segment["subject_uid"]
+        per_subject[segment["subject_name"]] = (
+            per_subject.get(segment["subject_name"], 0) + segment["seconds"]
+        )
+
+    assert per_subject == {"Physics": 7200, "Maths": 7200}
+    assert sum(per_subject.values()) == bucket["total_seconds"]
+
+
+def test_a_long_bucket_returns_one_segment_per_session_not_per_subject(api):
+    """Pins the shape the phone has to aggregate: the API deliberately returns
+    a segment per session, which is why the phone sums them per subject before
+    drawing. Without that, a month of many sessions rendered every bar the same
+    height."""
+    subject_uid = make_subject(api)
+    today = date.fromisoformat(api.get("/api/context").json()["today"])
+    for offset in range(5):
+        day = (today - timedelta(days=offset)).isoformat()
+        for hour in (9, 11, 14):
+            do(api, "add_session", {
+                "subject_uid": subject_uid,
+                "start_time": f"{day}T{hour:02d}:00:00",
+                "end_time": f"{day}T{hour + 1:02d}:00:00",
+            })
+
+    buckets = api.get("/api/graphs/breakdown?grouping=monthly&days=30").json()["buckets"]
+    segments = [s for b in buckets for s in b["segments"]]
+    assert len(segments) == 15
+    assert len({s["subject_uid"] for s in segments}) == 1
+
+
+def test_the_heatmap_endpoint_is_gone(api):
+    """Removed on purpose; the bar chart and agenda cover the same ground."""
+    assert api.get("/api/graphs/heatmap").status_code == 404

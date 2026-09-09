@@ -19,6 +19,7 @@ const state = {
   expandedGoal: null,
   graphMode: "bars",
   graphRange: "7",
+  graphGroup: "auto",
   graphs: null,
   tick: null,
 };
@@ -387,25 +388,25 @@ function goalCard(goal) {
 // The server computes every total (same logical-day attribution the desktop
 // uses), so these numbers cannot drift from the Mac's. This code only draws.
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const svgEl = (tag, attrs = {}) => {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  return node;
-};
+/** The bucket size a range implies, matching the desktop's grouping_for_preset. */
+function automaticGrouping(range) {
+  if (range >= 365) return "monthly";
+  if (range >= 30) return "weekly";
+  return "daily";
+}
 
 async function loadGraphs() {
   const range = Number(state.graphRange);
   try {
-    if (state.graphMode === "heatmap") {
-      state.graphs = { kind: "heatmap", data: await api.heatmap() };
-    } else if (state.graphMode === "agenda") {
+    if (state.graphMode === "agenda") {
       // The agenda paints clock positions, so a year of columns is meaningless;
       // the endpoint caps it and the result simply scrolls.
       state.graphs = { kind: "agenda", data: await api.agenda(Math.min(range, 60)) };
     } else {
-      state.graphs = { kind: "bars", data: await api.breakdown(
-        range >= 365 ? "monthly" : range >= 30 ? "weekly" : "daily", range) };
+      const grouping = state.graphGroup === "auto"
+        ? automaticGrouping(range)
+        : state.graphGroup;
+      state.graphs = { kind: "bars", data: await api.breakdown(grouping, range) };
     }
   } catch (err) {
     state.graphs = { kind: "error", message: err.message };
@@ -417,9 +418,11 @@ function renderGraphs() {
     b.classList.toggle("on", b.dataset.mode === state.graphMode));
   document.querySelectorAll("#view-graphs [data-range]").forEach((b) =>
     b.classList.toggle("on", b.dataset.range === state.graphRange));
-  // The heatmap is always all of history, so a range choice would be a lie.
-  document.querySelector("#view-graphs .seg-range")
-    .classList.toggle("hidden", state.graphMode === "heatmap");
+  document.querySelectorAll("#view-graphs [data-group]").forEach((b) =>
+    b.classList.toggle("on", b.dataset.group === state.graphGroup));
+  // Bucket size means nothing to the agenda, which is always one column per day.
+  document.querySelector("#view-graphs .seg-group")
+    .classList.toggle("hidden", state.graphMode !== "bars");
 
   const host = $("graph-body");
   host.innerHTML = "";
@@ -433,7 +436,6 @@ function renderGraphs() {
     host.append(el("p", "muted", `Could not load graphs: ${state.graphs.message}`));
     return;
   }
-  if (state.graphs.kind === "heatmap") return drawHeatmap(host, state.graphs.data);
   if (state.graphs.kind === "agenda") return drawAgenda(host, state.graphs.data);
   return drawBars(host, state.graphs.data);
 }
@@ -454,13 +456,24 @@ function drawBars(host, data) {
   for (const bucket of buckets) {
     const column = el("div", "bar-col");
     const stack = el("div", "bar-stack");
-    // Stack the subjects, tallest contribution at the bottom, like the desktop.
-    const segments = [...bucket.segments].sort((a, b) => b.seconds - a.seconds);
+    // Sum per SUBJECT first. The API returns one segment per session, and a
+    // month can hold fifty of them; with a minimum height per block, every long
+    // bucket hit the ceiling and all the bars came out the same height. This is
+    // also what "stacked by subject" is supposed to mean.
+    const perSubject = new Map();
+    for (const segment of bucket.segments) {
+      const key = segment.subject_uid || segment.subject_name;
+      const entry = perSubject.get(key)
+        || { seconds: 0, color: segment.color, name: segment.subject_name };
+      entry.seconds += segment.seconds;
+      perSubject.set(key, entry);
+    }
+    const segments = [...perSubject.values()].sort((a, b) => b.seconds - a.seconds);
     for (const segment of segments) {
       const piece = el("div", "bar-seg");
       piece.style.height = `${(segment.seconds / peak) * 100}%`;
       piece.style.background = segment.color || "var(--accent)";
-      piece.title = `${segment.subject_name}: ${hm(segment.seconds)}`;
+      piece.title = `${segment.name}: ${hm(segment.seconds)}`;
       stack.append(piece);
     }
     const value = el("div", "bar-val", bucket.total_seconds ? hm(bucket.total_seconds) : "");
@@ -589,66 +602,6 @@ function shortLabel(iso, grouping) {
   if (grouping === "monthly") return d.toLocaleDateString(undefined, { month: "short" });
   if (grouping === "weekly") return `${d.getDate()}/${d.getMonth() + 1}`;
   return d.toLocaleDateString(undefined, { weekday: "narrow" });
-}
-
-function drawHeatmap(host, data) {
-  const days = data.days || [];
-  const total = days.reduce((sum, d) => sum + d.total_seconds, 0);
-  $("graph-total").textContent = `${Math.round(total / 3600)} hours over ${days.length} days`;
-  if (!days.length) {
-    host.append(el("p", "muted", "No history yet."));
-    return;
-  }
-
-  const byDate = new Map(days.map((d) => [d.date, d.total_seconds]));
-  const first = new Date(`${days[0].date}T12:00:00`);
-  const last = new Date(`${days[days.length - 1].date}T12:00:00`);
-  // Start on the Monday of the first week: the desktop's weeks are Monday-based.
-  const startOffset = (first.getDay() + 6) % 7;
-  first.setDate(first.getDate() - startOffset);
-
-  const weeks = Math.ceil((last - first) / (7 * 86400000)) + 1;
-  const cell = 13, gap = 3;
-  const width = weeks * (cell + gap);
-  const height = 7 * (cell + gap);
-  const svg = svgEl("svg", {
-    viewBox: `0 0 ${width} ${height}`,
-    width: width, height: height, class: "heat",
-  });
-
-  const peak = Math.max(...days.map((d) => d.total_seconds), 1);
-  const cursor = new Date(first);
-  for (let w = 0; w < weeks; w += 1) {
-    for (let d = 0; d < 7; d += 1) {
-      const iso = `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`;
-      const seconds = byDate.get(iso) || 0;
-      const rect = svgEl("rect", {
-        x: w * (cell + gap), y: d * (cell + gap),
-        width: cell, height: cell, rx: 3,
-        fill: seconds ? "var(--accent)" : "var(--panel-2)",
-        "fill-opacity": seconds ? (0.25 + 0.75 * Math.min(1, seconds / peak)).toFixed(2) : 1,
-      });
-      if (seconds) {
-        rect.style.cursor = "pointer";
-        rect.onclick = async () => {
-          state.day = iso;
-          state.view = "sessions";
-          await loadDay();
-          render();
-        };
-        const title = svgEl("title");
-        title.textContent = `${iso}: ${hm(seconds)}`;
-        rect.append(title);
-      }
-      svg.append(rect);
-      cursor.setDate(cursor.getDate() + 1);
-    }
-  }
-  const scroller = el("div", "heat-wrap");
-  scroller.append(svg);
-  host.append(scroller);
-  // Newest weeks first, like the desktop heatmap.
-  requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
 }
 
 // ── sheets ──────────────────────────────────────────────────────────────
@@ -876,6 +829,47 @@ function addGoalSheet() {
 }
 
 
+
+function addSubjectSheet() {
+  openSheet("New subject", (body) => {
+    const name = field(body, "Name",
+      Object.assign(document.createElement("input"),
+        { type: "text", placeholder: "e.g. Thesis" }));
+
+    body.append(el("label", null, "Colour"));
+    // The desktop suggests colours that stay distinct from the existing ones;
+    // on the phone a fixed palette is enough, with the already-used ones marked.
+    const used = new Set((state.snapshot?.subjects || []).map((s) => s.color));
+    const chips = el("div", "chips");
+    let chosen = null;
+    const palette = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6",
+                     "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
+    for (const colour of palette) {
+      const chip = el("button", "chip swatch");
+      chip.style.background = colour;
+      if (used.has(colour)) chip.classList.add("used");
+      chip.onclick = () => {
+        chosen = colour;
+        chips.querySelectorAll(".swatch").forEach((c) => c.classList.remove("picked"));
+        chip.classList.add("picked");
+      };
+      chips.append(chip);
+    }
+    body.append(chips);
+
+    const save = el("button", "primary wide", "Add subject");
+    save.onclick = async () => {
+      const title = name.value.trim();
+      if (!title) return;
+      const colour = chosen || palette.find((c) => !used.has(c)) || palette[0];
+      closeSheet();
+      await act("add_subject", { name: title, color: colour, notes: "" }, { uid: uuid() });
+    };
+    body.append(save);
+    setTimeout(() => name.focus(), 50);
+  });
+}
+
 // ── settings ────────────────────────────────────────────────────────────
 
 function settingsSheet() {
@@ -1008,6 +1002,7 @@ document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
   button.onclick = async () => {
     if (button.dataset.mode) state.graphMode = button.dataset.mode;
     if (button.dataset.range) state.graphRange = button.dataset.range;
+    if (button.dataset.group) state.graphGroup = button.dataset.group;
     state.graphs = null;
     render();
     await loadGraphs();
@@ -1021,6 +1016,7 @@ $("day-prev").onclick = async () => { state.day = addDays(state.day, -1); await 
 $("day-next").onclick = async () => { state.day = addDays(state.day, 1); await loadDay(); render(); };
 $("add-session").onclick = () => addSessionSheet();
 $("add-goal").onclick = () => addGoalSheet();
+$("add-subject").onclick = () => addSubjectSheet();
 $("goals-active").onclick = () => { state.goalsFilter = "active"; render(); };
 $("goals-done").onclick = () => { state.goalsFilter = "done"; render(); };
 $("sheet-close").onclick = closeSheet;

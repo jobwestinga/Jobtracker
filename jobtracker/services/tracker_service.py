@@ -970,35 +970,11 @@ class TrackerService:
 
         return created
 
-    # ── Heatmap (tracked time per logical day) ──────────────────────────
-    def get_heatmap_data(
-        self,
-        day_start: time | None = None,
-        days: int | None = None,
-        start_date: date | None = None,
-        end_date: date | None = None,
-    ) -> list[dict]:
-        """Tracked seconds per logical day. Defaults to all history (earliest
-        session -> today). Reuses the logical-day daily breakdown."""
-        if start_date is not None and end_date is not None:
-            breakdown = self.get_subject_breakdown(
-                grouping="daily", day_start=day_start,
-                start_date=start_date, end_date=end_date,
-            )
-        else:
-            breakdown = self.get_subject_breakdown(
-                grouping="daily", days=days, day_start=day_start
-            )
-        return [
-            {"date": d["date"], "total_seconds": d["total_seconds"]}
-            for d in breakdown
-        ]
-
     def get_sessions_for_logical_day(
         self, day: date, day_start: time | None = None
     ) -> list[dict]:
         """All closed sessions belonging to a single logical day, with subject
-        metadata. Used when a heatmap cell is clicked."""
+        metadata. Used when a day is opened from a graph."""
         day_start = day_start or self.get_day_start()
         subjects = {s.id: s for s in self.get_all_subjects_including_archived() if s.id is not None}
         start_dt, end_dt = timeutils.logical_day_bounds(day, day_start)

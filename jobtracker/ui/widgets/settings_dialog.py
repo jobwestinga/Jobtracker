@@ -311,8 +311,6 @@ class SettingsDialog(InlineDialog):
             main._graph_view.set_tokens(tokens)
         if main and hasattr(main, "_agenda_view"):
             main._agenda_view.set_tokens(tokens)
-        if main and hasattr(main, "_heatmap_view"):
-            main._heatmap_view.set_tokens(tokens)
         self._refresh_buttons()
 
     def _cancel(self) -> None:
@@ -332,8 +330,6 @@ class SettingsDialog(InlineDialog):
                 main._graph_view.set_tokens(tokens)
             if main and hasattr(main, "_agenda_view"):
                 main._agenda_view.set_tokens(tokens)
-            if main and hasattr(main, "_heatmap_view"):
-                main._heatmap_view.set_tokens(tokens)
         self.reject()
 
     def _resolve_main_window(self) -> Optional[object]:

@@ -39,6 +39,7 @@
   <div id="banner" class="banner hidden"></div>
 
   <!-- Today: the running timer and one-tap start. -->
+  <div id="views">
   <section id="view-today" class="view">
     <div id="active-card" class="card active-card hidden">
       <div class="active-dot" id="active-dot"></div>
@@ -50,6 +51,7 @@
     </div>
     <p id="idle-note" class="muted">Nothing is running. Tap a subject to start.</p>
     <div id="subject-list" class="list"></div>
+    <button id="add-subject" class="primary wide">+ Add subject</button>
   </section>
 
   <!-- Sessions for one logical day. -->
@@ -79,17 +81,25 @@
     <div class="seg">
       <button class="seg-btn on" data-mode="bars">Bars</button>
       <button class="seg-btn" data-mode="agenda">Agenda</button>
-      <button class="seg-btn" data-mode="heatmap">Heat</button>
     </div>
     <div class="seg seg-range">
       <button class="seg-btn on" data-range="7">Week</button>
       <button class="seg-btn" data-range="30">Month</button>
       <button class="seg-btn" data-range="365">Year</button>
     </div>
+    <!-- Bucket size, same choice the desktop offers. "Auto" follows the range. -->
+    <div class="seg seg-group">
+      <button class="seg-btn on" data-group="auto">Auto</button>
+      <button class="seg-btn" data-group="daily">Days</button>
+      <button class="seg-btn" data-group="weekly">Weeks</button>
+      <button class="seg-btn" data-group="monthly">Months</button>
+    </div>
     <div id="graph-total" class="muted day-total"></div>
     <div id="graph-body"></div>
     <div id="graph-legend" class="legend"></div>
   </section>
+
+  </div>
 
   <nav class="tabbar four">
     <button class="tab" data-view="goals"><span>&#9873;</span>Goals</button>

@@ -391,14 +391,6 @@ def api_agenda(
     }
 
 
-@app.get("/api/graphs/heatmap")
-def api_heatmap(device: str = Depends(require_device)) -> dict:
-    with _lock:
-        service = svc()
-        data = service.get_heatmap_data()
-    return {"days": data}
-
-
 def _mount_web() -> None:
     """Serve the phone app from this same server.
 

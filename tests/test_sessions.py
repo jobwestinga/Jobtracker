@@ -286,7 +286,7 @@ def test_graph_end_day_stretches_to_future_sessions(service, subject):
     assert service.graph_end_day() == timeutils.logical_day(future)
 
 
-def test_future_session_appears_in_breakdown_and_heatmap(service, subject):
+def test_future_session_appears_in_the_breakdown(service, subject):
     future = (datetime.now() + timedelta(days=2)).replace(
         hour=10, minute=0, second=0, microsecond=0
     )
@@ -295,4 +295,3 @@ def test_future_session_appears_in_breakdown_and_heatmap(service, subject):
     future_day = timeutils.logical_day(future).isoformat()
     breakdown = service.get_subject_breakdown(grouping="daily", days=None)
     assert any(bucket["date"] == future_day for bucket in breakdown)
-    assert any(row["date"] == future_day for row in service.get_heatmap_data(days=None))

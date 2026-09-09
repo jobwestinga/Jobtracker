@@ -1,5 +1,5 @@
 """
-Graphs page: bar chart / agenda / heatmap building, reload, and settings.
+Graphs page: stacked bar chart and agenda timeline, reload, and settings.
 
 Mixed into MainWindow. Relies on shared attributes/methods of the host window:
 ``self.service``, ``self._pages``, ``self._open_settings`` and the persisted graph
@@ -23,8 +23,10 @@ from ..core.timeutils import (
     agenda_hour,
     agenda_hour_label,
     graph_preset_window,
+    GROUPING_CHOICES,
     grouping_for_preset,
     grouping_for_span,
+    resolve_grouping,
     logical_day,
     parse_iso,
 )
@@ -33,7 +35,6 @@ from .widgets.day_sessions_dialog import DaySessionsDialog
 from .widgets.dialog_utils import open_dialog
 from .widgets.graph_settings_dialog import GraphSettingsDialog
 from .widgets.graphs_view import WorkGraphWidget
-from .widgets.heatmap_view import HeatmapWidget
 from .widgets import session_list
 
 logger = logging.getLogger("jobtracker")
@@ -60,6 +61,11 @@ class GraphsMixin:
             return date.fromisoformat(start_raw), date.fromisoformat(end_raw)
         except ValueError:
             return None
+
+    def _load_graph_grouping(self) -> str:
+        """Persisted bucket-size override; "auto" means follow the range."""
+        value = self.service.get_setting("graph_grouping", "auto")
+        return value if value in GROUPING_CHOICES else "auto"
 
     # ── page ────────────────────────────────────────────────────────────
     def _build_graphs_page(self) -> None:
@@ -92,7 +98,6 @@ class GraphsMixin:
             (
                 ("Stacked Bar", "bar"),
                 ("Agenda", "agenda"),
-                ("Heatmap", "heatmap"),
             ),
             start=1,
         ):
@@ -132,10 +137,6 @@ class GraphsMixin:
         self._agenda_view.session_clicked.connect(self._open_session_editor)
         self._graph_stack.addWidget(self._agenda_view)  # index 1
 
-        self._heatmap_view = HeatmapWidget()
-        self._heatmap_view.day_clicked.connect(self._open_day_sessions)
-        self._graph_stack.addWidget(self._heatmap_view)  # index 2
-
         lay.addWidget(self._graph_stack, 1)
 
         self._graph_legend = QLabel("")
@@ -149,13 +150,11 @@ class GraphsMixin:
     def _reload_graphs(self) -> None:
         if self._graph_view_mode == "agenda":
             self._reload_agenda()
-        elif self._graph_view_mode == "heatmap":
-            self._reload_heatmap()
         else:
             self._reload_bar_chart()
 
     def _set_graph_view_mode(self, mode: str) -> None:
-        if mode not in {"bar", "agenda", "heatmap"}:
+        if mode not in {"bar", "agenda"}:
             return
         self._graph_view_mode = mode
         self.service.set_setting("graph_view_mode", mode)
@@ -171,16 +170,21 @@ class GraphsMixin:
     def _window_and_grouping(self) -> tuple[date | None, date | None, str]:
         """(start_date, end_date, grouping). Dates are None for all-history; the
         grouping (daily/weekly/monthly) is derived from the chosen range."""
+        override = getattr(self, "_graph_grouping", "auto")
         if self._graph_custom_range:
             start_day, end_day = self._graph_custom_range
-            return start_day, end_day, grouping_for_span(start_day, end_day)
+            return start_day, end_day, resolve_grouping(
+                grouping_for_span(start_day, end_day), override
+            )
         day_start = self.service.get_day_start()
         # Anchor the preset on the real today, then stretch only the END so
         # sessions scheduled ahead are visible. Anchoring on a future day would
         # slide the whole window forward and hide real past days.
         today = logical_day(datetime.now(), day_start)
         window = graph_preset_window(self._graph_range_preset, today)
-        grouping = grouping_for_preset(self._graph_range_preset)
+        grouping = resolve_grouping(
+            grouping_for_preset(self._graph_range_preset), override
+        )
         if window is not None:
             end_day = max(window[1], self.service.graph_end_day(day_start))
             return window[0], end_day, grouping
@@ -280,20 +284,8 @@ class GraphsMixin:
             seen[s["subject_name"]] = s["color"]
         self._set_legend(seen)
 
-    def _reload_heatmap(self) -> None:
-        self._graph_stack.setCurrentIndex(2)
-        # Heatmap is intentionally always all-time. Its horizontal scroll keeps
-        # the newest weeks in view while preserving immediate access to history.
-        rows = self.service.get_heatmap_data(days=None)
-        self._heatmap_view.set_data(rows)
-        total_seconds = sum(row["total_seconds"] for row in rows)
-        self._graph_subtitle.setText(
-            f"Heatmap · All Time · {total_seconds / 3600:.1f}h"
-        )
-        self._graph_legend.hide()
-
     def _open_day_sessions(self, day_iso: str) -> None:
-        """Inspect one logical day's sessions (bar chart, agenda, or heatmap)."""
+        """Inspect one logical day's sessions (from the bar chart or agenda)."""
         try:
             day = date.fromisoformat(day_iso)
         except ValueError:
@@ -332,6 +324,7 @@ class GraphsMixin:
             return
         s = dialog.get_settings()
         self._graph_range_preset = s["range_preset"]
+        self._graph_grouping = s.get("grouping", "auto")
         self._graph_view_mode = s["view_mode"]
         self._graph_hour_start = s["hour_start"]
         self._graph_hour_end = s["hour_end"]

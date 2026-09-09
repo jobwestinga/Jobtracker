@@ -199,17 +199,20 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self.setMinimumSize(560, 760)
         self.resize(680, 920)
 
-        # The old graph grouping preference is obsolete: grouping is derived
-        # from the selected date range. Remove the stale value once at launch.
-        self.service.delete_setting("graph_grouping")
-
         self._fx = self.service.get_setting("theme_fx", "Glow")
         self._palette = self.service.get_setting("theme_palette", "Ocean")
         self._tokens = get_tokens(self._fx, self._palette)
 
-        # Graph settings (persisted). Bucket size is derived from the range now.
+        # Graph settings (persisted). Bucket size follows the range unless the
+        # user has explicitly overridden it.
         self._graph_range_preset: str = self._load_graph_range_preset()
+        self._graph_grouping: str = self._load_graph_grouping()
         self._graph_view_mode: str = self.service.get_setting("graph_view_mode", "bar")
+        if self._graph_view_mode not in ("bar", "agenda"):
+            # The heatmap was removed; anyone whose last view was that one gets
+            # bars rather than a blank page.
+            self._graph_view_mode = "bar"
+            self.service.set_setting("graph_view_mode", "bar")
         self._graph_hour_start: int = int(
             self.service.get_setting("graph_hour_start", "6")
         )
@@ -443,8 +446,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
                     int(subject_id), shortcut_feedback=True
                 )
             return
-        if page == 2 and 1 <= number <= 3:
-            mode = ("bar", "agenda", "heatmap")[number - 1]
+        if page == 2 and 1 <= number <= 2:
+            mode = ("bar", "agenda")[number - 1]
             self._set_graph_view_mode(mode)
             self._pulse_widget(self._graph_mode_buttons[mode])
 
@@ -701,7 +704,6 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._timer.apply_tokens(self._tokens)
         self._graph_view.set_tokens(self._tokens)
         self._agenda_view.set_tokens(self._tokens)
-        self._heatmap_view.set_tokens(self._tokens)
         self._fx_bg.apply_theme(self._tokens, self._fx)
         self._sync_active_session_indicator()
 

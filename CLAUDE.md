@@ -71,6 +71,14 @@ them does.
   waited a round trip felt broken), then the refresh that follows replaces the
   guess with the server's answer.
 - Tab order matches the desktop's pages: Goals, Subjects, Sessions, Graphs.
+- **The app is a fixed frame** (`#app` flex column at `100dvh`, `#views` scrolling
+  in the middle, tab bar as a flex item). The tab bar used to be `position:
+  fixed` with each view padding the page bottom; on a short view the page stopped
+  scrolling, iOS moved the bar, and the body colour showed underneath. Nothing in
+  the layout may depend on page height.
+- **Bars are summed per SUBJECT before drawing.** The API returns one segment per
+  *session* — a month can hold 268 — and with a minimum block height every long
+  bucket hit the ceiling, so a year of bars all came out identical.
 - It polls every 60s while on screen, and never while a sheet is open — a
   refresh redraws everything and would yank a half-filled form away.
 - `sw.js` makes it open with no signal. **Network-first everywhere**, falling
@@ -508,17 +516,19 @@ reversed by the stored callback alone.
   relationships, and settings. Restore must preserve repeated generated goals
   that legitimately share a title.
 
-## Heatmap
+## The heatmap was removed
 
-- The heatmap is the third Graphs view and uses tracked session time only—never
-  goal completion, streaks, or insights.
-- `TrackerService.get_heatmap_data()` uses the same logical-day/start-attribution
-  rule as the bar chart and includes a live session. Empty days are zero-filled.
-- Clicking a cell opens `DaySessionsDialog`, which uses
-  `get_sessions_for_logical_day()`. It edits / duplicates / deletes the selected
-  session itself (via `apply_session_edits()` and `duplicate_session()`), and
-  "Open subject history…" hands the same session id to `ManageSessionsDialog`
-  so it is preselected there.
+There are two graph views, **Stacked Bar and Agenda** — on the desktop and on the
+phone. The heatmap (widget, service method, API endpoint and its tests) is gone:
+it answered the same question as the bar chart, less precisely. A saved
+`graph_view_mode` of `heatmap` folds back to `bar` at launch so nobody lands on a
+blank page. Don't reintroduce it without being asked.
+
+`DaySessionsDialog` stays — it is what opens when a day is clicked in either
+remaining view, via `get_sessions_for_logical_day()`. It edits / duplicates /
+deletes the selected session itself (`apply_session_edits()`,
+`duplicate_session()`), and "Open subject history…" hands the same session id to
+`ManageSessionsDialog` so it is preselected there.
 
 ## Clicking a session must always target THAT session
 
@@ -575,9 +585,16 @@ Rules when extending:
   (default "0"). Other keys: `theme_fx`, `theme_palette`, `day_start_time`,
   `todo_order_mode` (`manual|deadline`), `device_id`. Only `day_start_time` is
   shared between machines — see `core/sync_policy.py`.
-- **`graph_grouping` is obsolete.** Grouping is derived from the selected range
-  (`grouping_for_preset` / `grouping_for_span`), and `MainWindow.__init__`
-  deletes the stale setting once at launch. Don't persist grouping again.
+- **`graph_grouping` is a real preference**: `auto` (default) derives the bucket
+  size from the range as before, and `daily`/`weekly`/`monthly` override it.
+  `resolve_grouping()` applies it. It used to be deleted at launch as obsolete;
+  it is not.
+- **`days=N` with weekly/monthly grouping snaps to whole buckets** — "60 days"
+  becomes "2 whole months" (`_resolve_logical_window`). That is deliberate: a
+  rolling window cut into weeks would draw stubby half-height bars at both ends.
+  It also means totals are only comparable across bucket sizes when the window is
+  given as explicit `start_date`/`end_date`, which is how the desktop presets do
+  it. Don't "fix" the apparent missing hours; there is a test pinning this.
 
 ## Colours in stylesheets
 

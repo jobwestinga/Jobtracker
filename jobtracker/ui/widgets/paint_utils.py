@@ -1,6 +1,6 @@
 """
 Shared helpers for the custom-painted graph widgets (bar chart, agenda,
-heatmap, FX background): alpha-adjusted colours and the floating hover card.
+FX background): alpha-adjusted colours and the floating hover card.
 """
 
 from __future__ import annotations
