@@ -114,6 +114,19 @@ Rules for the server:
   every synced table is `INTEGER PRIMARY KEY AUTOINCREMENT` (never reused). The
   uid is resolved when the feed is read.
 - Deletes archive the whole row into `deleted_rows` before it goes.
+- **A missing target is a recorded skip, not an error.** `_target_uid()` raises
+  `Skipped` for edits and deletes whose row is gone; `_require_uid()` still
+  raises 404, but only for *creates*, where dropping the operation would lose
+  data. State refusals (a second timer, a gated goal) come back in the payload
+  rather than as 4xx. This is not politeness: the outbox stops at the first
+  refusal, so anything that can never succeed would jam every later write from
+  that device forever — delete a session on the phone offline, delete it on the
+  Mac, reconnect, and that used to be a permanent jam.
+- **`sync_policy.WireCodec` for anything that converts more than one row.**
+  Plain `to_wire()` does a `uid_for_id` query per foreign key per row: a snapshot
+  of ~1800 rows cost ~1800 queries. The codec loads each referenced table once
+  (8 queries for the same snapshot) and falls back to a direct lookup for rows
+  created after it was built.
 
 ## Where the multi-device work stands
 
@@ -395,6 +408,12 @@ multi-device form of the existing "never drop an unfinished session" rule.
   to be bundled or signed into the .app.
 - `engine.py` — push, pull, verify, repair. No Qt, so it is fully testable
   headlessly against an in-process server (`tests/test_sync_engine.py`).
+  **Changes are applied parents-first, not in feed order** (`_apply_order`). The
+  feed sorts rows by their most recent change, so a goal edited after its own
+  milestone was created hands the milestone over first — and inserting it fails
+  on `milestones.goal_id NOT NULL`. Deletes run last and leaves-first. An
+  `IntegrityError` is caught rather than fatal, and the count check then repairs
+  it with a full re-download; that is a safety net, not the plan.
 - `service.py` — `SyncedTrackerService`, the service the UI actually gets when
   sync is on. Every mutation is applied locally *and* queued as an operation.
 - `qt_worker.py` — the app's only background thread. It opens its **own**

@@ -233,17 +233,13 @@ def sync_integrity(
 # ── reads ───────────────────────────────────────────────────────────────
 
 
-def _wire_rows(database, table: str, rows) -> list[dict]:
-    return [
-        sync_policy.to_wire(database, table, dict(r) if not isinstance(r, dict) else r)
-        for r in rows
-    ]
-
-
-def _raw_rows(database, table: str, where: str = "", params: tuple = ()) -> list[dict]:
-    cur = database.connection.cursor()
+def _raw_rows(codec, table: str, where: str = "", params: tuple = ()) -> list[dict]:
+    """Rows in wire form. The codec resolves foreign keys from a preloaded map,
+    so this is one query for the rows plus one per referenced table — not one
+    per row, which is what it used to be."""
+    cur = codec.db.connection.cursor()
     cur.execute(f"SELECT * FROM {table} {where}", params)
-    return [sync_policy.to_wire(database, table, dict(r)) for r in cur.fetchall()]
+    return [codec.to_wire(table, dict(r)) for r in cur.fetchall()]
 
 
 @app.get("/api/snapshot")
@@ -256,8 +252,9 @@ def api_snapshot(device: str = Depends(require_device)) -> dict:
     with _lock:
         service = svc()
         db = service.db
+        codec = sync_policy.WireCodec(db)
         payload = {
-            sync_policy.API_NAMES[table]: _raw_rows(db, table)
+            sync_policy.API_NAMES[table]: _raw_rows(codec, table)
             for table in sync_policy.SYNCED_TABLES
         }
         payload["settings"] = {
@@ -268,8 +265,7 @@ def api_snapshot(device: str = Depends(require_device)) -> dict:
         payload["head"] = feed.current_seq(db.connection)
         active = service.active_session
         payload["active_session"] = (
-            sync_policy.to_wire(
-                db,
+            codec.to_wire(
                 "sessions",
                 dict(
                     db.connection.execute(
@@ -357,6 +353,7 @@ def api_breakdown(
     """
     with _lock:
         service = svc()
+        codec = sync_policy.WireCodec(service.db)
         buckets = service.get_subject_breakdown(grouping=grouping, days=days)
         out_buckets = []
         for bucket in buckets:
@@ -367,9 +364,7 @@ def api_breakdown(
                     "intensity_seconds": bucket["intensity_seconds"],
                     "segments": [
                         {
-                            "subject_uid": service.db.uid_for_id(
-                                "tasks", seg["subject_id"]
-                            ),
+                            "subject_uid": codec.uid_for_id("tasks", seg["subject_id"]),
                             "subject_name": seg["subject_name"],
                             "color": seg["color"],
                             "seconds": seg["seconds"],
@@ -401,16 +396,13 @@ def api_agenda(
         start_day = timeutils.logical_day(datetime.now(), day_start) - timedelta(
             days=days - 1
         )
+        codec = sync_policy.WireCodec(service.db)
         day_keys, sessions = service.get_agenda_data(start_day, end_day, day_start)
         out = [
             {
-                "uid": service.db.uid_for_id("sessions", s["session_id"])
-                if s.get("session_id")
-                else None,
+                "uid": codec.uid_for_id("sessions", s.get("session_id")),
                 "day": s["day"],
-                "subject_uid": service.db.uid_for_id("tasks", s["subject_id"])
-                if s.get("subject_id")
-                else None,
+                "subject_uid": codec.uid_for_id("tasks", s.get("subject_id")),
                 "subject_name": s["subject_name"],
                 "color": s["color"],
                 "start_h": s["start_h"],
@@ -449,21 +441,16 @@ def api_sessions_for_day(day: str, device: str = Depends(require_device)) -> dic
         raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
     with _lock:
         service = svc()
+        codec = sync_policy.WireCodec(service.db)
         rows = service.get_sessions_for_logical_day(logical)
         out = []
         for row in rows:
-            session_id = row.get("session_id")
-            subject_id = row.get("subject_id")
             out.append(
                 {
                     # None for the live session, which has no persisted row yet —
                     # the desktop treats that the same way (never editable).
-                    "uid": service.db.uid_for_id("sessions", session_id)
-                    if session_id
-                    else None,
-                    "subject_uid": service.db.uid_for_id("tasks", subject_id)
-                    if subject_id
-                    else None,
+                    "uid": codec.uid_for_id("sessions", row.get("session_id")),
+                    "subject_uid": codec.uid_for_id("tasks", row.get("subject_id")),
                     "subject_name": row.get("subject_name"),
                     "color": row.get("color"),
                     "start_time": row.get("start_time"),

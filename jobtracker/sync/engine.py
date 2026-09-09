@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -78,10 +79,13 @@ class SyncEngine:
         self.db = database
         self.client = client
         self.device_id = device_id
+        # PRAGMA table_info was being run once per applied row. The schema does
+        # not change while the app runs, so read it once per table.
+        self._column_cache: dict[str, list[str]] = {}
         state.install(self.db.connection)
 
     # ── applying server rows to the mirror ──────────────────────────────
-    def _upsert(self, api_table: str, uid: str, wire_row: dict) -> None:
+    def _upsert(self, api_table: str, uid: str, wire_row: dict, codec=None) -> None:
         """Write one server row into the mirror, keyed by uid.
 
         Foreign keys arrive as uids and are translated back to this database's
@@ -94,39 +98,77 @@ class SyncEngine:
             logger.warning("Ignoring unknown table from server: %s", api_table)
             return
 
-        row = sync_policy.from_wire(self.db, table, dict(wire_row))
+        resolver = codec if codec is not None else self.db
+        row = sync_policy.from_wire(resolver, table, dict(wire_row))
         row["uid"] = uid
 
         columns = [c for c in self._columns(table) if c in row]
         values = [row[c] for c in columns]
-        local_id = self.db.id_for_uid(table, uid)
+        local_id = (
+            codec.id_for_uid(table, uid) if codec is not None
+            else self.db.id_for_uid(table, uid)
+        )
         cur = self.db.connection.cursor()
-        if local_id is None:
-            placeholders = ", ".join("?" for _ in columns)
-            cur.execute(
-                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
-                values,
-            )
-        else:
-            assignments = ", ".join(f"{c} = ?" for c in columns)
-            cur.execute(
-                f"UPDATE {table} SET {assignments} WHERE id = ?", [*values, local_id]
+        try:
+            if local_id is None:
+                placeholders = ", ".join("?" for _ in columns)
+                cur.execute(
+                    f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+                    values,
+                )
+            else:
+                assignments = ", ".join(f"{c} = ?" for c in columns)
+                cur.execute(
+                    f"UPDATE {table} SET {assignments} WHERE id = ?", [*values, local_id]
+                )
+        except sqlite3.IntegrityError:
+            # Almost always a child arriving before its parent (a session whose
+            # subject is still further down the feed). Skipping it keeps the rest
+            # of the pull working; the count check at the end of this pass sees
+            # the shortfall and re-downloads everything, which fixes it properly.
+            logger.warning(
+                "Could not apply %s %s yet; a full re-download will settle it",
+                api_table, uid, exc_info=True,
             )
 
-    def _delete(self, api_table: str, uid: str) -> bool:
+    def _delete(self, api_table: str, uid: str, codec=None) -> bool:
         table = sync_policy.TABLE_FOR_API_NAME.get(api_table)
         if table is None:
             return False
-        local_id = self.db.id_for_uid(table, uid)
+        local_id = (
+            codec.id_for_uid(table, uid) if codec is not None
+            else self.db.id_for_uid(table, uid)
+        )
         if local_id is None:
             return False
         self.db.connection.execute(f"DELETE FROM {table} WHERE id = ?", (local_id,))
         return True
 
+    @staticmethod
+    def _apply_order(change: dict) -> tuple:
+        """Sort key: upserts parent-first, deletes child-first, then by seq.
+
+        ``SYNCED_TABLES`` is already listed parents-first, which is what makes
+        this a lookup rather than a graph walk.
+        """
+        table = sync_policy.TABLE_FOR_API_NAME.get(change.get("table"))
+        try:
+            rank = sync_policy.SYNCED_TABLES.index(table)
+        except ValueError:
+            rank = len(sync_policy.SYNCED_TABLES)
+        if change.get("op") == "delete":
+            # Deletes run after upserts and from the leaves inwards.
+            return (1, -rank, int(change.get("seq", 0)))
+        return (0, rank, int(change.get("seq", 0)))
+
     def _columns(self, table: str) -> list[str]:
-        cur = self.db.connection.cursor()
-        cur.execute(f"PRAGMA table_info({table})")
-        return [r["name"] for r in cur.fetchall() if r["name"] != "id"]
+        cached = self._column_cache.get(table)
+        if cached is None:
+            cur = self.db.connection.cursor()
+            cur.execute(f"PRAGMA table_info({table})")
+            cached = [r["name"] for r in cur.fetchall() if r["name"] != "id"]
+            self._column_cache[table] = cached
+        return cached
 
     # ── the three phases ────────────────────────────────────────────────
     def push(self, result: SyncResult) -> bool:
@@ -155,14 +197,25 @@ class SyncEngine:
         while True:
             response = self.client.pull(cursor)
             changes = response.get("changes", [])
-            for change in changes:
+            # One codec for the whole page: foreign keys resolve from a map
+            # loaded once instead of a query per row.
+            codec = sync_policy.WireCodec(self.db)
+
+            # Apply parents before children, not in feed order.
+            #
+            # The feed orders rows by their most recent change, so a goal created
+            # early and edited later sorts AFTER a milestone created in between —
+            # and inserting that milestone fails, because its goal_id is NOT NULL
+            # and the goal is not here yet. Deletes go the other way round, so a
+            # parent never disappears out from under a child.
+            for change in sorted(changes, key=self._apply_order):
                 if change.get("op") == "delete":
-                    if self._delete(change["table"], change["uid"]):
+                    if self._delete(change["table"], change["uid"], codec):
                         result.deleted += 1
                 else:
                     row = change.get("row")
                     if row:
-                        self._upsert(change["table"], change["uid"], row)
+                        self._upsert(change["table"], change["uid"], row, codec)
                         result.applied += 1
             self.db.connection.commit()
 
@@ -249,11 +302,12 @@ class SyncEngine:
         # Children first: FKs are ON, so a parent cannot go while a child refers.
         for table in reversed(sync_policy.SYNCED_TABLES):
             cur.execute(f"DELETE FROM {table}")
+        codec = sync_policy.WireCodec(self.db)
         for table in sync_policy.SYNCED_TABLES:
             for wire_row in snapshot.get(sync_policy.API_NAMES[table], []):
                 uid = wire_row.get("uid")
                 if uid:
-                    self._upsert(sync_policy.API_NAMES[table], uid, wire_row)
+                    self._upsert(sync_policy.API_NAMES[table], uid, wire_row, codec)
                     result.applied += 1
         for key, value in (snapshot.get("settings") or {}).items():
             if key in sync_policy.SYNCED_SETTING_KEYS:

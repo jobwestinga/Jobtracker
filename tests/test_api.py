@@ -244,15 +244,19 @@ def test_unknown_operation_is_refused(api):
 
 
 def test_milestone_gate_is_enforced_server_side(api):
+    """The rule holds. It is reported in the result rather than as an HTTP error,
+    so a queued completion cannot jam a client's outbox behind it."""
     goal = result_of(do(api, "add_goal", {"name": "Pass the exam"}))["goal"]
     do(api, "add_milestone", {"goal_uid": goal["uid"], "title": "Chapter 1"})
 
-    refused = do(api, "complete_goal", {"goal_uid": goal["uid"]})
-    assert refused.status_code == 409
+    refused = result_of(do(api, "complete_goal", {"goal_uid": goal["uid"]}))
+    assert refused["completed"] is False
+    assert refused["goal"]["is_completed"] == 0
 
     milestone = api.get("/api/snapshot").json()["milestones"][0]
     do(api, "set_milestone_done", {"milestone_uid": milestone["uid"], "done": True})
-    assert do(api, "complete_goal", {"goal_uid": goal["uid"]}).status_code == 200
+    allowed = result_of(do(api, "complete_goal", {"goal_uid": goal["uid"]}))
+    assert allowed["completed"] is True
 
 
 def test_device_local_settings_are_refused(api):
@@ -264,10 +268,13 @@ def test_device_local_settings_are_refused(api):
 
 
 def test_starting_a_second_timer_is_refused(api):
+    """Still refused — reported in the result, so it cannot jam an outbox."""
     first = make_subject(api, "Physics")
     second = make_subject(api, "Maths")
-    assert do(api, "start_subject", {"subject_uid": first}).status_code == 200
-    assert do(api, "start_subject", {"subject_uid": second}).status_code == 409
+    assert result_of(do(api, "start_subject", {"subject_uid": first}))["started"] is True
+    blocked = result_of(do(api, "start_subject", {"subject_uid": second}))
+    assert blocked["started"] is False
+    assert api.get("/api/active").json()["subject_uid"] == first
 
 
 def test_stopping_when_nothing_runs_is_a_no_op_not_an_error(api):

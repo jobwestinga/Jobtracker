@@ -342,26 +342,91 @@ def test_delete_a_template(world):
 # ── failure shapes: these decide whether an outbox drains or jams ───────
 
 
+# A row that has already gone must NOT fail: the outbox stops at the first
+# refusal, so an operation that can never succeed would block every later write
+# from that device forever.
 @pytest.mark.parametrize("operation,params", [
     ("update_subject", {"subject_uid": "nope", "name": "x", "color": "#111111"}),
     ("archive_subject", {"subject_uid": "nope"}),
+    ("unarchive_subject", {"subject_uid": "nope"}),
     ("delete_subject", {"subject_uid": "nope"}),
     ("start_subject", {"subject_uid": "nope"}),
     ("switch_subject", {"subject_uid": "nope"}),
     ("delete_session", {"session_uid": "nope"}),
     ("shift_session", {"session_uid": "nope", "seconds": 60}),
+    ("duplicate_session", {"session_uid": "nope", "to": "today"}),
     ("update_goal", {"goal_uid": "nope", "name": "x"}),
     ("delete_goal", {"goal_uid": "nope"}),
     ("complete_goal", {"goal_uid": "nope"}),
+    ("uncomplete_goal", {"goal_uid": "nope"}),
     ("toggle_goal_focused", {"goal_uid": "nope"}),
-    ("add_milestone", {"goal_uid": "nope", "title": "x"}),
+    ("update_milestone", {"milestone_uid": "nope", "title": "x"}),
     ("set_milestone_done", {"milestone_uid": "nope", "done": True}),
+    ("delete_milestone", {"milestone_uid": "nope"}),
     ("delete_template", {"template_uid": "nope"}),
+    ("set_template_active", {"template_uid": "nope", "active": False}),
 ])
-def test_an_unknown_uid_is_a_clean_404(world, operation, params):
+def test_acting_on_a_row_that_is_gone_is_a_recorded_skip(world, operation, params):
+    response = send(world["api"], operation, params)
+    assert response.status_code == 200, operation
+    result = response.json()["applied"][0]["result"]
+    assert result["skipped"] is True
+    assert "no longer exists" in result["reason"]
+
+
+# Creates are the exception: silently dropping one would lose the work it records.
+@pytest.mark.parametrize("operation,params", [
+    ("add_session", {"subject_uid": "nope", "start_time": "2026-06-01T10:00:00",
+                     "end_time": "2026-06-01T11:00:00"}),
+    ("add_milestone", {"goal_uid": "nope", "title": "x"}),
+])
+def test_a_create_whose_parent_is_gone_still_fails(world, operation, params):
     response = send(world["api"], operation, params)
     assert response.status_code == 404, operation
     assert "unknown" in response.json()["detail"]
+
+
+def test_update_session_still_needs_a_real_subject(world):
+    """Moving a session onto a subject that does not exist would orphan it."""
+    response = send(world["api"], "update_session", {
+        "session_uid": world["session"]["uid"],
+        "subject_uid": "nope",
+        "start_time": "2026-06-01T10:00:00",
+        "end_time": "2026-06-01T11:00:00",
+    })
+    assert response.status_code == 404
+
+
+def test_a_reorder_ignores_rows_that_have_gone(world):
+    """A reorder naming one deleted goal is still good for the rest."""
+    api, goal = world["api"], world["goal"]
+    second = op(api, "add_goal", {"name": "Second"})["goal"]
+    op(api, "delete_goal", {"goal_uid": goal["uid"]})
+
+    response = send(api, "set_goal_order", {
+        "goal_uids": [goal["uid"], second["uid"]],
+    })
+    assert response.status_code == 200
+
+
+def test_starting_while_something_runs_reports_rather_than_fails(world):
+    api, subject, other = world["api"], world["subject"], world["other"]
+    op(api, "start_subject", {"subject_uid": subject["uid"]})
+    result = op(api, "start_subject", {"subject_uid": other["uid"]})
+    assert result["started"] is False
+    assert "already running" in result["reason"]
+    op(api, "stop_active_subject", {
+        "end_time": (datetime.now() + timedelta(minutes=31)).isoformat()
+    })
+
+
+def test_completing_a_gated_goal_reports_rather_than_fails(world):
+    """The milestone rule still holds; it just does not jam the queue."""
+    api, goal = world["api"], world["goal"]
+    result = op(api, "complete_goal", {"goal_uid": goal["uid"]})
+    assert result["completed"] is False
+    assert "unchecked milestones" in result["reason"]
+    assert result["goal"]["is_completed"] == 0
 
 
 @pytest.mark.parametrize("bad_time", ["", "not-a-date", "2026-13-45", "12:00"])

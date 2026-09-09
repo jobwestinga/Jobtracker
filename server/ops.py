@@ -54,11 +54,58 @@ def known_ops() -> list[str]:
 # ── helpers ─────────────────────────────────────────────────────────────
 
 
+class Skipped(Exception):
+    """The row this operation targets is gone. Not an error — see below."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 def _require_uid(db, table: str, uid: str, label: str) -> int:
+    """Resolve a uid that MUST exist. Only for creates.
+
+    A create whose parent is missing has to fail: quietly dropping a session
+    would lose the work it records.
+    """
     row_id = db.id_for_uid(table, uid)
     if row_id is None:
         raise OpError(f"unknown {label}: {uid}", status=404)
     return row_id
+
+
+def _target_uid(db, table: str, uid: str, label: str) -> int:
+    """Resolve a uid for an edit or a delete, or skip the operation.
+
+    Deliberately NOT an error when the row is gone. The outbox stops at the first
+    refusal — that is what keeps a delete from overtaking its own create — so an
+    operation that can never succeed would block every later write forever.
+
+    That is not hypothetical: delete a session on the phone while offline, delete
+    the same one on the Mac, reconnect, and the phone's queue would jam for good.
+    The row is already gone, which is what the operation wanted, so there is
+    nothing to do and nothing to lose.
+    """
+    row_id = db.id_for_uid(table, uid)
+    if row_id is None:
+        raise Skipped(f"{label} {uid} no longer exists")
+    return row_id
+
+
+def _existing_uids(db, table: str, uids, label: str) -> list[int]:
+    """Resolve a list for a reorder, dropping any that have gone.
+
+    A reorder naming one deleted row is still a perfectly good instruction for
+    the rest of them.
+    """
+    resolved = []
+    for uid in uids or []:
+        row_id = db.id_for_uid(table, uid)
+        if row_id is None:
+            logger.info("Reorder skipped missing %s %s", label, uid)
+            continue
+        resolved.append(row_id)
+    return resolved
 
 
 def _parse_dt(value: Any, label: str) -> datetime:
@@ -119,7 +166,7 @@ def _add_subject(svc, p):
 
 @op("update_subject")
 def _update_subject(svc, p):
-    sid = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
+    sid = _target_uid(svc.db, "tasks", p["subject_uid"], "subject")
     subject = svc.update_subject(sid, p["name"], p["color"], p.get("notes", ""))
     if subject is None:
         raise OpError("subject could not be updated (duplicate or empty name)")
@@ -128,25 +175,25 @@ def _update_subject(svc, p):
 
 @op("archive_subject")
 def _archive_subject(svc, p):
-    svc.archive_subject(_require_uid(svc.db, "tasks", p["subject_uid"], "subject"))
+    svc.archive_subject(_target_uid(svc.db, "tasks", p["subject_uid"], "subject"))
     return {"ok": True}
 
 
 @op("unarchive_subject")
 def _unarchive_subject(svc, p):
-    svc.unarchive_subject(_require_uid(svc.db, "tasks", p["subject_uid"], "subject"))
+    svc.unarchive_subject(_target_uid(svc.db, "tasks", p["subject_uid"], "subject"))
     return {"ok": True}
 
 
 @op("delete_subject")
 def _delete_subject(svc, p):
-    svc.delete_subject(_require_uid(svc.db, "tasks", p["subject_uid"], "subject"))
+    svc.delete_subject(_target_uid(svc.db, "tasks", p["subject_uid"], "subject"))
     return {"ok": True}
 
 
 @op("set_subject_order")
 def _set_subject_order(svc, p):
-    ids = [_require_uid(svc.db, "tasks", u, "subject") for u in p["subject_uids"]]
+    ids = _existing_uids(svc.db, "tasks", p["subject_uids"], "subject")
     svc.set_subject_order(ids, archived=bool(p.get("archived", False)))
     return {"ok": True}
 
@@ -156,11 +203,13 @@ def _set_subject_order(svc, p):
 
 @op("start_subject")
 def _start_subject(svc, p):
-    sid = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
+    sid = _target_uid(svc.db, "tasks", p["subject_uid"], "subject")
     if not svc.start_subject(sid):
-        raise OpError("could not start: a session is already running", status=409)
+        # Something is already running. Retrying will not change that, so report
+        # it rather than jamming everything queued behind it.
+        return {"started": False, "reason": "a session is already running"}
     _adopt_uid(svc.db, "sessions", svc.active_session.id, p.get("uid"))
-    return {"session": _row(svc.db, "sessions", svc.active_session.id)}
+    return {"started": True, "session": _row(svc.db, "sessions", svc.active_session.id)}
 
 
 @op("stop_active_subject")
@@ -177,10 +226,13 @@ def _stop_active_subject(svc, p):
 
 @op("switch_subject")
 def _switch_subject(svc, p):
-    sid = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
+    sid = _target_uid(svc.db, "tasks", p["subject_uid"], "subject")
     if not svc.switch_subject(sid):
-        raise OpError("could not switch to that subject", status=409)
-    return {"session": _model_row(svc.db, "sessions", svc.active_session)}
+        return {"switched": False, "reason": "already tracking that subject"}
+    return {
+        "switched": True,
+        "session": _model_row(svc.db, "sessions", svc.active_session),
+    }
 
 
 @op("heartbeat")
@@ -194,6 +246,8 @@ def _heartbeat(svc, p):
 
 @op("add_session")
 def _add_session(svc, p):
+    # Strict: a session whose subject is missing has nowhere to go, and dropping
+    # it silently would lose recorded work.
     sid = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
     session = svc.add_session(
         sid, _parse_dt(p["start_time"], "start_time"), _parse_dt(p["end_time"], "end_time")
@@ -206,7 +260,7 @@ def _add_session(svc, p):
 
 @op("update_session")
 def _update_session(svc, p):
-    session_id = _require_uid(svc.db, "sessions", p["session_uid"], "session")
+    session_id = _target_uid(svc.db, "sessions", p["session_uid"], "session")
     subject_id = _require_uid(svc.db, "tasks", p["subject_uid"], "subject")
     session = svc.update_session(
         session_id,
@@ -221,13 +275,13 @@ def _update_session(svc, p):
 
 @op("delete_session")
 def _delete_session(svc, p):
-    svc.delete_session(_require_uid(svc.db, "sessions", p["session_uid"], "session"))
+    svc.delete_session(_target_uid(svc.db, "sessions", p["session_uid"], "session"))
     return {"ok": True}
 
 
 @op("duplicate_session")
 def _duplicate_session(svc, p):
-    session_id = _require_uid(svc.db, "sessions", p["session_uid"], "session")
+    session_id = _target_uid(svc.db, "sessions", p["session_uid"], "session")
     to = p.get("to", "today")
     if to not in {"today", "next_day"}:
         raise OpError("to must be 'today' or 'next_day'")
@@ -240,7 +294,7 @@ def _duplicate_session(svc, p):
 
 @op("shift_session")
 def _shift_session(svc, p):
-    session_id = _require_uid(svc.db, "sessions", p["session_uid"], "session")
+    session_id = _target_uid(svc.db, "sessions", p["session_uid"], "session")
     session = svc.shift_session(session_id, int(p["seconds"]))
     if session is None:
         raise OpError("session could not be shifted")
@@ -261,7 +315,7 @@ def _add_goal(svc, p):
 
 @op("update_goal")
 def _update_goal(svc, p):
-    gid = _require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
+    gid = _target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
     goal = svc.update_todo_task(gid, p["name"], p.get("notes", ""), p.get("deadline"))
     if goal is None:
         raise OpError("goal could not be updated")
@@ -270,36 +324,42 @@ def _update_goal(svc, p):
 
 @op("delete_goal")
 def _delete_goal(svc, p):
-    svc.delete_todo_task(_require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal"))
+    svc.delete_todo_task(_target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal"))
     return {"ok": True}
 
 
 @op("complete_goal")
 def _complete_goal(svc, p):
-    gid = _require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
+    gid = _target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
     if not svc.complete_goal(gid):
-        # The milestone gate is a real rule, not a race: report it as a refusal.
-        raise OpError("goal has unchecked milestones", status=409)
-    return {"goal": _row(svc.db, "todo_tasks", gid)}
+        # The milestone gate is a real rule. Report it in the result instead of
+        # failing: the client checked before queueing, so reaching here means the
+        # milestones changed elsewhere, and no retry will ever succeed.
+        return {
+            "completed": False,
+            "reason": "goal has unchecked milestones",
+            "goal": _row(svc.db, "todo_tasks", gid),
+        }
+    return {"completed": True, "goal": _row(svc.db, "todo_tasks", gid)}
 
 
 @op("uncomplete_goal")
 def _uncomplete_goal(svc, p):
-    gid = _require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
+    gid = _target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
     svc.uncomplete_goal(gid)
     return {"goal": _row(svc.db, "todo_tasks", gid)}
 
 
 @op("toggle_goal_focused")
 def _toggle_goal_focused(svc, p):
-    gid = _require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
+    gid = _target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
     focused = svc.toggle_goal_focused(gid)
     return {"focused": focused, "goal": _row(svc.db, "todo_tasks", gid)}
 
 
 @op("set_goal_order")
 def _set_goal_order(svc, p):
-    ids = [_require_uid(svc.db, "todo_tasks", u, "goal") for u in p["goal_uids"]]
+    ids = _existing_uids(svc.db, "todo_tasks", p["goal_uids"], "goal")
     svc.set_todo_task_order(ids, completed=bool(p.get("completed", False)))
     return {"ok": True}
 
@@ -319,7 +379,7 @@ def _add_milestone(svc, p):
 
 @op("update_milestone")
 def _update_milestone(svc, p):
-    mid = _require_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
+    mid = _target_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
     milestone = svc.update_milestone(mid, p["title"], p.get("note", ""))
     if milestone is None:
         raise OpError("milestone could not be updated")
@@ -328,7 +388,7 @@ def _update_milestone(svc, p):
 
 @op("set_milestone_done")
 def _set_milestone_done(svc, p):
-    mid = _require_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
+    mid = _target_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
     svc.set_milestone_done(mid, bool(p["done"]))
     return {"milestone": _row(svc.db, "milestones", mid)}
 
@@ -336,15 +396,15 @@ def _set_milestone_done(svc, p):
 @op("delete_milestone")
 def _delete_milestone(svc, p):
     svc.delete_milestone(
-        _require_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
+        _target_uid(svc.db, "milestones", p["milestone_uid"], "milestone")
     )
     return {"ok": True}
 
 
 @op("set_milestone_order")
 def _set_milestone_order(svc, p):
-    gid = _require_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
-    ids = [_require_uid(svc.db, "milestones", u, "milestone") for u in p["milestone_uids"]]
+    gid = _target_uid(svc.db, "todo_tasks", p["goal_uid"], "goal")
+    ids = _existing_uids(svc.db, "milestones", p["milestone_uids"], "milestone")
     svc.set_milestone_order(gid, ids)
     return {"ok": True}
 
@@ -374,7 +434,7 @@ def _add_template(svc, p):
 
 @op("update_template")
 def _update_template(svc, p):
-    tid = _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+    tid = _target_uid(svc.db, "goal_templates", p["template_uid"], "template")
     template = svc.update_goal_template(
         tid,
         p["title"],
@@ -390,7 +450,7 @@ def _update_template(svc, p):
 
 @op("set_template_active")
 def _set_template_active(svc, p):
-    tid = _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+    tid = _target_uid(svc.db, "goal_templates", p["template_uid"], "template")
     svc.set_goal_template_active(tid, bool(p["active"]))
     return {"template": _row(svc.db, "goal_templates", tid)}
 
@@ -398,7 +458,7 @@ def _set_template_active(svc, p):
 @op("delete_template")
 def _delete_template(svc, p):
     svc.delete_goal_template(
-        _require_uid(svc.db, "goal_templates", p["template_uid"], "template")
+        _target_uid(svc.db, "goal_templates", p["template_uid"], "template")
     )
     return {"ok": True}
 
@@ -447,7 +507,13 @@ def apply_op(svc, op_name: str, params: dict, op_id: str, device_id: str | None)
     if handler is None:
         raise OpError(f"unknown operation: {op_name}", status=400)
 
-    result = handler(svc, params or {})
+    try:
+        result = handler(svc, params or {})
+    except Skipped as skip:
+        # Recorded like any other result, so a later retry replays this instead
+        # of trying (and failing) again.
+        logger.info("op %s skipped: %s", op_name, skip.reason)
+        result = {"skipped": True, "reason": skip.reason}
 
     cur.execute(
         "INSERT INTO applied_ops (op_id, op_name, device_id, response) "

@@ -326,3 +326,129 @@ def test_a_second_sync_after_convergence_changes_nothing(synced):
     assert second.deleted == 0
     assert second.repaired is False
     assert uid_fingerprint(synced.mirror) == before
+
+
+# ── the outbox must never deadlock ──────────────────────────────────────
+
+
+def test_deleting_something_the_other_device_already_deleted(synced):
+    """The scenario that used to jam the queue forever.
+
+    Delete a session on the phone while offline; delete the same one on the Mac
+    and let that reach the server; reconnect. The queued delete can never
+    succeed — and the outbox stops at the first refusal, so everything queued
+    behind it would have been stuck for good.
+    """
+    svc = synced.svc
+    subject = svc.add_subject("Physics", "#3B82F6", "")
+    now = datetime.now().replace(microsecond=0)
+    session = svc.add_session(subject.id, now - timedelta(hours=2), now - timedelta(hours=1))
+    synced.engine.sync()
+    session_uid = synced.mirror.uid_for_id("sessions", session.id)
+
+    # Someone else removes it.
+    synced.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "delete_session",
+        "params": {"session_uid": session_uid}}]})
+
+    # Meanwhile this device deletes it too, offline, and does more work after.
+    synced.client.offline = True
+    svc.delete_session(session.id)
+    svc.add_todo_task("Written after the delete", "", None)
+    synced.engine.sync()
+    assert state.pending_count(synced.mirror.connection) == 2
+
+    synced.client.offline = False
+    result = synced.engine.sync()
+
+    assert result.ok, result.error
+    assert result.blocked_reason is None
+    assert state.pending_count(synced.mirror.connection) == 0
+    # The work queued *behind* the impossible delete still arrived.
+    assert "Written after the delete" in [
+        g["name"] for g in synced.http.get("/api/snapshot").json()["goals"]
+    ]
+
+
+def test_editing_something_the_other_device_deleted(synced):
+    svc = synced.svc
+    goal = svc.add_todo_task("Doomed", "", None)
+    synced.engine.sync()
+    goal_uid = synced.mirror.uid_for_id("todo_tasks", goal.id)
+
+    synced.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "delete_goal",
+        "params": {"goal_uid": goal_uid}}]})
+
+    synced.client.offline = True
+    svc.update_todo_task(goal.id, "Renamed", "", None)
+    svc.toggle_goal_focused(goal.id)
+    svc.add_todo_task("Later work", "", None)
+    synced.engine.sync()
+    synced.client.offline = False
+
+    result = synced.engine.sync()
+    assert result.ok
+    assert state.pending_count(synced.mirror.connection) == 0
+    assert "Later work" in [
+        g["name"] for g in synced.http.get("/api/snapshot").json()["goals"]
+    ]
+
+
+def test_a_reorder_naming_a_deleted_row_still_drains(synced):
+    svc = synced.svc
+    first = svc.add_todo_task("First", "", None)
+    second = svc.add_todo_task("Second", "", None)
+    synced.engine.sync()
+    first_uid = synced.mirror.uid_for_id("todo_tasks", first.id)
+
+    synced.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "delete_goal",
+        "params": {"goal_uid": first_uid}}]})
+
+    synced.client.offline = True
+    svc.set_todo_task_order([second.id, first.id], completed=False)
+    synced.engine.sync()
+    synced.client.offline = False
+
+    assert synced.engine.sync().ok
+    assert state.pending_count(synced.mirror.connection) == 0
+
+
+def test_a_queued_start_that_arrives_late_does_not_jam(synced):
+    """Two devices both start a timer; the loser must not block its own queue."""
+    svc = synced.svc
+    physics = svc.add_subject("Physics", "#3B82F6", "")
+    maths = svc.add_subject("Maths", "#EF4444", "")
+    synced.engine.sync()
+    maths_uid = synced.mirror.uid_for_id("tasks", maths.id)
+
+    synced.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "start_subject",
+        "params": {"subject_uid": maths_uid}}]})
+
+    synced.client.offline = True
+    svc.start_subject(physics.id)
+    svc.add_todo_task("Queued behind the start", "", None)
+    synced.engine.sync()
+    synced.client.offline = False
+
+    result = synced.engine.sync()
+    assert result.ok
+    assert state.pending_count(synced.mirror.connection) == 0
+    assert "Queued behind the start" in [
+        g["name"] for g in synced.http.get("/api/snapshot").json()["goals"]
+    ]
+
+
+def test_a_genuinely_impossible_create_still_blocks(synced):
+    """The queue must still stop for something that would lose data."""
+    state.enqueue(synced.mirror.connection, "add_session", {
+        "subject_uid": "does-not-exist",
+        "start_time": "2026-06-01T10:00:00",
+        "end_time": "2026-06-01T11:00:00",
+    })
+    result = synced.engine.sync()
+    assert result.ok is False
+    assert result.blocked_reason
+    assert state.pending_count(synced.mirror.connection) == 1

@@ -63,9 +63,3 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     _configured = True
     return logger
 
-
-def get_logger(name: Optional[str] = None) -> logging.Logger:
-    """Return the app logger (or a child of it)."""
-    if name:
-        return logging.getLogger(f"{LOGGER_NAME}.{name}")
-    return logging.getLogger(LOGGER_NAME)

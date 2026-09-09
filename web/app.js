@@ -17,6 +17,7 @@ const state = {
   day: null,
   daySessions: [],
   goalsFilter: "active",
+  painted: false,
   expandedGoal: null,
   graphMode: "bars",
   graphRange: "7",
@@ -84,6 +85,7 @@ const subjectsByUid = () =>
 
 async function refresh({ quiet = false, force = false } = {}) {
   if (!quiet) $("refresh").textContent = "…";
+  let changedThisPass = true;   // assume a repaint unless we prove otherwise
   try {
     await flush();
 
@@ -93,6 +95,8 @@ async function refresh({ quiet = false, force = false } = {}) {
     // pull the whole database down again.
     const context = await api.context();
     const changed = force || !state.snapshot || context.head !== state.head;
+    // The running timer still has to move even when nothing else did.
+    changedThisPass = changed || Boolean(state.active) !== Boolean(context.active);
     if (changed) {
       state.snapshot = await api.snapshot();
       state.head = context.head;
@@ -120,7 +124,15 @@ async function refresh({ quiet = false, force = false } = {}) {
     );
   } finally {
     $("refresh").textContent = "↻";
-    render();
+    // Repaint only when there is something new to show. A quiet minute-poll
+    // used to rebuild every list from scratch for no reason, which on the goals
+    // tab meant discarding and recreating every card.
+    if (changedThisPass || !state.painted) {
+      state.painted = true;
+      render();
+    } else {
+      paintElapsed();
+    }
   }
 }
 
@@ -224,6 +236,10 @@ function renderToday() {
   }
 }
 
+function paintElapsed() {
+  if (state.view === "today" && state.active) startTicking();
+}
+
 function startTicking() {
   stopTicking();
   const started = Date.now() - (state.active?.elapsed_seconds || 0) * 1000;
@@ -267,9 +283,30 @@ function renderSessions() {
   }
 }
 
+// Milestones grouped by goal, built once per snapshot rather than re-filtering
+// the whole list for every goal. That was 90 goals x 458 milestones on every
+// render, and a render happens after every tap.
+let milestoneIndex = { source: null, map: new Map() };
+
+function milestonesByGoal() {
+  const milestones = state.snapshot?.milestones || [];
+  if (milestoneIndex.source !== milestones) {
+    const map = new Map();
+    for (const milestone of milestones) {
+      const list = map.get(milestone.goal_uid);
+      if (list) list.push(milestone);
+      else map.set(milestone.goal_uid, [milestone]);
+    }
+    milestoneIndex = { source: milestones, map };
+  }
+  return milestoneIndex.map;
+}
+
 function goalProgress(goalUid) {
-  const all = (state.snapshot?.milestones || []).filter((m) => m.goal_uid === goalUid);
-  return { done: all.filter((m) => m.is_done).length, total: all.length, items: all };
+  const all = milestonesByGoal().get(goalUid) || [];
+  let done = 0;
+  for (const milestone of all) if (milestone.is_done) done += 1;
+  return { done, total: all.length, items: all };
 }
 
 function renderGoals() {

@@ -80,11 +80,6 @@ def duration_seconds(start: Optional[datetime], end: Optional[datetime]) -> int:
     return max(0, int((end - start).total_seconds()))
 
 
-def duration_seconds_iso(start_iso: Optional[str], end_iso: Optional[str]) -> int:
-    """Convenience wrapper for two stored ISO strings."""
-    return duration_seconds(parse_iso(start_iso), parse_iso(end_iso))
-
-
 # ── Day-start setting ────────────────────────────────────────────────────────
 def parse_day_start(value) -> time:
     """Parse a stored ``day_start_time`` setting ("HH:MM") into a ``time``.

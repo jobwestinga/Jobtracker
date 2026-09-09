@@ -70,6 +70,65 @@ FOREIGN_KEYS: dict[str, dict[str, tuple[str, str]]] = {
 PRIVATE_COLUMNS: frozenset[str] = frozenset({"id"})
 
 
+class WireCodec:
+    """Translates rows to and from the wire, resolving ids in bulk.
+
+    ``to_wire`` on its own does one ``uid_for_id`` query per foreign key per row.
+    That is a query per row: building a snapshot of ~1800 rows cost ~1800
+    queries. This loads each referenced table's id↔uid mapping once and answers
+    from memory, turning that into one query per referenced table.
+
+    Short-lived by design — build one per request or per sync batch. It caches,
+    so anything created after it was built is looked up individually rather than
+    being wrongly reported as missing.
+    """
+
+    def __init__(self, database):
+        self.db = database
+        self._id_to_uid: dict[str, dict] = {}
+        self._uid_to_id: dict[str, dict] = {}
+
+    def _load(self, table: str) -> None:
+        if table in self._id_to_uid:
+            return
+        cur = self.db.connection.cursor()
+        cur.execute(f"SELECT id, uid FROM {table}")
+        rows = cur.fetchall()
+        self._id_to_uid[table] = {r["id"]: r["uid"] for r in rows}
+        self._uid_to_id[table] = {r["uid"]: r["id"] for r in rows if r["uid"]}
+
+    def uid_for_id(self, table: str, row_id):
+        if row_id is None:
+            return None
+        self._load(table)
+        cached = self._id_to_uid[table].get(row_id)
+        if cached is None:
+            # Created since this codec was built; ask directly and remember.
+            cached = self.db.uid_for_id(table, row_id)
+            if cached is not None:
+                self._id_to_uid[table][row_id] = cached
+                self._uid_to_id[table][cached] = row_id
+        return cached
+
+    def id_for_uid(self, table: str, uid):
+        if not uid:
+            return None
+        self._load(table)
+        cached = self._uid_to_id[table].get(uid)
+        if cached is None:
+            cached = self.db.id_for_uid(table, uid)
+            if cached is not None:
+                self._uid_to_id[table][uid] = cached
+                self._id_to_uid[table][cached] = uid
+        return cached
+
+    def to_wire(self, table: str, row: dict) -> dict:
+        return to_wire(self, table, row)
+
+    def from_wire(self, table: str, payload: dict) -> dict:
+        return from_wire(self, table, payload)
+
+
 def to_wire(database, table: str, row: dict) -> dict:
     """Convert a raw DB row into the shape other machines understand.
 

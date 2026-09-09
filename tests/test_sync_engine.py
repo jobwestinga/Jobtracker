@@ -607,3 +607,77 @@ def test_a_pull_does_not_touch_device_local_settings(world):
     world.engine.sync()
     assert world.mirror.get_setting("theme_fx") == "Nebula"
     assert world.mirror.get_setting("graph_range") == "months"
+
+
+# ── apply order: parents before children ────────────────────────────────
+
+
+def test_a_child_whose_parent_was_edited_later_still_applies(world):
+    """The feed orders rows by their most recent change, so editing a goal after
+    its milestone exists sorts the milestone FIRST. Applying in that order fails
+    on milestones.goal_id being NOT NULL, and the mirror needs a full
+    re-download to recover. Found against real data, where two milestones hit
+    exactly this."""
+    goal = world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "add_goal",
+        "params": {"name": "Parent goal"}}]}).json()["applied"][0]["result"]["goal"]
+    world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "add_milestone",
+        "params": {"goal_uid": goal["uid"], "title": "Child"}}]})
+    # Touch the parent last: now its seq is higher than its own child's.
+    world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "update_goal",
+        "params": {"goal_uid": goal["uid"], "name": "Parent goal, edited"}}]})
+
+    changes = world.http.get("/sync/pull?since=0").json()["changes"]
+    order = [c["table"] for c in changes]
+    assert order.index("milestones") < order.index("goals"), (
+        "the feed really does hand the child over first"
+    )
+
+    result = world.engine.sync()
+
+    assert result.ok
+    assert result.repaired is False, "should not have needed a full re-download"
+    cur = world.mirror.connection.cursor()
+    row = cur.execute(
+        "SELECT m.title, t.name FROM milestones m JOIN todo_tasks t ON t.id = m.goal_id"
+    ).fetchone()
+    assert row is not None, "milestone was dropped"
+    assert row["name"] == "Parent goal, edited"
+
+
+def test_sessions_apply_after_their_subject(world):
+    subject_uid = server_add_subject(world, "Physics")
+    world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "add_session",
+        "params": {"subject_uid": subject_uid,
+                   "start_time": "2026-06-01T10:00:00",
+                   "end_time": "2026-06-01T11:00:00"}}]})
+    world.http.post("/ops", json={"ops": [{
+        "op_id": str(uuid.uuid4()), "op": "update_subject",
+        "params": {"subject_uid": subject_uid, "name": "Physics II",
+                   "color": "#111111"}}]})
+
+    result = world.engine.sync()
+    assert result.repaired is False
+    cur = world.mirror.connection.cursor()
+    assert cur.execute("SELECT COUNT(*) FROM sessions WHERE task_id IS NOT NULL").fetchone()[0] == 1
+
+
+def test_upserts_are_ordered_parents_first_deletes_last():
+    """The sort key itself, without needing a server."""
+    key = SyncEngine._apply_order
+    goal = key({"table": "goals", "op": "upsert", "seq": 900})
+    milestone = key({"table": "milestones", "op": "upsert", "seq": 5})
+    subject = key({"table": "subjects", "op": "upsert", "seq": 999})
+    session = key({"table": "sessions", "op": "upsert", "seq": 1})
+
+    assert subject < session, "a session must not arrive before its subject"
+    assert goal < milestone, "a milestone must not arrive before its goal"
+
+    a_delete = key({"table": "goals", "op": "delete", "seq": 1})
+    assert milestone < a_delete, "deletes run after every upsert"
+    assert key({"table": "milestones", "op": "delete", "seq": 9}) < a_delete, (
+        "children are deleted before their parents"
+    )
