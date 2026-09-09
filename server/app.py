@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -63,6 +64,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="JobTracker API", version="1.0.0", lifespan=lifespan)
+
+# JSON of this shape compresses about ten to one, and the snapshot is the
+# largest thing either client ever asks for. Small responses are left alone —
+# compressing 80 bytes costs more than it saves.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 def svc() -> TrackerService:
@@ -181,25 +187,37 @@ def sync_pull(
 
 
 @app.get("/sync/integrity")
-def sync_integrity(device: str = Depends(require_device)) -> dict:
-    """Row count + content hash per table, so a client can prove it is in sync.
+def sync_integrity(
+    deep: bool = Query(default=False),
+    device: str = Depends(require_device),
+) -> dict:
+    """Proof that a client is in step. Row counts always; hashes on request.
 
-    A mismatch means the mirror drifted; the client's response is to throw the
+    A mismatch means the mirror drifted; the client's answer is to throw the
     mirror away and re-download, which is always safe because the mirror is never
     authoritative.
+
+    Counts alone catch anything added or lost, cost one COUNT(*) per table, and
+    so can be checked on every sync. Hashing every uid catches the rarer case of
+    the right number of wrong rows, and is reserved for an occasional deep check.
     """
     with _lock:
         service = svc()
         cur = service.db.connection.cursor()
         tables: dict[str, dict] = {}
         for table in sync_policy.SYNCED_TABLES:
-            cur.execute(f"SELECT uid FROM {table} ORDER BY uid")
-            uids = [row["uid"] or "" for row in cur.fetchall()]
-            digest = hashlib.sha256("\n".join(uids).encode("utf-8")).hexdigest()
-            tables[sync_policy.API_NAMES[table]] = {
-                "count": len(uids),
-                "hash": digest,
-            }
+            if deep:
+                cur.execute(f"SELECT uid FROM {table} ORDER BY uid")
+                uids = [row["uid"] or "" for row in cur.fetchall()]
+                tables[sync_policy.API_NAMES[table]] = {
+                    "count": len(uids),
+                    "hash": hashlib.sha256("\n".join(uids).encode("utf-8")).hexdigest(),
+                }
+            else:
+                cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
+                tables[sync_policy.API_NAMES[table]] = {
+                    "count": int(cur.fetchone()["n"])
+                }
         head = feed.current_seq(service.db.connection)
     # The wall clock rides along so a client can notice the server drifting
     # into another timezone: times are stored naive, so a mismatch silently
@@ -207,6 +225,7 @@ def sync_integrity(device: str = Depends(require_device)) -> dict:
     return {
         "tables": tables,
         "head": head,
+        "deep": deep,
         "server_time": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -303,10 +322,26 @@ def api_context(device: str = Depends(require_device)) -> dict:
         service = svc()
         day_start = service.get_day_start()
         today = timeutils.logical_day(datetime.now(), day_start)
+        # `head` lets a client ask "has anything changed?" for a few dozen bytes
+        # instead of re-downloading a snapshot that is several hundred kilobytes.
+        head = feed.current_seq(service.db.connection)
+        service._adopt_open_session()
+        active = service.active_session
+        active_payload = None
+        if active is not None and active.id is not None:
+            active_payload = {
+                "subject_uid": service.db.uid_for_id("tasks", active.subject_id),
+                "start_time": active.start_time,
+                "elapsed_seconds": timeutils.duration_seconds(
+                    timeutils.parse_iso(active.start_time), datetime.now()
+                ),
+            }
         return {
             "today": today.isoformat(),
             "day_start": timeutils.day_start_to_str(day_start),
             "server_time": datetime.now().isoformat(timespec="seconds"),
+            "head": head,
+            "active": active_payload,
         }
 
 

@@ -136,8 +136,8 @@ class SyncClient:
         query = urllib.parse.urlencode({"since": int(since), "limit": int(limit)})
         return self._request("GET", f"/sync/pull?{query}")
 
-    def integrity(self) -> dict:
-        return self._request("GET", "/sync/integrity")
+    def integrity(self, deep: bool = False) -> dict:
+        return self._request("GET", f"/sync/integrity?deep={'1' if deep else '0'}")
 
     def send_ops(self, ops: list[dict], device_id: str = "") -> dict:
         payload = {

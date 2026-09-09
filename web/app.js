@@ -11,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   view: "today",
   snapshot: null,
+  head: null,
   context: null,
   active: null,
   day: null,
@@ -81,19 +82,30 @@ const subjectsByUid = () =>
 
 // ── data ────────────────────────────────────────────────────────────────
 
-async function refresh({ quiet = false } = {}) {
+async function refresh({ quiet = false, force = false } = {}) {
   if (!quiet) $("refresh").textContent = "…";
   try {
     await flush();
-    const [context, snapshot, active] = await Promise.all([
-      api.context(), api.snapshot(), api.active(),
-    ]);
+
+    // Context is a few dozen bytes and carries the server's change counter and
+    // the running timer. The snapshot is ~half a megabyte, so it is only
+    // re-fetched when that counter actually moved. An idle minute-poll used to
+    // pull the whole database down again.
+    const context = await api.context();
+    const changed = force || !state.snapshot || context.head !== state.head;
+    if (changed) {
+      state.snapshot = await api.snapshot();
+      state.head = context.head;
+    }
     state.context = context;
-    state.snapshot = snapshot;
-    state.active = active.active ? active : null;
+    state.active = context.active
+      ? { ...context.active, elapsed_seconds: context.active.elapsed_seconds }
+      : null;
     if (!state.day) state.day = context.today;
-    if (state.view === "sessions") await loadDay();
-    if (state.view === "graphs") await loadGraphs();
+    if (state.view === "sessions" && (changed || !state.daySessions.length)) {
+      await loadDay();
+    }
+    if (state.view === "graphs" && (changed || !state.graphs)) await loadGraphs();
     hideBanner();
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return showSetup("That token was rejected.");
@@ -137,11 +149,11 @@ async function act(op, params, options = {}) {
   try {
     const outcome = await send(op, params, uid ? { uid } : {});
     if (outcome.queued) banner("Saved — will sync when you're back online", "ok");
-    await refresh({ quiet: true });
+    await refresh({ quiet: true, force: true });
     return outcome;
   } catch (err) {
     banner(err.message || "That did not work");
-    await refresh({ quiet: true });
+    await refresh({ quiet: true, force: true });
     return { ok: false };
   }
 }
@@ -1009,7 +1021,7 @@ document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
     render();
   };
 });
-$("refresh").onclick = () => refresh();
+$("refresh").onclick = () => refresh({ force: true });
 $("open-settings").onclick = () => settingsSheet();
 $("stop-btn").onclick = () => stopTimer();
 $("day-prev").onclick = async () => { state.day = addDays(state.day, -1); await loadDay(); render(); };

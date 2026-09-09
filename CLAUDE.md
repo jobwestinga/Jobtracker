@@ -71,16 +71,24 @@ them does.
   waited a round trip felt broken), then the refresh that follows replaces the
   guess with the server's answer.
 - Tab order matches the desktop's pages: Goals, Subjects, Sessions, Graphs.
-- **The app is a fixed frame** (`#app` flex column at `100dvh`, `#views` scrolling
-  in the middle, tab bar as a flex item). The tab bar used to be `position:
-  fixed` with each view padding the page bottom; on a short view the page stopped
-  scrolling, iOS moved the bar, and the body colour showed underneath. Nothing in
-  the layout may depend on page height.
+- **The app is a fixed frame**: `#app { position: fixed; inset: 0 }`, flex
+  column, `#views` scrolling in the middle, tab bar as a flex item. Not
+  `height: 100dvh` — in an iOS standalone app dvh resolves before the viewport
+  settles, so the frame came up short and left a strip of page background below
+  the tab bar, which then "fixed itself" on rotation. `inset: 0` is always the
+  real viewport. Nothing in the layout may depend on page height.
+- No `backdrop-filter` on the chrome. Nothing scrolls under the bars any more,
+  so it was a GPU composite every frame for a blur of a solid colour — and the
+  translucency is what made the bottom look two-toned.
 - **Bars are summed per SUBJECT before drawing.** The API returns one segment per
   *session* — a month can hold 268 — and with a minimum block height every long
   bucket hit the ceiling, so a year of bars all came out identical.
 - It polls every 60s while on screen, and never while a sheet is open — a
   refresh redraws everything and would yank a half-filled form away.
+- **The minute-poll asks `/api/context` (about 100 bytes) and only re-fetches
+  the snapshot when `head` changed.** It used to pull the whole database —
+  478 KB — every 60 seconds and after every tap. Responses over 1 KB are gzipped
+  (`GZipMiddleware`), which takes a changed snapshot from 478 KB to 93 KB.
 - `sw.js` makes it open with no signal. **Network-first everywhere**, falling
   back to the cache: the app is deployed by rsync and reloaded by hand, so a
   cache-first shell would keep serving yesterday's JavaScript after a deploy.
@@ -415,6 +423,11 @@ first stops a pull from overwriting an edit still sitting in the outbox.
   every local row, which would discard unsent work. `sync()` enforces this.
 - Only `SYNCED_SETTING_KEYS` are restored by a resync, so a phone can never
   overwrite this machine's theme or graph range.
+- **`/sync/integrity` is cheap by default and deep on request.** Counts catch
+  anything added or lost and are checked every pass; `?deep=1` also hashes every
+  uid, catching the right *number* of the wrong rows, and runs once every ten
+  passes. The client used to ignore the hash entirely while the server computed
+  it every time.
 - **Shared settings ride along with every `/sync/pull`**, because settings are
   not rows and so never appear in the change feed. Without that, a `day_start_time`
   changed on the phone would only reach the Mac if a full re-download happened to

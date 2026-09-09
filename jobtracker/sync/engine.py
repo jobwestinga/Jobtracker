@@ -21,6 +21,7 @@ Order of a sync pass, and why:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -179,9 +180,14 @@ class SyncEngine:
             if not response.get("more"):
                 break
 
-    def verify(self, result: SyncResult) -> bool:
-        """Compare the mirror with the server. True when they agree."""
-        report = self.client.integrity()
+    def verify(self, result: SyncResult, deep: bool = False) -> bool:
+        """Compare the mirror with the server. True when they agree.
+
+        Counts catch anything added or lost and are cheap enough to check every
+        pass. ``deep`` also compares a hash of every uid, which catches the
+        rarer case of the right *number* of the wrong rows.
+        """
+        report = self.client.integrity(deep=deep)
         self._check_clock(report, result)
         cur = self.db.connection.cursor()
         for api_name, expected in report.get("tables", {}).items():
@@ -195,7 +201,18 @@ class SyncEngine:
                     f"{api_name}: mirror has {local}, server has {expected.get('count')}"
                 )
                 return False
+            wanted_hash = expected.get("hash")
+            if wanted_hash and self._uid_hash(table) != wanted_hash:
+                result.messages.append(f"{api_name}: same row count, different rows")
+                return False
         return True
+
+    def _uid_hash(self, table: str) -> str:
+        """The same digest the server computes, over this mirror's uids."""
+        cur = self.db.connection.cursor()
+        cur.execute(f"SELECT uid FROM {table} ORDER BY uid")
+        uids = [row["uid"] or "" for row in cur.fetchall()]
+        return hashlib.sha256("\n".join(uids).encode("utf-8")).hexdigest()
 
     @staticmethod
     def _check_clock(report: dict, result: SyncResult) -> None:
@@ -247,13 +264,28 @@ class SyncEngine:
         )
         result.repaired = True
 
+    def _due_for_periodic_check(self, every: int = 10) -> bool:
+        """True once every ``every`` quiet passes, so drift cannot hide forever."""
+        try:
+            count = int(state.get(self.db.connection, state.QUIET_PASSES, "0") or 0)
+        except ValueError:
+            count = 0
+        count += 1
+        if count >= every:
+            state.set_value(self.db.connection, state.QUIET_PASSES, "0")
+            return True
+        state.set_value(self.db.connection, state.QUIET_PASSES, str(count))
+        return False
+
     # ── one full pass ───────────────────────────────────────────────────
     def sync(self, verify: bool = True) -> SyncResult:
         result = SyncResult()
         try:
             self.push(result)
             self.pull(result)
-            if verify and not self.verify(result):
+            # Counts are compared every pass; the uid hash only occasionally,
+            # since that makes the server read every uid in every table.
+            if verify and not self.verify(result, deep=self._due_for_periodic_check()):
                 logger.warning("Mirror drifted from server; re-downloading")
                 if state.pending_count(self.db.connection) == 0:
                     self.full_resync(result)

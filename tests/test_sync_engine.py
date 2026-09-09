@@ -63,9 +63,11 @@ class InProcessClient:
         self._guard()
         return self._check(self.http.get(f"/sync/pull?since={since}&limit={limit}"))
 
-    def integrity(self):
+    def integrity(self, deep=False):
         self._guard()
-        return self._check(self.http.get("/sync/integrity"))
+        return self._check(
+            self.http.get(f"/sync/integrity?deep={'1' if deep else '0'}")
+        )
 
     def active(self):
         self._guard()
@@ -560,8 +562,8 @@ def test_a_server_in_another_timezone_is_reported(world):
 
     real_integrity = world.client.integrity
 
-    def skewed():
-        report = real_integrity()
+    def skewed(deep=False):
+        report = real_integrity(deep=deep)
         report["server_time"] = (datetime.now() - timedelta(hours=2)).isoformat()
         return report
 

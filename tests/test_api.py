@@ -348,9 +348,9 @@ def test_pull_since_head_is_empty(api):
 
 
 def test_integrity_hash_changes_when_data_changes(api):
-    before = api.get("/sync/integrity").json()
+    before = api.get("/sync/integrity?deep=1").json()
     make_subject(api)
-    after = api.get("/sync/integrity").json()
+    after = api.get("/sync/integrity?deep=1").json()
 
     assert before["tables"]["subjects"]["count"] == 0
     assert after["tables"]["subjects"]["count"] == 1

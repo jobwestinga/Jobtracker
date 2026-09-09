@@ -35,8 +35,10 @@ html, body {
 
 /* ── setup ─────────────────────────────────────────────────────────── */
 .setup {
-  padding: calc(var(--safe-t) + 48px) 24px 24px;
+  position: fixed; inset: 0; overflow-y: auto;
+  padding: calc(var(--safe-t) + 48px) 24px calc(var(--safe-b) + 24px);
   display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg);
 }
 .setup h1 { margin: 0; font-size: 28px; }
 .setup label { font-size: 13px; color: var(--dim); margin-top: 8px; }
@@ -45,8 +47,9 @@ html, body {
 .topbar {
   flex: 0 0 auto; z-index: 5;
   padding: calc(var(--safe-t) + 12px) 16px 12px;
-  background: rgba(11, 18, 32, 0.92);
-  backdrop-filter: blur(12px);
+  /* Opaque for the same reason as the tab bar: it is a flex item now, nothing
+     passes under it, and the blur cost a composite every frame while scrolling. */
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
   display: flex; align-items: center; justify-content: space-between;
 }
@@ -61,8 +64,13 @@ html, body {
 .banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.4); }
 
 /* The app is a fixed frame: header, one scrolling middle, tab bar. Nothing
-   here depends on page height, so switching tabs cannot move the chrome. */
-#app { display: flex; flex-direction: column; height: 100dvh; }
+   here depends on page height, so switching tabs cannot move the chrome.
+   `position: fixed; inset: 0` rather than `height: 100dvh`: in an iOS
+   standalone app dvh is resolved before the viewport settles, so the frame came
+   up short and left a strip of the page background below the tab bar — which
+   then fixed itself on rotation, because that forces a re-layout. inset:0 is
+   always the real viewport and is recomputed on rotation automatically. */
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; }
 #views { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .view { padding: 12px 16px 20px; }
 
@@ -70,15 +78,23 @@ html, body {
 .tabbar {
   flex: 0 0 auto; z-index: 6;
   display: grid; grid-template-columns: repeat(3, 1fr);
-  background: rgba(19, 28, 46, 0.96);
-  backdrop-filter: blur(12px);
+  /* Fully opaque, and no blur: nothing scrolls underneath it any more, so the
+     blur was pure per-frame GPU work. Opaque also guarantees one flat colour
+     rather than a translucent band over whatever is behind. */
+  background: var(--panel);
   border-top: 1px solid var(--line);
+  /* The inset keeps the icons off the home indicator; because it is padding,
+     the background still covers it, so the bottom is a single colour. */
   padding-bottom: var(--safe-b);
 }
 .tab {
   appearance: none; border: 0; background: none; color: var(--dim);
-  font-size: 11px; padding: 10px 0 8px;
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  font-size: 11px; padding: 0;
+  /* Centre the icon+label block in a fixed-height row, instead of relying on
+     uneven top/bottom padding. */
+  min-height: 54px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 3px;
 }
 .tab span { font-size: 20px; line-height: 1; }
 .tab.on { color: var(--accent); }

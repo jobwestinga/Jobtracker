@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS sync_state (
 LAST_SEQ = "last_seq"
 LAST_SYNC_AT = "last_sync_at"
 LAST_ERROR = "last_error"
+# Quiet passes since the last integrity check (see SyncEngine).
+QUIET_PASSES = "quiet_passes"
 
 
 def install(connection: sqlite3.Connection) -> None:
