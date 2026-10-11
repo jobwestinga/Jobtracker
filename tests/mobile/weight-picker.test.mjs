@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-const source = await readFile(new URL('../../web/weight-utils.js', import.meta.url), 'utf8');
-const { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight,
-  dailyWeightMoment, manualDateCollision } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import { importWebModule } from './support/import-web.mjs';
+const { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } = await importWebModule('features/weight/picker.js');
 
 test('seven whole tiles center on rounded chronologically latest reading', () => {
   const rows = [

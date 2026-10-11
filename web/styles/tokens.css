@@ -1,0 +1,16 @@
+:root {
+  --bg: #0B1220;
+  --panel: #131C2E;
+  --panel-2: #1A2438;
+  --line: #263149;
+  --text: #E6ECF7;
+  --dim: #8A98B0;
+  --accent: #3B82F6;
+  --green: #10B981;
+  --red: #EF4444;
+  --amber: #F59E0B;
+  --radius: 8px;
+  
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}

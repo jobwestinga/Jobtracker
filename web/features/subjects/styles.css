@@ -1,0 +1,25 @@
+.active-card {
+  border-color: var(--green);
+  background: linear-gradient(180deg, rgba(16,185,129,0.12), var(--panel));
+  margin-bottom: 4px;
+}
+
+.active-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+
+.active-body { flex: 1; min-width: 0; }
+
+.active-name { font-weight: 700; }
+
+.active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; }
+
+.subject-start { border: 0; background: none; color: var(--accent); min-width: 44px; min-height: 44px; padding: 0; }
+
+.swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
+
+.swatch.used { opacity: 0.35; }
+
+.swatch.picked { border-color: var(--text); transform: scale(1.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .active-dot { animation: none; }
+}

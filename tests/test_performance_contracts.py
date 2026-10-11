@@ -26,7 +26,7 @@ from jobtracker.sync import state  # noqa: E402
 from jobtracker.sync.engine import SyncEngine, SyncResult  # noqa: E402
 from server import app as app_module  # noqa: E402
 from server import auth  # noqa: E402
-from tests.test_sync_engine import InProcessClient  # noqa: E402
+from tests.support.sync import InProcessClient  # noqa: E402
 
 TestClient = fastapi_testclient.TestClient
 

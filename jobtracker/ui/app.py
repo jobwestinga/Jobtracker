@@ -11,35 +11,23 @@ settings dialog, animation/state wiring, recovery prompt, and close handling.
 from __future__ import annotations
 
 import logging
-import weakref
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import (
-    QEasingCurve,
     QEvent,
-    QObject,
     QTimer,
     QVariantAnimation,
     Qt,
 )
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
-    QAbstractItemView,
     QApplication,
-    QComboBox,
     QDialog,
     QFrame,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
-    QLineEdit,
-    QListView,
     QMainWindow,
-    QPlainTextEdit,
     QPushButton,
     QStackedLayout,
     QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -51,6 +39,8 @@ from ..core.themes import get_tokens
 from ..services.tracker_service import TrackerService
 from ..sync import settings as sync_settings
 from ..sync.service import SyncedTrackerService
+from .controllers.keyboard import KeyboardController
+from .controllers.sync import WindowSyncController
 from .styles import build_stylesheet
 from .graphs_mixin import GraphsMixin
 from .goals_mixin import GoalsMixin
@@ -65,125 +55,14 @@ from .widgets.weight_view import WeightView
 logger = logging.getLogger("jobtracker")
 
 
-class _LatestArrowDirectionFilter(QObject):
-    """Prevent stale key-repeat events from delaying Up/Down reversal.
-
-    macOS can leave repeat events from one held arrow in Qt's input queue after
-    the opposite arrow is pressed. Native menus then appear to keep travelling
-    in the old direction. The latest physical press owns repeat until another
-    physical press changes direction.
-    """
-
-    _DIRECTION_KEYS = {Qt.Key_Up, Qt.Key_Down}
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._held: set[int] = set()
-        self._preferred: int | None = None
-        self._view_states = weakref.WeakKeyDictionary()
-
-    def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        event_type = event.type()
-        if event_type == QEvent.ApplicationDeactivate:
-            self._held.clear()
-            self._view_states.clear()
-            return False
-        view = self._item_view_for(watched)
-        if view is not None and event_type in (
-            QEvent.FocusIn,
-            QEvent.MouseButtonPress,
-            QEvent.Wheel,
-        ):
-            self._view_states.pop(view, None)
-        if event_type not in (QEvent.KeyPress, QEvent.KeyRelease):
-            return False
-
-        key = event.key()
-        if key not in self._DIRECTION_KEYS:
-            if view is not None and event_type == QEvent.KeyPress:
-                self._view_states.pop(view, None)
-            return False
-
-        if event_type == QEvent.KeyPress:
-            if event.isAutoRepeat():
-                if key not in self._held or key != self._preferred:
-                    return True
-            else:
-                self._held.add(key)
-                self._preferred = key
-            if view is not None:
-                if view.property("_jt_direct_arrow_scroll"):
-                    view.scroll_one_card(key)
-                    return True
-                self._follow_view_scroll_after_key(view, key)
-            return False
-
-        if not event.isAutoRepeat():
-            self._held.discard(key)
-        return False
-
-    @staticmethod
-    def _item_view_for(watched) -> QAbstractItemView | None:
-        current = watched if isinstance(watched, QWidget) else None
-        while current is not None:
-            if isinstance(current, QAbstractItemView):
-                return current
-            current = current.parentWidget()
-        return None
-
-    def _follow_view_scroll_after_key(
-        self, view: QAbstractItemView, key: int
-    ) -> None:
-        try:
-            before = view.verticalScrollBar().value()
-            view_ref = weakref.ref(view)
-        except RuntimeError:
-            return
-
-        def adjust() -> None:
-            current_view = view_ref()
-            if current_view is None:
-                return
-            try:
-                bar = current_view.verticalScrollBar()
-                after = bar.value()
-                state = self._view_states.setdefault(
-                    current_view, {"following": False}
-                )
-                if after != before:
-                    state["following"] = True
-                    return
-                if not state["following"] or bar.maximum() <= bar.minimum():
-                    return
-
-                if (
-                    current_view.verticalScrollMode()
-                    == QAbstractItemView.ScrollPerPixel
-                ):
-                    rect = current_view.visualRect(
-                        current_view.currentIndex()
-                    )
-                    step = max(1, rect.height())
-                    if isinstance(current_view, QListView):
-                        step += current_view.spacing()
-                else:
-                    step = 1
-
-                direction = -1 if key == Qt.Key_Up else 1
-                bar.setValue(before + direction * step)
-                if bar.value() == before:
-                    state["following"] = False
-            except RuntimeError:
-                return
-
-        # Run after the native view has moved its current selection.
-        QTimer.singleShot(0, adjust)
 
 
 class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def __init__(self, app_instance) -> None:
         super().__init__()
         self.app_instance = app_instance
+        self._keyboard = KeyboardController(self)
+        self._sync_coordinator = WindowSyncController(self)
         # A synced mirror must queue recovery writes too. Inspect settings
         # without recovery first, then recover through the appropriate service.
         self.service = TrackerService(recover=False)
@@ -272,50 +151,16 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             return default
 
     def _setup_sync(self) -> None:
-        """Start the background sync thread, if sync is switched on.
-
-        Nothing here is on a UI code path: if the server is unreachable the app
-        simply carries on with its local mirror.
-        """
-        if not self._sync_on or not sync_settings.is_configured(self.service):
-            return
-        from ..sync.qt_worker import SyncController
-
-        self._sync_controller = SyncController(
-            self.service.db.db_path, self.service.device_id, parent=self
-        )
-        self._sync_controller.finished.connect(self._on_sync_finished)
-
-        # On launch, then on a slow timer. Focus and quit trigger it too.
-        QTimer.singleShot(1200, self.sync_now)
-        self._sync_timer = QTimer(self)
-        self._sync_timer.setInterval(5 * 60_000)
-        self._sync_timer.timeout.connect(self.sync_now)
-        self._sync_timer.start()
+        return self._sync_coordinator._setup_sync()
 
     def sync_now(self) -> bool:
-        if self._sync_controller is None:
-            return False
-        return self._sync_controller.request(
-            sync_settings.server_url(self.service), sync_settings.read_token()
-        )
+        return self._sync_coordinator.sync_now()
 
     def _on_sync_finished(self, result) -> None:
-        if result.applied or result.deleted or result.repaired:
-            # The mirror changed underneath the widgets, so redraw from it.
-            self.service._adopt_open_session()
-            self._reload()
-        if not result.ok and not result.offline:
-            logger.warning("Sync problem: %s", result.error)
+        return self._sync_coordinator._on_sync_finished(result)
 
     def _install_arrow_direction_filter(self) -> None:
-        arrow_filter = getattr(
-            self.app_instance, "_jobtracker_arrow_direction_filter", None
-        )
-        if arrow_filter is None:
-            arrow_filter = _LatestArrowDirectionFilter(self.app_instance)
-            self.app_instance.installEventFilter(arrow_filter)
-            self.app_instance._jobtracker_arrow_direction_filter = arrow_filter
+        return self._keyboard._install_arrow_direction_filter()
 
     # ── state / animation wiring ────────────────────────────────────────
     def _maybe_prompt_recovery(self) -> None:
@@ -363,193 +208,37 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         super().changeEvent(event)
 
     def _install_shortcuts(self) -> None:
-        self._shortcuts: list[QShortcut] = []
-        for sequence, callback in (
-            ("Left", lambda: self._navigate_pages(-1)),
-            ("Right", lambda: self._navigate_pages(1)),
-            ("Escape", self._handle_escape_shortcut),
-            ("W", lambda: self._handle_graph_range_shortcut("weeks")),
-            ("M", lambda: self._handle_graph_range_shortcut("months")),
-            ("Y", lambda: self._handle_graph_range_shortcut("year")),
-            ("A", lambda: self._handle_graph_range_shortcut("all")),
-        ):
-            shortcut = QShortcut(QKeySequence(sequence), self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(callback)
-            self._shortcuts.append(shortcut)
-
-        undo_sequences = [QKeySequence.Undo, QKeySequence("Ctrl+Z")]
-        seen_undo: set[str] = set()
-        for sequence in undo_sequences:
-            key = QKeySequence(sequence).toString()
-            if not key or key in seen_undo:
-                continue
-            seen_undo.add(key)
-            shortcut = QShortcut(QKeySequence(sequence), self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(self._perform_undo)
-            self._shortcuts.append(shortcut)
-
-        # Kept per-digit so the switch-confirm prompt can temporarily disable
-        # the one conflicting key (two live shortcuts on the same key would be
-        # ambiguous to Qt and neither would fire).
-        self._number_shortcuts: dict[int, QShortcut] = {}
-        for number in range(1, 10):
-            shortcut = QShortcut(QKeySequence(str(number)), self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.activated.connect(
-                lambda selected=number: self._handle_number_shortcut(selected)
-            )
-            self._shortcuts.append(shortcut)
-            self._number_shortcuts[number] = shortcut
+        return self._keyboard._install_shortcuts()
 
     def _shortcut_focus_allows_navigation(self) -> bool:
-        if int(self.property("_jt_inline_dialog_count") or 0) > 0:
-            return False
-        if (
-            QApplication.activePopupWidget() is not None
-            or QApplication.activeModalWidget() is not None
-        ):
-            return False
-        focus = QApplication.focusWidget()
-        return not isinstance(
-            focus,
-            (
-                QLineEdit,
-                QTextEdit,
-                QPlainTextEdit,
-                QAbstractSpinBox,
-                QComboBox,
-            ),
-        )
+        return self._keyboard._shortcut_focus_allows_navigation()
 
     def _navigate_pages(self, delta: int) -> None:
-        if not self._shortcut_focus_allows_navigation():
-            return
-        current = self._pages.currentIndex()
-        target = max(0, min(self._pages.count() - 1, current + int(delta)))
-        if target != current:
-            self._switch_page(target)
+        return self._keyboard._navigate_pages(delta)
 
     def _handle_number_shortcut(self, number: int) -> None:
-        if not self._shortcut_focus_allows_navigation():
-            return
-        row = int(number) - 1
-        page = self._pages.currentIndex()
-        if page == 0:
-            if row >= self._todo_list.count():
-                return
-            goal_id = self._todo_list.item(row).data(Qt.UserRole)
-            if goal_id is not None:
-                goal_id = int(goal_id)
-                self._todo_list.pulse_card(goal_id)
-                self._open_goal_after_shortcut_feedback(goal_id)
-            return
-        if page == 1:
-            # Number shortcuts start tracking when idle; while a session is
-            # active they ask to switch (handled inside _start_tracking) and
-            # never stop silently. Archived subjects cannot be started.
-            if self._showing_archived or row >= self._subjects_list.count():
-                return
-            subject_id = self._subjects_list.item(row).data(Qt.UserRole)
-            if subject_id is not None:
-                self._start_tracking(
-                    int(subject_id), shortcut_feedback=True
-                )
-            return
-        if page == 2 and 1 <= number <= 2:
-            mode = ("bar", "agenda")[number - 1]
-            self._set_graph_view_mode(mode)
-            self._pulse_widget(self._graph_mode_buttons[mode])
+        return self._keyboard._handle_number_shortcut(number)
 
     def _open_goal_after_shortcut_feedback(self, goal_id: int) -> None:
-        if hasattr(self, "_goal_shortcut_timer"):
-            self._goal_shortcut_timer.stop()
-        self._goal_shortcut_timer = QTimer(self)
-        self._goal_shortcut_timer.setSingleShot(True)
-        self._goal_shortcut_timer.timeout.connect(
-            lambda selected=goal_id: self._open_goal(selected)
-        )
-        self._goal_shortcut_timer.start(140)
+        return self._keyboard._open_goal_after_shortcut_feedback(goal_id)
 
     def _handle_escape_shortcut(self) -> None:
-        if not self._shortcut_focus_allows_navigation():
-            return
-        if self._pages.currentIndex() == 0 and self._showing_completed_goals:
-            self._toggle_completed_goals()
-        elif self._pages.currentIndex() == 1 and self._showing_archived:
-            self._toggle_archived_view()
+        return self._keyboard._handle_escape_shortcut()
 
     def _handle_graph_range_shortcut(self, preset: str) -> None:
-        if (
-            not self._shortcut_focus_allows_navigation()
-            or self._pages.currentIndex() != 2
-            or preset not in {"weeks", "months", "year", "all"}
-        ):
-            return
-        self._graph_range_preset = preset
-        self._graph_custom_range = None
-        self.service.set_setting("graph_range", preset)
-        self._reload_graphs()
-        self._pulse_widget(self._graph_settings_btn)
+        return self._keyboard._handle_graph_range_shortcut(preset)
 
     def _pulse_widget(self, widget: QWidget, duration_ms: int = 180) -> None:
-        if widget.graphicsEffect() is not None:
-            return
-        effect = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(effect)
-        anim = QVariantAnimation(self)
-        anim.setDuration(max(120, int(duration_ms)))
-        anim.setKeyValueAt(0.0, 1.0)
-        anim.setKeyValueAt(0.45, 0.62)
-        anim.setKeyValueAt(1.0, 1.0)
-        anim.setEasingCurve(QEasingCurve.InOutCubic)
-        def set_opacity(value) -> None:
-            try:
-                effect.setOpacity(float(value))
-            except RuntimeError:
-                anim.stop()
-                if anim in self._shortcut_feedback_anims:
-                    self._shortcut_feedback_anims.remove(anim)
-
-        anim.valueChanged.connect(set_opacity)
-
-        def finish() -> None:
-            try:
-                if widget.graphicsEffect() is effect:
-                    widget.setGraphicsEffect(None)
-            except RuntimeError:
-                pass
-            if anim in self._shortcut_feedback_anims:
-                self._shortcut_feedback_anims.remove(anim)
-
-        anim.finished.connect(finish)
-        self._shortcut_feedback_anims.append(anim)
-        anim.start()
+        return self._keyboard._pulse_widget(widget, duration_ms)
 
     def _register_undo(self, callback) -> None:
-        """Keep one intentionally small, in-memory reversible action."""
-        self._undo_callback = callback
+        return self._keyboard._register_undo(callback)
 
     def _queue_ui_action(self, callback, *args) -> None:
-        """Let the originating input event finish before changing main views."""
-        def run() -> None:
-            callback(*args)
-
-        QTimer.singleShot(0, run)
+        return self._keyboard._queue_ui_action(callback, *args)
 
     def _perform_undo(self, force: bool = False) -> None:
-        if not force and not self._shortcut_focus_allows_navigation():
-            return
-        callback = self._undo_callback
-        if callback is None:
-            return
-        self._undo_callback = None
-        callback()
-        self._reload()
+        return self._keyboard._perform_undo(force)
 
     def _heartbeat(self) -> None:
         try:

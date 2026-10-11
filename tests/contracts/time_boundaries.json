@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "semantics": "Local naive wall-clock time. Tracking logical days; weight calendar dates are independent.",
+  "cases": [
+    {"now":"2026-10-11T02:59:59","boundary":"03:00","logical_day":"2026-10-10","hour":26.99972222222222},
+    {"now":"2026-10-11T03:00:00","boundary":"03:00","logical_day":"2026-10-11","hour":3},
+    {"now":"2026-10-11T00:00:00","boundary":"03:00","logical_day":"2026-10-10","hour":24},
+    {"now":"2026-10-11T00:00:00","boundary":"00:00","logical_day":"2026-10-11","hour":0},
+    {"now":"2026-01-01T01:15:00","boundary":"03:00","logical_day":"2025-12-31","hour":25.25},
+    {"now":"2024-03-01T02:30:00","boundary":"03:00","logical_day":"2024-02-29","hour":26.5},
+    {"now":"2026-10-11T03:29:59","boundary":"03:30","logical_day":"2026-10-10","hour":27.49972222222222},
+    {"now":"2026-10-11T03:30:00","boundary":"03:30","logical_day":"2026-10-11","hour":3.5},
+    {"now":"2026-03-29T01:30:00","boundary":"03:00","logical_day":"2026-03-28","hour":25.5},
+    {"now":"2026-10-25T02:30:00","boundary":"03:00","logical_day":"2026-10-24","hour":26.5}
+  ]
+}

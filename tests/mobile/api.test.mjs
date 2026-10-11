@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { importWebModule } from './support/import-web.mjs';
 
-const source = await readFile(new URL('../../web/api.js', import.meta.url), 'utf8');
-let moduleId = 0;
 class Storage {
   values = new Map([['jobtracker.token', 'test-token']]);
   fail = false;
@@ -15,7 +13,7 @@ async function setup(fetch) {
   globalThis.localStorage = new Storage();
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
   globalThis.fetch = fetch;
-  return import(`data:text/javascript;base64,${Buffer.from(source + `\n// isolation ${moduleId++}`).toString('base64')}`);
+  return importWebModule('api.js');
 }
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const accepted = (request) => reply({ applied: JSON.parse(request.body).ops.map((entry) => ({ op_id: entry.op_id, result: { ok: true } })) });
@@ -35,7 +33,7 @@ test('write is durable before the request and survives a page closing mid-reques
   const sending = client.send('start_subject', { subject_uid: 's', start_time: '2026-10-10T10:00:00' }, { uid: 'timer' });
   await until(() => Boolean(release));
   const saved = localStorage.getItem('jobtracker.outbox');
-  const reloaded = await import(`data:text/javascript;base64,${Buffer.from(source + '\n// after reload').toString('base64')}`);
+  const reloaded = await importWebModule('api.js');
   assert.equal(reloaded.pendingCount(), 1);
   assert.equal(reloaded.pendingOperations()[0].op_id, transmitted.op_id);
   assert.equal(JSON.parse(saved)[0].params.uid, 'timer');

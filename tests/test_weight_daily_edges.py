@@ -9,8 +9,8 @@ from jobtracker.services.weight_service import WeightService
 from jobtracker.sync import state
 from jobtracker.sync.client import SyncError
 from jobtracker.sync.service import SyncedTrackerService
-from tests.test_api import do, result_of
-from tests.test_sync_service import synced  # noqa: F401
+from tests.support.api import do, result_of
+from tests.support.synced import synced  # noqa: F401
 
 
 def measurements(database):

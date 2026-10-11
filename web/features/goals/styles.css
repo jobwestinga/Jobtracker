@@ -1,0 +1,44 @@
+.check {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 2px solid var(--dim); background: none; color: transparent;
+  flex: 0 0 auto; display: grid; place-items: center; font-size: 14px;
+}
+
+.check.done { border-color: var(--green); background: var(--green); color: #fff; }
+
+.check.blocked { opacity: 0.4; }
+
+.star { background: none; border: 0; font-size: 24px; color: var(--dim); padding: 4px; min-width: 44px; min-height: 44px; flex: 0 0 44px; }
+
+.star.on { color: var(--amber); }
+
+.bar { height: 4px; border-radius: 2px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
+
+.bar > i { display: block; height: 100%; background: var(--accent); }
+
+.ms-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+
+.ms-row .grow { font-size: 15px; }
+
+.goal-notes, .ms-row .grow { overflow-wrap: anywhere; }
+
+.goal-card { flex-direction: column; align-items: stretch; gap: 0; }
+
+.goal-head { display: flex; align-items: center; gap: 6px; }
+
+.goal-panel {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.goal-notes { margin: 0 0 8px; }
+
+.check.small { width: 44px; height: 44px; font-size: 14px; }
+
+.ms-row .struck { color: var(--dim); text-decoration: line-through; }
+
+.ms-row { min-height: 44px; }
+
+.ms-row .icon-btn { flex: 0 0 44px; }
+
+.ms-row .grow { padding: 4px 0; }

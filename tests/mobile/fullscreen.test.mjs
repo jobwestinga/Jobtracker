@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { importWebModule } from './support/import-web.mjs';
 
-const source = await readFile(new URL('../../web/fullscreen.js', import.meta.url), 'utf8');
-let instance = 0;
 
 class Events {
   listeners = new Map();
@@ -73,7 +71,7 @@ async function setup() {
   input.value = '86.4'; target.append(input, closeButton);
   const trigger = new Element(document, 'button'); document.body.append(trigger); trigger.focus();
   globalThis.document = document;
-  const module = await import(`data:text/javascript;base64,${Buffer.from(source + `\n// instance ${instance++}`).toString('base64')}`);
+  const module = await importWebModule('shared/fullscreen.js');
   return { document, views, sheet, target, before, after, input, closeButton, trigger, module, exits: () => exits };
 }
 

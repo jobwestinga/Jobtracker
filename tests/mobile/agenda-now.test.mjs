@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agendaNowMarker, dayStartHour, logicalAgendaNow, agendaHourLabel } from "../../web/agenda-utils.js";
+import { agendaNowMarker, dayStartHour, logicalAgendaNow, agendaHourLabel } from "../../web/features/graphs/agenda-time.js";
 
 process.env.TZ = "Europe/Amsterdam";
 const now = (value) => new Date(value);
@@ -60,4 +60,16 @@ test("now-marker fraction moves by one minute without depending on session block
   const b = agendaNowMarker(days, 6, 23, { now: now("2026-10-10T12:01:00") });
   assert.ok(Math.abs((b.fraction - a.fraction) - 1 / (60 * 17)) < 1e-12);
   assert.equal(agendaNowMarker(days, 6, 23, { now: now("2026-10-11T12:00:00") }), null);
+});
+
+// Both runtimes consume these fixed local-time examples.
+test("agenda follows the shared Python/JavaScript boundary contract", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const fixture = JSON.parse(await readFile(new URL("../contracts/time_boundaries.json", import.meta.url), "utf8"));
+  assert.equal(fixture.schema_version, 1);
+  for (const entry of fixture.cases) {
+    const position = logicalAgendaNow(new Date(entry.now), dayStartHour({}, entry.boundary));
+    assert.equal(position.day, entry.logical_day, `${entry.now} / ${entry.boundary}`);
+    assert.ok(Math.abs(position.hour - entry.hour) < 1e-10, `${entry.now} hour`);
+  }
 });

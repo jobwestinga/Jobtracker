@@ -21,16 +21,15 @@ Order of a sync pass, and why:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from ..core import sync_policy, timeutils
+from ..core import sync_policy
 from ..core.database import Database
-from . import state
+from . import integrity, mirror, state
 from .client import SyncClient, SyncError
 
 logger = logging.getLogger("jobtracker")
@@ -87,100 +86,21 @@ class SyncEngine:
 
     # ── applying server rows to the mirror ──────────────────────────────
     def _upsert(self, api_table: str, uid: str, wire_row: dict, codec=None, heartbeat=None) -> None:
-        """Write one server row into the mirror, keyed by uid.
-
-        Foreign keys arrive as uids and are translated back to this database's
-        local ids. Missing parents roll the page back and require a complete
-        snapshot, so even nullable relationships cannot silently lose their link.
-        """
-        table = sync_policy.TABLE_FOR_API_NAME.get(api_table)
-        if table is None:
-            logger.warning("Ignoring unknown table from server: %s", api_table)
-            return
-
-        resolver = codec if codec is not None else self.db
-        row = sync_policy.from_wire(resolver, table, dict(wire_row))
-        # Nullable foreign keys (notably a goal's template) must not silently
-        # become NULL just because the parent is on a later feed page. Counts
-        # and uid hashes would consider that damaged relationship healthy.
-        for column, (_parent, wire_name) in sync_policy.FOREIGN_KEYS.get(table, {}).items():
-            if wire_row.get(wire_name) is not None and row.get(column) is None:
-                raise sqlite3.IntegrityError(f"missing parent for {api_table}.{wire_name}")
-        row["uid"] = uid
-
-        columns = [c for c in self._columns(table) if c in row]
-        local_id = (
-            codec.id_for_uid(table, uid) if codec is not None
-            else self.db.id_for_uid(table, uid)
+        """Apply a row through the mirror owner, preserving column overrides."""
+        mirror.upsert(
+            self.db, api_table, uid, wire_row, codec, heartbeat,
+            device_id=self.device_id, column_names=self._columns,
         )
-        if table == "sessions" and row.get("end_time") is None and row.get("device_id") in (None, self.device_id):
-            # Desktop heartbeats deliberately stay local. Pulling the server's
-            # older start-time heartbeat must not turn an hour of work into a
-            # false recovery gap the next time the app opens.
-            if heartbeat is None and local_id is not None:
-                local = self.db.connection.execute(
-                    "SELECT last_active_at FROM sessions WHERE id = ?", (local_id,)
-                ).fetchone()
-                heartbeat = local["last_active_at"] if local else None
-            local_stamp = timeutils.parse_iso(heartbeat)
-            remote_stamp = timeutils.parse_iso(row.get("last_active_at"))
-            started = timeutils.parse_iso(row.get("start_time"))
-            if local_stamp is not None and started is not None and local_stamp >= started and (
-                remote_stamp is None or local_stamp > remote_stamp
-            ):
-                row["last_active_at"] = heartbeat
-        values = [row[c] for c in columns]
-        cur = self.db.connection.cursor()
-        if local_id is None:
-            placeholders = ", ".join("?" for _ in columns)
-            cur.execute(
-                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
-                values,
-            )
-        else:
-            assignments = ", ".join(f"{c} = ?" for c in columns)
-            cur.execute(
-                f"UPDATE {table} SET {assignments} WHERE id = ?", [*values, local_id]
-            )
 
     def _delete(self, api_table: str, uid: str, codec=None) -> bool:
-        table = sync_policy.TABLE_FOR_API_NAME.get(api_table)
-        if table is None:
-            return False
-        local_id = (
-            codec.id_for_uid(table, uid) if codec is not None
-            else self.db.id_for_uid(table, uid)
-        )
-        if local_id is None:
-            return False
-        self.db.connection.execute(f"DELETE FROM {table} WHERE id = ?", (local_id,))
-        return True
+        return mirror.delete(self.db, api_table, uid, codec)
 
     @staticmethod
     def _apply_order(change: dict) -> tuple:
-        """Sort key: upserts parent-first, deletes child-first, then by seq.
-
-        ``SYNCED_TABLES`` is already listed parents-first, which is what makes
-        this a lookup rather than a graph walk.
-        """
-        table = sync_policy.TABLE_FOR_API_NAME.get(change.get("table"))
-        try:
-            rank = sync_policy.SYNCED_TABLES.index(table)
-        except ValueError:
-            rank = len(sync_policy.SYNCED_TABLES)
-        if change.get("op") == "delete":
-            # Deletes run after upserts and from the leaves inwards.
-            return (1, -rank, int(change.get("seq", 0)))
-        return (0, rank, int(change.get("seq", 0)))
+        return mirror.apply_order(change)
 
     def _columns(self, table: str) -> list[str]:
-        cached = self._column_cache.get(table)
-        if cached is None:
-            cur = self.db.connection.cursor()
-            cur.execute(f"PRAGMA table_info({table})")
-            cached = [r["name"] for r in cur.fetchall() if r["name"] != "id"]
-            self._column_cache[table] = cached
-        return cached
+        return mirror.columns(self.db, table, self._column_cache)
 
     # ── the three phases ────────────────────────────────────────────────
     def push(self, result: SyncResult) -> bool:
@@ -266,61 +186,19 @@ class SyncEngine:
                 return True
 
     def verify(self, result: SyncResult, deep: bool = False) -> bool:
-        """Compare the mirror with the server. True when they agree.
-
-        Counts catch anything added or lost and are cheap enough to check every
-        pass. ``deep`` also compares a hash of every uid, which catches the
-        rarer case of the right *number* of the wrong rows.
-        """
+        """Fetch an integrity report and verify it through overridable callbacks."""
         report = self.client.integrity(deep=deep)
-        self._check_clock(report, result)
-        cur = self.db.connection.cursor()
-        for api_name, expected in report.get("tables", {}).items():
-            table = sync_policy.TABLE_FOR_API_NAME.get(api_name)
-            if table is None:
-                continue
-            cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
-            local = int(cur.fetchone()["n"])
-            if local != int(expected.get("count", -1)):
-                result.messages.append(
-                    f"{api_name}: mirror has {local}, server has {expected.get('count')}"
-                )
-                return False
-            wanted_hash = expected.get("hash")
-            if wanted_hash and self._uid_hash(table) != wanted_hash:
-                result.messages.append(f"{api_name}: same row count, different rows")
-                return False
-        return True
+        return integrity.verify_report(
+            self.db, report, result,
+            check_clock=self._check_clock, uid_hash=self._uid_hash,
+        )
 
     def _uid_hash(self, table: str) -> str:
-        """The same digest the server computes, over this mirror's uids."""
-        cur = self.db.connection.cursor()
-        cur.execute(f"SELECT uid FROM {table} ORDER BY uid")
-        uids = [row["uid"] or "" for row in cur.fetchall()]
-        return hashlib.sha256("\n".join(uids).encode("utf-8")).hexdigest()
+        return integrity.hash_uids(self.db, table)
 
     @staticmethod
     def _check_clock(report: dict, result: SyncResult) -> None:
-        """Complain if the server's wall clock is not ours.
-
-        JobTracker stores naive local times. If the server sits in another
-        timezone, a session started from the phone is filed hours off and nothing
-        else would ever notice — the rows look perfectly valid.
-        """
-        stamp = report.get("server_time")
-        if not stamp:
-            return
-        server_now = timeutils.parse_iso(stamp)
-        if server_now is None:
-            return
-        skew = abs((datetime.now() - server_now).total_seconds())
-        if skew > 300:
-            message = (
-                f"server clock is {round(skew / 60)} min from this machine's; "
-                "sessions will be recorded at the wrong time"
-            )
-            logger.warning("Sync: %s", message)
-            result.messages.append(message)
+        integrity.check_clock(report, result, clock=datetime.now)
 
     def full_resync(self, result: SyncResult) -> bool:
         """Throw the mirror away and rebuild it from the server.

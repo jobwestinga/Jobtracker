@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-const source = await readFile(new URL('../../web/offline.js', import.meta.url), 'utf8');
-const { projectPending, applyChanges } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import { importWebModule } from './support/import-web.mjs';
+const { projectPending, applyChanges } = await importWebModule('data/projection.js');
 const snapshot = { subjects: [{ uid: 's', name: 'Subject' }], goals: [{ uid: 'g', name: 'Goal', is_focused: 0 }], milestones: [], sessions: [], settings: { day_start_time: '03:00' } };
 
 test('offline start and stop overlay keeps the original time and precise session identity after reload', () => {

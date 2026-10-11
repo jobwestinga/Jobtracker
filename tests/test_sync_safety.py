@@ -11,8 +11,8 @@ from jobtracker.sync import state
 from jobtracker.sync.client import SyncError
 from jobtracker.sync.engine import SyncResult
 from jobtracker.sync.service import SyncedTrackerService
-from tests.test_sync_engine import world, server_add_subject
-from tests.test_sync_service import synced
+from tests.support.sync import world, server_add_subject
+from tests.support.synced import synced
 
 
 def test_seventy_five_minute_offline_timer_preserves_original_times(synced):

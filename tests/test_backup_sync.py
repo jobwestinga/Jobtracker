@@ -9,7 +9,7 @@ pytest.importorskip("fastapi.testclient", reason="server extras not installed")
 from jobtracker.core import sync_policy
 from jobtracker.sync import state
 from jobtracker.sync.engine import SyncResult
-from tests.test_sync_service import synced, table_counts, uid_fingerprint
+from tests.support.synced import synced, table_counts, uid_fingerprint
 
 
 @pytest.fixture

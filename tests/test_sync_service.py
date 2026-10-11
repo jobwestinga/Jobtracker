@@ -28,7 +28,7 @@ from jobtracker.sync.engine import SyncEngine  # noqa: E402
 from jobtracker.sync.service import SyncedTrackerService  # noqa: E402
 from server import app as app_module  # noqa: E402
 from server import auth, ops  # noqa: E402
-from tests.test_sync_engine import InProcessClient  # noqa: E402
+from tests.support.sync import InProcessClient  # noqa: E402
 
 TestClient = fastapi_testclient.TestClient
 
@@ -50,58 +50,17 @@ MUTATING_METHODS = [
 ]
 
 
-@pytest.fixture
-def synced(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOBTRACKER_TOKENS_PATH", str(tmp_path / "tokens.json"))
-    token = auth.issue_token("macbook")
-
-    server_state = app_module.build_state(str(tmp_path / "server.db"))
-    monkeypatch.setitem(app_module._state, "db", server_state["db"])
-    monkeypatch.setitem(app_module._state, "svc", server_state["svc"])
-    http = TestClient(app_module.app)
-    http.headers.update({"Authorization": f"Bearer {token}"})
-
-    mirror = Database(tmp_path / "mirror.db")
-    svc = SyncedTrackerService(mirror, device_id="macbook")
-    client = InProcessClient(http, token)
-    engine = SyncEngine(mirror, client, device_id="macbook")
-
-    class World:
-        pass
-
-    w = World()
-    w.svc = svc
-    w.mirror = mirror
-    w.engine = engine
-    w.client = client
-    w.server_db = server_state["db"]
-    w.http = http
-    try:
-        yield w
-    finally:
-        mirror.connection.close()
-        server_state["db"].connection.close()
 
 
 def queued_ops(w):
     return [e["op"] for e in state.pending(w.mirror.connection, limit=500)]
 
 
-def table_counts(db):
-    cur = db.connection.cursor()
-    return {
-        t: int(cur.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"])
-        for t in sync_policy.SYNCED_TABLES
-    }
 
 
-def uid_fingerprint(db):
-    cur = db.connection.cursor()
-    return {
-        t: sorted(r["uid"] for r in cur.execute(f"SELECT uid FROM {t}"))
-        for t in sync_policy.SYNCED_TABLES
-    }
 
+
+from tests.support.synced import synced, table_counts, uid_fingerprint
 
 # ── coverage of the write surface ───────────────────────────────────────
 

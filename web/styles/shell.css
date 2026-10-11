@@ -1,0 +1,75 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  overscroll-behavior-y: none;
+}
+
+.setup {
+  position: fixed; inset: 0; overflow-y: auto;
+  padding: calc(var(--safe-t) + 48px) 24px calc(var(--safe-b) + 24px);
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg);
+}
+
+.setup h1 { margin: 0; font-size: 28px; }
+
+.setup label { font-size: 13px; color: var(--dim); margin-top: 8px; }
+
+.topbar {
+  flex: 0 0 auto; z-index: 5;
+  padding: calc(var(--safe-t) + 6px) 12px 6px;
+  
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.topbar h1 { margin: 0; font-size: 20px; font-weight: 700; }
+
+.banner {
+  margin: 10px 16px 0; padding: 10px 12px;
+  border-radius: 10px; font-size: 14px;
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.4); }
+
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+#views { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.view { padding: 10px 12px 16px; }
+
+.tabbar {
+  flex: 0 0 auto; z-index: 6;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  
+  padding-bottom: var(--safe-b);
+}
+
+.tab {
+  appearance: none; border: 0; background: none; color: var(--dim);
+  font-size: 12px; padding: 0;
+  
+  min-height: 60px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 3px;
+}
+
+.tab span { font-size: 22px; line-height: 1; }
+
+.tab.on { color: var(--accent); }
+
+.tabbar.four { grid-template-columns: repeat(4, 1fr); }
+
+.tabbar.five { grid-template-columns: repeat(5, 1fr); }
+
+.topbar-actions { display: flex; align-items: center; gap: 2px; }

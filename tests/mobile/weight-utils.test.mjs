@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
-import { parseWeight, selectMeasurements, pointsFor, loess, pchip, trendFor, rollingMean } from "../../web/weight-utils.js";
+import { parseWeight, selectMeasurements, pointsFor, loess, pchip, trendFor, rollingMean } from "../../web/features/weight/math.js";
 const day = 86400000, epoch = new Date("2026-01-01T12:00:00").getTime();
 
 test("weight input accepts decimal commas and rejects missing/nonfinite/negative values", () => {

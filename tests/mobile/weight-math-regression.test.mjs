@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { loess, pchip, rollingMean, trendFor, selectMeasurements, pointsFor as measurementPoints } from "../../web/weight-utils.js";
+import { loess, pchip, rollingMean, trendFor, selectMeasurements, pointsFor as measurementPoints } from "../../web/features/weight/math.js";
 
 const reference = JSON.parse(readFileSync(new URL("./fixtures/weight_math.json", import.meta.url), "utf8"));
 const day = 86400000, epoch = Date.UTC(2026, 0, 1);
@@ -100,7 +100,7 @@ test("seven calendar days include the whole first day despite measurement-time c
 });
 
 test("rolling calendar windows survive both Amsterdam daylight-saving transitions", () => {
-  const moduleUrl = new URL("../../web/weight-utils.js", import.meta.url).href;
+  const moduleUrl = new URL("../../web/features/weight/math.js", import.meta.url).href;
   const script = `import { rollingMean } from ${JSON.stringify(moduleUrl)};
     const cases = [
       ["2026-03-22T23:59:59", "2026-03-23T00:01:00", "2026-03-28T12:00:00", "2026-03-29T20:00:00"],

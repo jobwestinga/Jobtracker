@@ -1,0 +1,90 @@
+#view-weight { padding: 6px 0 20px; }
+.weight-entry { margin: 0; padding: 0 2px; }
+.weight-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.weight-anchor-controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.weight-anchor-controls span { flex: 1; }
+.weight-anchor-controls button { padding: 2px 18px; min-height: 44px; font-size: 24px; }
+.weight-tile-group { min-width: 0; margin: 0 0 6px; padding: 0; border: 0; }
+.weight-tile-row { display: grid; gap: 4px; }
+.weight-tile-row.whole { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.weight-tile-row.decimal { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; }
+.weight-tile {
+  min-width: 0; min-height: 66px; padding: 0;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--panel-2); color: var(--text);
+  font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+}
+.weight-tile-row.decimal .weight-tile { min-height: 58px; font-size: 19px; border-radius: 7px; }
+.weight-tile.selected {
+  border-color: #6BA5FF; background: #214A83; color: #fff;
+  box-shadow: 0 0 0 1px #6BA5FF, 0 0 12px rgba(59,130,246,.35);
+}
+.weight-tile:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+[data-density="compact"] .weight-tile { min-height: 50px; font-size: 22px; }
+[data-density="compact"] .weight-tile-row.decimal .weight-tile { min-height: 46px; font-size: 17px; }
+[data-contrast="high"] .weight-tile { background: #080E18; border-color: #A6B7D1; color: #fff; }
+[data-contrast="high"] .weight-tile.selected { background: #E6ECF7; border-color: #fff; color: #0B1220; box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(230,236,247,.35); }
+.weight-chosen-row { display: flex; align-items: center; gap: 12px; padding: 4px 10px; }
+.weight-chosen-row output { flex: 1; min-width: 0; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.weight-chosen-row .primary { min-width: 130px; min-height: 48px; font-size: 18px; }
+.weight-entry-options { margin: 4px 10px 0; }
+.weight-entry-options summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; min-height: 36px; font-size: 13px; color: var(--dim); cursor: pointer; }
+.weight-entry-options summary > span:first-child::before { content: "▸ "; }
+.weight-entry-options[open] summary > span:first-child::before { content: "▾ "; }
+.weight-entry-options summary::-webkit-details-marker { display: none; }
+.weight-entry-options summary .muted { font-size: 12px; }
+.weight-entry-options label { display: block; font-size: 13px; margin-top: 10px; }
+.weight-entry-options select { margin-top: 5px; }
+.weight-interface-options { display: flex; gap: 12px; }
+.weight-interface-options label { flex: 1; min-width: 0; }
+.weight-date-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.weight-date-row input { flex: 1; min-width: 0; padding: 9px; }
+.weight-date-row .ghost { font-size: 14px; padding: 10px; }
+.weight-entry > p { font-size: 13px; margin: 6px 10px; }
+.weight-entry > p:empty { display: none; }
+.weight-edit-actions { display: flex; gap: 8px; margin-top: 10px; }
+.weight-edit-actions button { flex: 1; }
+.weight-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 16px; }
+.weight-summary .muted { font-size: 12px; }
+.weight-metric { display: block; font-size: 23px; font-variant-numeric: tabular-nums; }
+.weight-plot { margin: 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.weight-plot-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.weight-plot-toolbar h2 { margin: 0; font-size: 16px; flex: 1; }
+.weight-plot-toolbar select { width: auto; max-width: 115px; padding: 8px; }
+#weight-fullscreen { flex: 0 0 auto; min-width: 42px; min-height: 42px; padding: 4px 8px; font-size: 23px; }
+#weight-canvas { display: block; width: 100%; height: 270px; border-radius: 6px; touch-action: pan-y; }
+#weight-chart-detail { font-size: 12px; margin: 8px 0; min-height: 18px; }
+.weight-options summary { font-size: 14px; cursor: pointer; padding: 8px 0; min-height: 40px; }
+.weight-options > label { display: block; margin-top: 10px; font-size: 13px; }
+.weight-options select { margin-top: 5px; }
+.weight-options .weight-check { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 14px; }
+.weight-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+.weight-options p { font-size: 12px; }
+.weight-custom { display: flex; gap: 10px; margin: 10px 0; }
+.weight-custom label { flex: 1; min-width: 0; font-size: 13px; }
+.weight-custom input { padding: 8px; }
+.weight-export { display: flex; gap: 10px; }
+.weight-export button { flex: 1; font-size: 14px; }
+.weight-history-title { font-size: 16px; margin: 20px 16px 0; }
+#weight-history, #weight-more { margin-left: 12px; margin-right: 12px; }
+#weight-more { width: calc(100% - 24px); }
+.weight-history-row { width: 100%; text-align: left; color: var(--text); }
+.weight-history-row strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+button:disabled { opacity: 0.55; cursor: default; }
+
+@media (max-width: 340px) {
+  .weight-tile { font-size: 22px; }
+  .weight-tile-row.decimal .weight-tile { font-size: 17px; }
+  .weight-chosen-row output { font-size: 23px; }
+  .weight-chosen-row .primary { min-width: 110px; }
+  .weight-plot-toolbar h2 { font-size: 14px; }
+  .weight-plot-toolbar select { max-width: 100px; font-size: 14px; }
+}
+
+.weight-plot.plot-fullscreen { margin: 0; display: flex; flex-direction: column; gap: 0; }
+.weight-plot.plot-fullscreen #weight-canvas { flex: 1 1 270px; min-height: 120px; height: 0; }
+.weight-plot.plot-fullscreen .weight-plot-toolbar,
+.weight-plot.plot-fullscreen #weight-chart-detail,
+.weight-plot.plot-fullscreen .weight-options { flex: 0 0 auto; }
+.weight-plot.plot-fullscreen .weight-options[open] { max-height: 40%; overflow-y: auto; }

@@ -16,28 +16,23 @@ the server. Integer ids remain private to this database and never travel — see
 
 from __future__ import annotations
 
-import logging
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Optional, Union
 from pathlib import Path
 
-from . import sync_policy
 from .config import DB_PATH
 from .models import Subject, Session, TodoTask, Milestone, GoalTemplate
-
-logger = logging.getLogger("jobtracker")
-
-
-class _AtomicConnection(sqlite3.Connection):
-    """Keep existing CRUD commits inside a caller's larger transaction."""
-
-    _atomic_depth = 0
-
-    def commit(self) -> None:
-        if not self._atomic_depth:
-            super().commit()
+from .persistence.connection import _AtomicConnection, open_connection, atomic as atomic_scope
+from .persistence.schema import SchemaManager
+from .persistence.identity import IdentityRepository
+from .persistence.ordering import OrderingRepository
+from .persistence.settings import SettingsRepository
+from .persistence.subjects import SubjectRepository
+from .persistence.sessions import SessionRepository
+from .persistence.goals import GoalRepository
+from .persistence.templates import TemplateRepository
+from .persistence.backup import BackupCodec
+from .persistence.weights import WeightRepository
 
 
 class Database:
@@ -47,302 +42,32 @@ class Database:
         # configured DB_PATH (see config.py, also overridable via env var).
         path = str(db_path) if db_path is not None else str(DB_PATH)
         self.db_path = path
-        self.connection = sqlite3.connect(
-            path, check_same_thread=False, factory=_AtomicConnection
-        )
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        # WAL lets the background sync thread write on its own connection while
-        # the UI thread keeps reading, instead of the two blocking each other.
-        # busy_timeout covers the brief moments when they do collide: wait, don't
-        # raise "database is locked" in the middle of the user's click.
-        try:
-            self.connection.execute("PRAGMA journal_mode = WAL")
-            self.connection.execute("PRAGMA busy_timeout = 5000")
-        except sqlite3.Error:
-            # Some filesystems refuse WAL. Journal mode is a performance choice,
-            # never a correctness one, so carry on with the default.
-            logger.warning("Could not enable WAL journal mode", exc_info=True)
+        self.connection = open_connection(path)
+        self._schema = SchemaManager(self)
+        self._identity = IdentityRepository(self)
+        self._ordering = OrderingRepository(self)
+        self._settings = SettingsRepository(self)
+        self._subjects = SubjectRepository(self)
+        self._sessions = SessionRepository(self)
+        self._goals = GoalRepository(self)
+        self._templates = TemplateRepository(self)
+        self._backup = BackupCodec(self)
+        self._weights = WeightRepository(self)
         self._init_db()
 
-    @contextmanager
     def atomic(self):
-        """Commit a mutation and its durable operation record together.
+        """Commit mutations and durable operations together on one connection.
 
-        Nested callers use savepoints. Existing method-level commits are
-        deferred until the outer transaction succeeds, so an exception cannot
-        leave a saved row without the outbox or replay record that identifies it.
+        Nested calls use savepoints and intermediate method commits are deferred.
         """
-        connection = self.connection
-        owns_transaction = not connection.in_transaction
-        savepoint = f"jobtracker_atomic_{connection._atomic_depth}"
-        connection.execute("BEGIN IMMEDIATE" if owns_transaction else f"SAVEPOINT {savepoint}")
-        connection._atomic_depth += 1
-        try:
-            yield
-        except BaseException:
-            connection._atomic_depth -= 1
-            if owns_transaction:
-                sqlite3.Connection.rollback(connection)
-            else:
-                connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-                connection.execute(f"RELEASE SAVEPOINT {savepoint}")
-            raise
-        else:
-            connection._atomic_depth -= 1
-            if owns_transaction:
-                try:
-                    sqlite3.Connection.commit(connection)
-                except BaseException:
-                    sqlite3.Connection.rollback(connection)
-                    raise
-            else:
-                connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return atomic_scope(self.connection)
 
     # ── Schema ───────────────────────────────────────────────────────────
     def _init_db(self) -> None:
-        cur = self.connection.cursor()
-
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                color TEXT NOT NULL,
-                notes TEXT DEFAULT '',
-                sort_order INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id INTEGER NOT NULL,
-                start_time TIMESTAMP NOT NULL,
-                end_time TIMESTAMP,
-                duration_seconds INTEGER DEFAULT 0,
-                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-            )
-            """
-        )
-
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS todo_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                notes TEXT DEFAULT '',
-                deadline TIMESTAMP,
-                is_completed INTEGER DEFAULT 0,
-                sort_order INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-            """
-        )
-
-        # Goal milestones (checklist items belonging to a todo_tasks/Goal row).
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS milestones (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                goal_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                note TEXT DEFAULT '',
-                is_done INTEGER DEFAULT 0,
-                sort_order INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (goal_id) REFERENCES todo_tasks (id) ON DELETE CASCADE
-            )
-            """
-        )
-
-        # Recurring templates that append normal Goal instances once per logical
-        # period. Milestones to copy are stored as JSON.
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS goal_templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                notes TEXT DEFAULT '',
-                recurrence TEXT NOT NULL DEFAULT 'daily',
-                recurrence_day INTEGER,
-                milestones_json TEXT DEFAULT '[]',
-                last_generated TEXT,
-                is_active INTEGER DEFAULT 1,
-                sort_order INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        # Weight history is independent of timed subjects and uses calendar
-        # dates. Adding a table leaves every existing row and schema intact.
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS weight_measurements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                measured_at TEXT NOT NULL,
-                weight_kg REAL NOT NULL CHECK(weight_kg > 0 AND weight_kg <= 1000),
-                source TEXT NOT NULL DEFAULT 'manual'
-                    CHECK(source IN ('manual', 'scale', 'historic')),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_weights_measured_at "
-            "ON weight_measurements(measured_at)"
-        )
-
-        # Migration: DROP sessions.note.
-        #
-        # Session notes were removed from the product — they were never used and
-        # the UI no longer offers the field. This is the one NON-ADDITIVE
-        # migration in the schema, so it is deliberately loud: any non-empty note
-        # is written to the log before the column goes, and the drop only runs
-        # while the column still exists (idempotent on every later launch).
-        # Subject notes (`tasks.notes`) and milestone notes are unaffected.
-        if self._column_exists("sessions", "note"):
-            cur.execute(
-                "SELECT id, note FROM sessions "
-                "WHERE note IS NOT NULL AND TRIM(note) <> ''"
-            )
-            stranded = cur.fetchall()
-            for row in stranded:
-                logger.warning(
-                    "Dropping sessions.note: session %s had note %r",
-                    row["id"],
-                    row["note"],
-                )
-            logger.info(
-                "Migration: dropping sessions.note (%d non-empty note(s))",
-                len(stranded),
-            )
-            try:
-                cur.execute("ALTER TABLE sessions DROP COLUMN note")
-            except sqlite3.OperationalError:
-                # DROP COLUMN needs SQLite >= 3.35. On anything older the column
-                # simply stays: nothing reads or writes it, so leaving it is far
-                # better than refusing to start.
-                logger.warning(
-                    "Could not drop sessions.note (SQLite %s); leaving it unused",
-                    sqlite3.sqlite_version,
-                )
-
-        # Migration for tasks.sort_order
-        if not self._column_exists("tasks", "sort_order"):
-            cur.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0")
-
-        # Migration for tasks.is_archived
-        if not self._column_exists("tasks", "is_archived"):
-            cur.execute("ALTER TABLE tasks ADD COLUMN is_archived INTEGER DEFAULT 0")
-
-        # Migration for sessions.last_active_at — a single nullable timestamp per
-        # session, heartbeated ~once/minute while the session is active. This is
-        # additive and reversible (the column can be ignored or dropped without
-        # affecting any existing read path; historical rows simply hold NULL).
-        if not self._column_exists("sessions", "last_active_at"):
-            cur.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
-
-        # Migration for todo_tasks.template_id — which recurring template (if any)
-        # produced this Goal instance. Additive, nullable, reversible.
-        if not self._column_exists("todo_tasks", "template_id"):
-            cur.execute("ALTER TABLE todo_tasks ADD COLUMN template_id INTEGER")
-
-        # Weekly-focus flag for goals (user highlights the goals they are
-        # concentrating on right now). Additive, reversible; 0 = not focused.
-        if not self._column_exists("todo_tasks", "is_focused"):
-            cur.execute(
-                "ALTER TABLE todo_tasks ADD COLUMN is_focused INTEGER DEFAULT 0"
-            )
-
-        # Scheduled weekday/month-day for recurring templates. Existing weekly
-        # and monthly templates retain predictable period-start behavior.
-        if not self._column_exists("goal_templates", "recurrence_day"):
-            cur.execute("ALTER TABLE goal_templates ADD COLUMN recurrence_day INTEGER")
-            cur.execute(
-                "UPDATE goal_templates SET recurrence_day = 1 "
-                "WHERE recurrence IN ('weekly', 'monthly')"
-            )
-
-        # ── Sync identity (additive, reversible) ─────────────────────────
-        #
-        # Every shared row gets a ``uid``: the identity that travels between
-        # this machine and the server. Integer ids stay exactly as they are and
-        # remain private to this database (see core/sync_policy.py). Dropping
-        # the sync feature later would leave these columns unused, not broken.
-        for table in sync_policy.SYNCED_TABLES:
-            if not self._column_exists(table, "uid"):
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN uid TEXT")
-            # Backfill rows that predate the column, then guarantee uniqueness.
-            # Done in one UPDATE per table rather than row-by-row in Python:
-            # 1200+ sessions would otherwise be 1200 round trips on first launch.
-            cur.execute(
-                f"UPDATE {table} SET uid = {sync_policy.UUID4_SQL} WHERE uid IS NULL"
-            )
-            cur.execute(
-                f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_uid ON {table}(uid)"
-            )
-            # Mint a uid for every future insert, whoever writes it. A trigger
-            # rather than 10 edited INSERT statements: no write path can forget,
-            # including `import_data()` and any code added later.
-            cur.execute(sync_policy.uid_trigger_sql(table))
-
-        # Offline clients can submit a new uid for an already saved day's
-        # manual weighing. Keep that alias so its queued edit/delete still finds
-        # the canonical row. Aliases are server bookkeeping, not synced rows.
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS weight_uid_aliases (
-                alias_uid TEXT PRIMARY KEY,
-                weight_uid TEXT NOT NULL REFERENCES weight_measurements(uid) ON DELETE CASCADE
-            )"""
-        )
-
-        # Which install owns a running session. Only the owning device may
-        # auto-close it during crash recovery, so the Mac can never end a timer
-        # the phone is running. NULL for historical rows and imported backups.
-        if not self._column_exists("sessions", "device_id"):
-            cur.execute("ALTER TABLE sessions ADD COLUMN device_id TEXT")
-
-        # Main analytics/stat queries filter by start time and subject. These
-        # additive indexes keep graph switching responsive as history grows.
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_start_time "
-            "ON sessions(start_time)"
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_task_start "
-            "ON sessions(task_id, start_time)"
-        )
-
-        # Ensure task rows have a deterministic manual order.
-        cur.execute(
-            "UPDATE tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"
-        )
-
-        # Ensure todo rows have a deterministic manual order.
-        cur.execute(
-            "UPDATE todo_tasks SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0"
-        )
-
-        self.connection.commit()
+        return self._schema._init_db()
 
     def _column_exists(self, table: str, column: str) -> bool:
-        cur = self.connection.cursor()
-        cur.execute(f"PRAGMA table_info({table})")
-        return any(row["name"] == column for row in cur.fetchall())
+        return self._schema._column_exists(table, column)
 
     # ── uid ↔ local id (the network boundary) ────────────────────────────
     def id_for_uid(self, table: str, uid: str) -> Optional[int]:
@@ -351,25 +76,11 @@ class Database:
         Returns None when this database has never seen the uid — the caller
         decides whether that is a 404 or a row to create.
         """
-        if table not in sync_policy.SYNCED_TABLES:
-            raise ValueError(f"{table} is not a synced table")
-        if not isinstance(uid, str) or not uid.strip():
-            return None
-        cur = self.connection.cursor()
-        cur.execute(f"SELECT id FROM {table} WHERE uid = ?", (uid.strip(),))
-        row = cur.fetchone()
-        return int(row["id"]) if row else None
+        return self._identity.id_for_uid(table, uid)
 
     def uid_for_id(self, table: str, row_id: int) -> Optional[str]:
         """Translate a local row id into the identity other machines know."""
-        if table not in sync_policy.SYNCED_TABLES:
-            raise ValueError(f"{table} is not a synced table")
-        if row_id is None:
-            return None
-        cur = self.connection.cursor()
-        cur.execute(f"SELECT uid FROM {table} WHERE id = ?", (int(row_id),))
-        row = cur.fetchone()
-        return row["uid"] if row else None
+        return self._identity.uid_for_id(table, row_id)
 
     def _importable_uid(self, table: str, value) -> Optional[str]:
         """The uid to give an imported row, or None to let the trigger mint one.
@@ -379,55 +90,13 @@ class Database:
         is dropped rather than allowed to violate the unique index — the row
         still imports, it just gets a fresh identity.
         """
-        if not isinstance(value, str) or not value.strip():
-            return None
-        uid = value.strip()
-        cur = self.connection.cursor()
-        cur.execute(f"SELECT 1 FROM {table} WHERE uid = ?", (uid,))
-        if cur.fetchone():
-            logger.warning(
-                "Import: uid %s already present in %s; assigning a new one", uid, table
-            )
-            return None
-        return uid
+        return self._identity._importable_uid(table, value)
 
     def _next_sort_order(self, table: str) -> int:
-        cur = self.connection.cursor()
-        cur.execute(f"SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM {table}")
-        return int(cur.fetchone()["next_order"])
+        return self._ordering._next_sort_order(table)
 
     def _set_order(self, table: str, id_column: str, ordered_ids: list[int]) -> None:
-        normalized_ids: list[int] = []
-        seen: set[int] = set()
-        for raw_id in ordered_ids:
-            try:
-                row_id = int(raw_id)
-            except (TypeError, ValueError):
-                continue
-            if row_id in seen:
-                continue
-            seen.add(row_id)
-            normalized_ids.append(row_id)
-
-        if not normalized_ids:
-            return
-
-        cur = self.connection.cursor()
-        cur.execute(f"SELECT {id_column} FROM {table} ORDER BY sort_order ASC, {id_column} ASC")
-        existing_ids = [int(row[id_column]) for row in cur.fetchall()]
-        if not existing_ids:
-            return
-
-        ordered_existing = [row_id for row_id in normalized_ids if row_id in existing_ids]
-        missing_existing = [row_id for row_id in existing_ids if row_id not in ordered_existing]
-        final_ids = ordered_existing + missing_existing
-
-        for idx, row_id in enumerate(final_ids, start=1):
-            cur.execute(
-                f"UPDATE {table} SET sort_order = ? WHERE {id_column} = ?",
-                (idx, row_id),
-            )
-        self.connection.commit()
+        return self._ordering._set_order(table, id_column, ordered_ids)
 
     def _set_filtered_order(
         self,
@@ -438,57 +107,17 @@ class Database:
         where_params: tuple,
     ) -> None:
         """Persist an order inside one filtered view without disturbing peers."""
-        normalized_ids: list[int] = []
-        seen: set[int] = set()
-        for raw_id in ordered_ids:
-            try:
-                row_id = int(raw_id)
-            except (TypeError, ValueError):
-                continue
-            if row_id not in seen:
-                seen.add(row_id)
-                normalized_ids.append(row_id)
-        if not normalized_ids:
-            return
-
-        cur = self.connection.cursor()
-        cur.execute(
-            f"SELECT {id_column} FROM {table} WHERE {where_clause} "
-            f"ORDER BY sort_order ASC, {id_column} ASC",
-            where_params,
-        )
-        existing_ids = [int(row[id_column]) for row in cur.fetchall()]
-        final_ids = (
-            [row_id for row_id in normalized_ids if row_id in existing_ids]
-            + [row_id for row_id in existing_ids if row_id not in normalized_ids]
-        )
-        for idx, row_id in enumerate(final_ids, start=1):
-            cur.execute(
-                f"UPDATE {table} SET sort_order = ? "
-                f"WHERE {id_column} = ? AND {where_clause}",
-                (idx, row_id, *where_params),
-            )
-        self.connection.commit()
+        return self._ordering._set_filtered_order(table, id_column, ordered_ids, where_clause, where_params)
 
     # ── Settings ─────────────────────────────────────────────────────────
     def get_setting(self, key: str, default: str = "") -> str:
-        cur = self.connection.cursor()
-        cur.execute("SELECT value FROM settings WHERE key = ?", (key,))
-        row = cur.fetchone()
-        return row["value"] if row else default
+        return self._settings.get_setting(key, default)
 
     def set_setting(self, key: str, value: str) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
-        self.connection.commit()
+        return self._settings.set_setting(key, value)
 
     def delete_setting(self, key: str) -> None:
-        self.connection.execute("DELETE FROM settings WHERE key = ?", (key,))
-        self.connection.commit()
+        return self._settings.delete_setting(key)
 
     def get_or_create_device_id(self) -> str:
         """This install's stable identity, minted on first use.
@@ -498,118 +127,48 @@ class Database:
         ``settings`` and excluded from backups' restore path, so copying a
         database or a backup to another machine does not clone its identity.
         """
-        existing = self.get_setting(sync_policy.DEVICE_ID_SETTING, "")
-        if existing.strip():
-            return existing.strip()
-        device_id = sync_policy.new_uid()
-        self.set_setting(sync_policy.DEVICE_ID_SETTING, device_id)
-        logger.info("Assigned this install device_id %s", device_id)
-        return device_id
+        return self._settings.get_or_create_device_id()
 
     # ── Subjects (timed) ─────────────────────────────────────────────────
     def add_subject(self, name: str, color: str, notes: str) -> Subject:
-        normalized_name = (name or "").strip()
-        if not normalized_name:
-            raise ValueError("Subject name cannot be empty")
-
-        cur = self.connection.cursor()
-        cur.execute(
-            "INSERT INTO tasks (name, color, notes, sort_order) VALUES (?, ?, ?, ?)",
-            (
-                normalized_name,
-                (color or "").strip() or "#3B82F6",
-                (notes or "").strip(),
-                self._next_sort_order("tasks"),
-            ),
-        )
-        self.connection.commit()
-        return self.get_subject(cur.lastrowid)
+        return self._subjects.add_subject(name, color, notes)
 
     def update_subject(self, subject_id: int, name: str, color: str, notes: str) -> Optional[Subject]:
-        normalized_name = (name or "").strip()
-        if not normalized_name:
-            return None
-
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE tasks SET name = ?, color = ?, notes = ? WHERE id = ?",
-            (normalized_name, (color or "").strip() or "#3B82F6", (notes or "").strip(), subject_id),
-        )
-        self.connection.commit()
-        return self.get_subject(subject_id)
+        return self._subjects.update_subject(subject_id, name, color, notes)
 
     def delete_subject(self, subject_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("DELETE FROM tasks WHERE id = ?", (subject_id,))
-        self.connection.commit()
+        return self._subjects.delete_subject(subject_id)
 
     def get_subject(self, subject_id: int) -> Optional[Subject]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM tasks WHERE id = ?", (subject_id,))
-        row = cur.fetchone()
-        return Subject(**dict(row)) if row else None
+        return self._subjects.get_subject(subject_id)
 
     def get_subject_by_name(self, name: str) -> Optional[Subject]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM tasks WHERE name = ? COLLATE NOCASE", (name,))
-        row = cur.fetchone()
-        return Subject(**dict(row)) if row else None
+        return self._subjects.get_subject_by_name(name)
 
     def get_all_subjects(self, archived: bool = False) -> List[Subject]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM tasks WHERE is_archived = ? ORDER BY sort_order ASC, created_at DESC",
-            (1 if archived else 0,),
-        )
-        return [Subject(**dict(row)) for row in cur.fetchall()]
+        return self._subjects.get_all_subjects(archived)
 
     def get_all_subjects_including_archived(self) -> List[Subject]:
         """Return every subject regardless of archive status (for graphs)."""
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM tasks ORDER BY sort_order ASC, created_at DESC")
-        return [Subject(**dict(row)) for row in cur.fetchall()]
+        return self._subjects.get_all_subjects_including_archived()
 
     def archive_subject(self, subject_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("UPDATE tasks SET is_archived = 1 WHERE id = ?", (subject_id,))
-        self.connection.commit()
+        return self._subjects.archive_subject(subject_id)
 
     def unarchive_subject(self, subject_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("UPDATE tasks SET is_archived = 0 WHERE id = ?", (subject_id,))
-        self.connection.commit()
+        return self._subjects.unarchive_subject(subject_id)
 
     def set_subject_order(
         self, ordered_ids: list[int], archived: bool = False
     ) -> None:
-        if not ordered_ids:
-            return
-        self._set_filtered_order(
-            "tasks",
-            "id",
-            ordered_ids,
-            "is_archived = ?",
-            (1 if archived else 0,),
-        )
+        return self._subjects.set_subject_order(ordered_ids, archived)
 
     # ── Sessions ─────────────────────────────────────────────────────────
     def start_session(
         self, subject_id: int, device_id: Optional[str] = None,
         start_time: Optional[datetime] = None,
     ) -> Session:
-        if self.get_subject(subject_id) is None:
-            raise ValueError(f"Cannot start session for missing subject id {subject_id}")
-        cur = self.connection.cursor()
-        start_time = (start_time or datetime.now()).isoformat()
-        # Seed last_active_at with the start time so a session is always
-        # "known active" from the moment it begins.
-        cur.execute(
-            "INSERT INTO sessions (task_id, start_time, last_active_at, device_id) "
-            "VALUES (?, ?, ?, ?)",
-            (subject_id, start_time, start_time, device_id),
-        )
-        self.connection.commit()
-        return self.get_session(cur.lastrowid)
+        return self._sessions.start_session(subject_id, device_id, start_time)
 
     def touch_active_session(self, session_id: int, when_iso: Optional[str] = None) -> None:
         """Update the 'last known active' timestamp for an open session.
@@ -617,26 +176,12 @@ class Database:
         No-op if the session is already closed (``end_time`` set). This is the
         heartbeat write — one cheap UPDATE, no new rows, no history.
         """
-        when_iso = when_iso or datetime.now().isoformat()
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE sessions SET last_active_at = ? WHERE id = ? AND end_time IS NULL",
-            (when_iso, session_id),
-        )
-        self.connection.commit()
+        return self._sessions.touch_active_session(session_id, when_iso)
 
     def stop_session(
         self, session_id: int, end_time: datetime, duration_seconds: int
     ) -> None:
-        cur = self.connection.cursor()
-        if duration_seconds < 30:
-            cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        else:
-            cur.execute(
-                "UPDATE sessions SET end_time = ?, duration_seconds = ? WHERE id = ?",
-                (end_time.isoformat(), duration_seconds, session_id),
-            )
-        self.connection.commit()
+        return self._sessions.stop_session(session_id, end_time, duration_seconds)
 
     def close_recovered_session(
         self,
@@ -651,13 +196,7 @@ class Database:
         Normal user-initiated stop/add/edit operations still enforce the existing
         30-second minimum through :meth:`stop_session`.
         """
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE sessions SET end_time = ?, duration_seconds = ? "
-            "WHERE id = ? AND end_time IS NULL",
-            (end_time.isoformat(), max(0, int(duration_seconds)), session_id),
-        )
-        self.connection.commit()
+        return self._sessions.close_recovered_session(session_id, end_time, duration_seconds)
 
     def add_session(
         self,
@@ -666,16 +205,7 @@ class Database:
         end_time: datetime,
         duration_seconds: int,
     ) -> Optional[Session]:
-        if duration_seconds < 30:
-            return None
-        cur = self.connection.cursor()
-        cur.execute(
-            "INSERT INTO sessions (task_id, start_time, end_time, duration_seconds) "
-            "VALUES (?, ?, ?, ?)",
-            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds),
-        )
-        self.connection.commit()
-        return self.get_session(cur.lastrowid)
+        return self._sessions.add_session(subject_id, start_time, end_time, duration_seconds)
 
     def update_session(
         self,
@@ -685,65 +215,30 @@ class Database:
         end_time: datetime,
         duration_seconds: int,
     ) -> Optional[Session]:
-        cur = self.connection.cursor()
-        if duration_seconds < 30:
-            cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-            self.connection.commit()
-            return None
-        cur.execute(
-            "UPDATE sessions SET task_id = ?, start_time = ?, end_time = ?, "
-            "duration_seconds = ? WHERE id = ?",
-            (subject_id, start_time.isoformat(), end_time.isoformat(), duration_seconds, session_id),
-        )
-        self.connection.commit()
-        return self.get_session(session_id)
+        return self._sessions.update_session(session_id, subject_id, start_time, end_time, duration_seconds)
 
     def delete_session(self, session_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        self.connection.commit()
+        return self._sessions.delete_session(session_id)
 
     def get_session(self, session_id: int) -> Optional[Session]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
-        row = cur.fetchone()
-        return Session(**dict(row)) if row else None
+        return self._sessions.get_session(session_id)
 
     def get_open_sessions(self) -> List[Session]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM sessions WHERE end_time IS NULL ORDER BY start_time DESC")
-        return [Session(**dict(row)) for row in cur.fetchall()]
+        return self._sessions.get_open_sessions()
 
     def get_open_session(self) -> Optional[Session]:
-        open_sessions = self.get_open_sessions()
-        return open_sessions[0] if open_sessions else None
+        return self._sessions.get_open_session()
 
     def get_sessions_for_subject(self, subject_id: int) -> List[Session]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM sessions WHERE task_id = ? ORDER BY start_time DESC",
-            (subject_id,),
-        )
-        return [Session(**dict(row)) for row in cur.fetchall()]
+        return self._sessions.get_sessions_for_subject(subject_id)
 
     def get_all_closed_sessions_in_range(
         self, since_iso: str, until_iso: str
     ) -> List[Session]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM sessions WHERE end_time IS NOT NULL "
-            "AND start_time >= ? AND start_time < ? ORDER BY start_time ASC",
-            (since_iso, until_iso),
-        )
-        return [Session(**dict(row)) for row in cur.fetchall()]
+        return self._sessions.get_all_closed_sessions_in_range(since_iso, until_iso)
 
     def get_earliest_session_date(self) -> Optional[str]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT MIN(start_time) AS earliest FROM sessions WHERE end_time IS NOT NULL"
-        )
-        row = cur.fetchone()
-        return row["earliest"] if row and row["earliest"] else None
+        return self._sessions.get_earliest_session_date()
 
     def get_latest_session_date(self) -> Optional[str]:
         """Latest session START, including sessions scheduled ahead of now.
@@ -751,82 +246,30 @@ class Database:
         Graph windows use this so a session created for a future day is
         actually visible instead of falling outside every range.
         """
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT MAX(start_time) AS latest FROM sessions WHERE end_time IS NOT NULL"
-        )
-        row = cur.fetchone()
-        return row["latest"] if row and row["latest"] else None
+        return self._sessions.get_latest_session_date()
 
     def get_subject_stats(self, subject_id: int, since_iso: Optional[str] = None) -> int:
-        cur = self.connection.cursor()
-        if since_iso:
-            cur.execute(
-                "SELECT SUM(duration_seconds) AS total FROM sessions "
-                "WHERE task_id = ? AND start_time >= ? AND end_time IS NOT NULL",
-                (subject_id, since_iso),
-            )
-        else:
-            cur.execute(
-                "SELECT SUM(duration_seconds) AS total FROM sessions "
-                "WHERE task_id = ? AND end_time IS NOT NULL",
-                (subject_id,),
-            )
-        row = cur.fetchone()
-        return row["total"] if row and row["total"] else 0
+        return self._sessions.get_subject_stats(subject_id, since_iso)
 
     def get_all_subject_stats(self, since_iso: Optional[str] = None) -> dict[int, int]:
         """Closed-session totals for every subject in one query.
 
         Replaces one aggregate query per subject card on every list reload.
         """
-        cur = self.connection.cursor()
-        if since_iso:
-            cur.execute(
-                "SELECT task_id, SUM(duration_seconds) AS total FROM sessions "
-                "WHERE end_time IS NOT NULL AND start_time >= ? GROUP BY task_id",
-                (since_iso,),
-            )
-        else:
-            cur.execute(
-                "SELECT task_id, SUM(duration_seconds) AS total FROM sessions "
-                "WHERE end_time IS NOT NULL GROUP BY task_id"
-            )
-        return {int(row["task_id"]): int(row["total"] or 0) for row in cur.fetchall()}
+        return self._sessions.get_all_subject_stats(since_iso)
 
     def get_incomplete_todo_count(self) -> int:
-        cur = self.connection.cursor()
-        cur.execute("SELECT COUNT(*) AS cnt FROM todo_tasks WHERE is_completed = 0")
-        row = cur.fetchone()
-        return int(row["cnt"]) if row else 0
+        return self._goals.get_incomplete_todo_count()
 
     # ── Todo Tasks (completable) ─────────────────────────────────────────
     def _todo_order_mode(self) -> str:
-        mode = self.get_setting("todo_order_mode", "deadline")
-        if mode in {"deadline", "manual"}:
-            return mode
-        return "deadline"
+        return self._goals._todo_order_mode()
 
     def _todo_ids_deadline_order(self) -> list[int]:
-        cur = self.connection.cursor()
-        cur.execute(
-            """
-            SELECT id FROM todo_tasks
-            ORDER BY
-                CASE WHEN deadline IS NULL OR deadline = '' THEN 1 ELSE 0 END ASC,
-                deadline ASC,
-                sort_order ASC,
-                created_at ASC
-            """
-        )
-        return [int(row["id"]) for row in cur.fetchall()]
+        return self._goals._todo_ids_deadline_order()
 
     def _ensure_manual_todo_order(self) -> None:
-        if self._todo_order_mode() == "manual":
-            return
-        ordered_ids = self._todo_ids_deadline_order()
-        self._set_order("todo_tasks", "id", ordered_ids)
-        self.set_setting("todo_order_mode", "manual")
+        return self._goals._ensure_manual_todo_order()
 
     def ensure_manual_goal_order(self) -> None:
         """Migrate the legacy deadline-sorted Tasks view to manual Goal order.
@@ -834,347 +277,110 @@ class Database:
         The currently visible deadline order is materialised first, so the
         redesign does not unexpectedly scramble existing items.
         """
-        self._ensure_manual_todo_order()
+        return self._goals.ensure_manual_goal_order()
 
     def sort_todo_tasks_by_deadline(self) -> None:
-        ordered_ids = self._todo_ids_deadline_order()
-        self._set_order("todo_tasks", "id", ordered_ids)
-        self.set_setting("todo_order_mode", "deadline")
+        return self._goals.sort_todo_tasks_by_deadline()
 
     def add_todo_task(self, name: str, notes: str, deadline: Optional[str]) -> TodoTask:
-        normalized_name = (name or "").strip()
-        if not normalized_name:
-            raise ValueError("Todo task name cannot be empty")
-
-        cur = self.connection.cursor()
-        cur.execute(
-            "INSERT INTO todo_tasks (name, notes, deadline, sort_order) VALUES (?, ?, ?, ?)",
-            (normalized_name, (notes or "").strip(), deadline or None, self._next_sort_order("todo_tasks")),
-        )
-        self.connection.commit()
-        todo_task_id = cur.lastrowid
-        if self._todo_order_mode() == "deadline":
-            self.sort_todo_tasks_by_deadline()
-        return self.get_todo_task(todo_task_id)
+        return self._goals.add_todo_task(name, notes, deadline)
 
     def update_todo_task(self, todo_task_id: int, name: str, notes: str, deadline: Optional[str]) -> Optional[TodoTask]:
-        normalized_name = (name or "").strip()
-        if not normalized_name:
-            return None
-
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE todo_tasks SET name = ?, notes = ?, deadline = ? WHERE id = ?",
-            (normalized_name, (notes or "").strip(), deadline or None, todo_task_id),
-        )
-        self.connection.commit()
-        if self._todo_order_mode() == "deadline":
-            self.sort_todo_tasks_by_deadline()
-        return self.get_todo_task(todo_task_id)
+        return self._goals.update_todo_task(todo_task_id, name, notes, deadline)
 
     def delete_todo_task(self, todo_task_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("DELETE FROM todo_tasks WHERE id = ?", (todo_task_id,))
-        self.connection.commit()
+        return self._goals.delete_todo_task(todo_task_id)
 
     def get_todo_task(self, todo_task_id: int) -> Optional[TodoTask]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM todo_tasks WHERE id = ?", (todo_task_id,))
-        row = cur.fetchone()
-        return TodoTask(**dict(row)) if row else None
+        return self._goals.get_todo_task(todo_task_id)
 
     def get_all_todo_tasks(self) -> List[TodoTask]:
-        cur = self.connection.cursor()
-        if self._todo_order_mode() == "manual":
-            cur.execute(
-                "SELECT * FROM todo_tasks WHERE is_completed = 0 "
-                "ORDER BY sort_order ASC, created_at ASC"
-            )
-        else:
-            cur.execute(
-                """
-                SELECT * FROM todo_tasks
-                WHERE is_completed = 0
-                ORDER BY
-                    CASE WHEN deadline IS NULL OR deadline = '' THEN 1 ELSE 0 END ASC,
-                    deadline ASC,
-                    sort_order ASC,
-                    created_at ASC
-                """
-            )
-        return [TodoTask(**dict(row)) for row in cur.fetchall()]
+        return self._goals.get_all_todo_tasks()
 
     def get_completed_todo_tasks(self) -> List[TodoTask]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM todo_tasks WHERE is_completed = 1 "
-            "ORDER BY sort_order ASC, created_at ASC, id ASC"
-        )
-        return [TodoTask(**dict(row)) for row in cur.fetchall()]
+        return self._goals.get_completed_todo_tasks()
 
     def add_todo_task_at_top(
         self, name: str, notes: str, template_id: Optional[int] = None
     ) -> TodoTask:
         """Insert a Goal at the TOP of the manual order (used by template
         generation). Forces manual ordering so the placement sticks."""
-        normalized_name = (name or "").strip()
-        if not normalized_name:
-            raise ValueError("Goal name cannot be empty")
-        cur = self.connection.cursor()
-        cur.execute("SELECT COALESCE(MIN(sort_order), 1) - 1 AS top FROM todo_tasks")
-        top_order = int(cur.fetchone()["top"])
-        # Zero is reserved for legacy/uninitialised rows and is normalised during
-        # schema setup. Use a negative value for the first generated top item so
-        # it remains at the top after the next launch.
-        if top_order >= 0:
-            top_order = -1
-        cur.execute(
-            "INSERT INTO todo_tasks (name, notes, deadline, sort_order, template_id) "
-            "VALUES (?, ?, NULL, ?, ?)",
-            (normalized_name, (notes or "").strip(), top_order, template_id),
-        )
-        self.connection.commit()
-        self.set_setting("todo_order_mode", "manual")
-        return self.get_todo_task(cur.lastrowid)
+        return self._goals.add_todo_task_at_top(name, notes, template_id)
 
     def complete_todo_task(self, todo_task_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE todo_tasks SET is_completed = 1 WHERE id = ?", (todo_task_id,)
-        )
-        self.connection.commit()
+        return self._goals.complete_todo_task(todo_task_id)
 
     def uncomplete_todo_task(self, todo_task_id: int) -> None:
         """Reopen a completed Goal. Completion is always reversible."""
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE todo_tasks SET is_completed = 0 WHERE id = ?", (todo_task_id,)
-        )
-        self.connection.commit()
+        return self._goals.uncomplete_todo_task(todo_task_id)
 
     def set_todo_task_focused(self, todo_task_id: int, focused: bool) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE todo_tasks SET is_focused = ? WHERE id = ?",
-            (1 if focused else 0, todo_task_id),
-        )
-        self.connection.commit()
+        return self._goals.set_todo_task_focused(todo_task_id, focused)
 
     def set_todo_task_order(
         self, ordered_ids: list[int], completed: bool = False
     ) -> None:
-        if not ordered_ids:
-            return
-        if not completed:
-            self._ensure_manual_todo_order()
-            self.set_setting("todo_order_mode", "manual")
-        self._set_filtered_order(
-            "todo_tasks",
-            "id",
-            ordered_ids,
-            "is_completed = ?",
-            (1 if completed else 0,),
-        )
+        return self._goals.set_todo_task_order(ordered_ids, completed)
 
     # ── Milestones ───────────────────────────────────────────────────────
     def add_milestone(self, goal_id: int, title: str, note: str = "") -> Optional[Milestone]:
-        normalized = (title or "").strip()
-        if not normalized:
-            return None
-        cur = self.connection.cursor()
-        cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 AS nxt FROM milestones WHERE goal_id = ?", (goal_id,))
-        order = int(cur.fetchone()["nxt"])
-        cur.execute(
-            "INSERT INTO milestones (goal_id, title, note, sort_order) VALUES (?, ?, ?, ?)",
-            (goal_id, normalized, (note or "").strip(), order),
-        )
-        self.connection.commit()
-        return self.get_milestone(cur.lastrowid)
+        return self._goals.add_milestone(goal_id, title, note)
 
     def get_milestone(self, milestone_id: int) -> Optional[Milestone]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
-        row = cur.fetchone()
-        return Milestone(**dict(row)) if row else None
+        return self._goals.get_milestone(milestone_id)
 
     def get_milestones(self, goal_id: int) -> List[Milestone]:
-        cur = self.connection.cursor()
-        cur.execute(
-            "SELECT * FROM milestones WHERE goal_id = ? ORDER BY sort_order ASC, id ASC",
-            (goal_id,),
-        )
-        return [Milestone(**dict(row)) for row in cur.fetchall()]
+        return self._goals.get_milestones(goal_id)
 
     def update_milestone(self, milestone_id: int, title: str, note: str = "") -> Optional[Milestone]:
-        normalized = (title or "").strip()
-        if not normalized:
-            return None
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE milestones SET title = ?, note = ? WHERE id = ?",
-            (normalized, (note or "").strip(), milestone_id),
-        )
-        self.connection.commit()
-        return self.get_milestone(milestone_id)
+        return self._goals.update_milestone(milestone_id, title, note)
 
     def set_milestone_done(self, milestone_id: int, done: bool) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE milestones SET is_done = ? WHERE id = ?",
-            (1 if done else 0, milestone_id),
-        )
-        self.connection.commit()
+        return self._goals.set_milestone_done(milestone_id, done)
 
     def delete_milestone(self, milestone_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
-        self.connection.commit()
+        return self._goals.delete_milestone(milestone_id)
 
     def set_milestone_order(self, goal_id: int, ordered_ids: list[int]) -> None:
-        for idx, mid in enumerate(ordered_ids, start=1):
-            self.connection.execute(
-                "UPDATE milestones SET sort_order = ? WHERE id = ? AND goal_id = ?",
-                (idx, int(mid), goal_id),
-            )
-        self.connection.commit()
+        return self._goals.set_milestone_order(goal_id, ordered_ids)
 
     # ── Goal templates (recurring) ───────────────────────────────────────
     def add_goal_template(
         self, title: str, notes: str, recurrence: str, milestones_json: str = "[]",
         recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
-        normalized = (title or "").strip()
-        if not normalized:
-            return None
-        if recurrence not in ("daily", "weekly", "monthly"):
-            recurrence = "daily"
-        recurrence_day = self._normalize_recurrence_day(recurrence, recurrence_day)
-        cur = self.connection.cursor()
-        cur.execute(
-            "INSERT INTO goal_templates "
-            "(title, notes, recurrence, recurrence_day, milestones_json, sort_order) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (normalized, (notes or "").strip(), recurrence, recurrence_day,
-             milestones_json or "[]",
-             self._next_sort_order("goal_templates")),
-        )
-        self.connection.commit()
-        return self.get_goal_template(cur.lastrowid)
+        return self._templates.add_goal_template(title, notes, recurrence, milestones_json, recurrence_day)
 
     def get_goal_template(self, template_id: int) -> Optional[GoalTemplate]:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM goal_templates WHERE id = ?", (template_id,))
-        row = cur.fetchone()
-        return GoalTemplate(**dict(row)) if row else None
+        return self._templates.get_goal_template(template_id)
 
     def get_goal_templates(self, active_only: bool = False) -> List[GoalTemplate]:
-        cur = self.connection.cursor()
-        if active_only:
-            cur.execute("SELECT * FROM goal_templates WHERE is_active = 1 ORDER BY sort_order ASC, id ASC")
-        else:
-            cur.execute("SELECT * FROM goal_templates ORDER BY sort_order ASC, id ASC")
-        return [GoalTemplate(**dict(row)) for row in cur.fetchall()]
+        return self._templates.get_goal_templates(active_only)
 
     def update_goal_template(
         self, template_id: int, title: str, notes: str, recurrence: str,
         milestones_json: str, recurrence_day: Optional[int] = None,
     ) -> Optional[GoalTemplate]:
-        normalized = (title or "").strip()
-        if not normalized:
-            return None
-        if recurrence not in ("daily", "weekly", "monthly"):
-            recurrence = "daily"
-        recurrence_day = self._normalize_recurrence_day(recurrence, recurrence_day)
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE goal_templates SET title = ?, notes = ?, recurrence = ?, "
-            "recurrence_day = ?, milestones_json = ?, "
-            "last_generated = CASE "
-            "WHEN recurrence <> ? OR COALESCE(recurrence_day, 0) <> COALESCE(?, 0) "
-            "THEN NULL ELSE last_generated END WHERE id = ?",
-            (
-                normalized, (notes or "").strip(), recurrence, recurrence_day,
-                milestones_json or "[]", recurrence, recurrence_day, template_id,
-            ),
-        )
-        self.connection.commit()
-        return self.get_goal_template(template_id)
+        return self._templates.update_goal_template(template_id, title, notes, recurrence, milestones_json, recurrence_day)
 
     @staticmethod
     def _normalize_recurrence_day(
         recurrence: str, recurrence_day: Optional[int]
     ) -> Optional[int]:
-        if recurrence == "daily":
-            return None
-        try:
-            value = int(recurrence_day) if recurrence_day is not None else 1
-        except (TypeError, ValueError):
-            value = 1
-        return max(1, min(7 if recurrence == "weekly" else 31, value))
+        return TemplateRepository._normalize_recurrence_day(recurrence, recurrence_day)
 
     def set_goal_template_active(self, template_id: int, active: bool) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE goal_templates SET is_active = ? WHERE id = ?",
-            (1 if active else 0, template_id),
-        )
-        self.connection.commit()
+        return self._templates.set_goal_template_active(template_id, active)
 
     def delete_goal_template(self, template_id: int) -> None:
-        cur = self.connection.cursor()
-        cur.execute("DELETE FROM goal_templates WHERE id = ?", (template_id,))
-        self.connection.commit()
+        return self._templates.delete_goal_template(template_id)
 
     def set_goal_template_last_generated(self, template_id: int, period_key: str) -> None:
-        cur = self.connection.cursor()
-        cur.execute(
-            "UPDATE goal_templates SET last_generated = ? WHERE id = ?",
-            (period_key, template_id),
-        )
-        self.connection.commit()
+        return self._templates.set_goal_template_last_generated(template_id, period_key)
 
     # ── Backup / Restore ─────────────────────────────────────────────────
     def export_data(self) -> dict:
-        cur = self.connection.cursor()
-        cur.execute("SELECT * FROM tasks")
-        subjects = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM sessions")
-        sessions = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM todo_tasks")
-        todo_tasks = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM milestones")
-        milestones = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM goal_templates")
-        goal_templates = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM settings")
-        settings = [dict(row) for row in cur.fetchall()]
-
-        cur.execute("SELECT * FROM weight_measurements ORDER BY measured_at")
-        weights = [dict(row) for row in cur.fetchall()]
-        cur.execute("SELECT alias_uid, weight_uid FROM weight_uid_aliases")
-        weight_aliases = [dict(row) for row in cur.fetchall()]
-
-        logger.info(
-            "Exported %d subjects, %d sessions, %d goals, %d milestones, "
-            "%d templates, %d settings",
-            len(subjects), len(sessions), len(todo_tasks), len(milestones),
-            len(goal_templates), len(settings),
-        )
-        return {
-            "subjects": subjects,
-            "sessions": sessions,
-            "todo_tasks": todo_tasks,
-            "milestones": milestones,
-            "goal_templates": goal_templates,
-            "settings": settings,
-            "weights": weights,
-            "weight_aliases": weight_aliases,
-        }
+        return self._backup.export_data()
 
     def import_data(self, data: dict) -> None:
         """Atomically merge an authoritative JSON backup.
@@ -1183,288 +389,10 @@ class Database:
         committed by a later unrelated action. A savepoint works both when the
         connection is idle and when a caller already has a transaction open.
         """
-        cursor = self.connection.cursor()
-        cursor.execute("SAVEPOINT jobtracker_import")
-        try:
-            self._import_data_rows(data)
-            cursor.execute("RELEASE SAVEPOINT jobtracker_import")
-        except Exception:
-            cursor.execute("ROLLBACK TO SAVEPOINT jobtracker_import")
-            cursor.execute("RELEASE SAVEPOINT jobtracker_import")
-            logger.exception("Backup import rolled back")
-            raise
+        return self._backup.import_data(data)
 
     def _import_data_rows(self, data: dict) -> None:
-        cur = self.connection.cursor()
-
-        # Import subjects (legacy key: tasks)
-        subjects = data.get("subjects", data.get("tasks", []))
-        subject_id_map: dict[int, int] = {}
-
-        for subject in subjects:
-            if not subject.get("name"):
-                continue
-            legacy_id = subject.get("id")
-            cur.execute("SELECT id FROM tasks WHERE name = ? COLLATE NOCASE", (subject["name"],))
-            existing = cur.fetchone()
-            if existing:
-                if legacy_id is not None:
-                    try:
-                        subject_id_map[int(legacy_id)] = int(existing["id"])
-                    except (TypeError, ValueError):
-                        pass
-                continue
-
-            cur.execute(
-                "INSERT INTO tasks "
-                "(name, color, notes, sort_order, is_archived, created_at, uid) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    subject["name"],
-                    subject.get("color", "#3B82F6"),
-                    subject.get("notes", ""),
-                    subject.get("sort_order", self._next_sort_order("tasks")),
-                    subject.get("is_archived", 0),
-                    subject.get("created_at", datetime.now().isoformat()),
-                    self._importable_uid("tasks", subject.get("uid")),
-                ),
-            )
-            if legacy_id is not None:
-                try:
-                    subject_id_map[int(legacy_id)] = int(cur.lastrowid)
-                except (TypeError, ValueError):
-                    pass
-
-        for sess in data.get("sessions", []):
-            legacy_subject_id = sess.get("task_id", sess.get("subject_id"))
-            if legacy_subject_id is None or not sess.get("start_time"):
-                continue
-            try:
-                legacy_subject_id = int(legacy_subject_id)
-            except (TypeError, ValueError):
-                continue
-            new_subject_id = subject_id_map.get(legacy_subject_id)
-            if not new_subject_id:
-                continue
-            cur.execute(
-                "SELECT id FROM sessions WHERE task_id = ? AND start_time = ? "
-                "AND COALESCE(end_time, '') = COALESCE(?, '')",
-                (new_subject_id, sess["start_time"], sess.get("end_time")),
-            )
-            if cur.fetchone():
-                continue
-            # Older backups may still carry a "note" key; it is ignored on
-            # purpose since session notes were removed from the schema.
-            cur.execute(
-                "INSERT INTO sessions "
-                "(task_id, start_time, end_time, duration_seconds, last_active_at, "
-                "device_id, uid) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    new_subject_id,
-                    sess["start_time"],
-                    sess.get("end_time"),
-                    sess.get("duration_seconds", 0),
-                    sess.get("last_active_at"),
-                    sess.get("device_id"),
-                    self._importable_uid("sessions", sess.get("uid")),
-                ),
-            )
-
-        # Import recurring templates first so generated goal instances can retain
-        # their template association after IDs are remapped.
-        template_id_map: dict[int, int] = {}
-        for tpl in data.get("goal_templates", []):
-            if not tpl.get("title"):
-                continue
-            legacy_template_id = tpl.get("id")
-            recurrence = tpl.get("recurrence", "daily")
-            cur.execute(
-                "SELECT id FROM goal_templates "
-                "WHERE title = ? COLLATE NOCASE AND recurrence = ? "
-                "AND COALESCE(recurrence_day, 0) = COALESCE(?, 0)",
-                (
-                    tpl["title"],
-                    recurrence,
-                    self._normalize_recurrence_day(
-                        recurrence, tpl.get("recurrence_day")
-                    ),
-                ),
-            )
-            existing = cur.fetchone()
-            if existing:
-                new_template_id = int(existing["id"])
-            else:
-                cur.execute(
-                    "INSERT INTO goal_templates "
-                    "(title, notes, recurrence, recurrence_day, milestones_json, "
-                    "last_generated, is_active, sort_order, created_at, uid) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        tpl["title"],
-                        tpl.get("notes", ""),
-                        recurrence,
-                        self._normalize_recurrence_day(
-                            recurrence, tpl.get("recurrence_day")
-                        ),
-                        tpl.get("milestones_json", "[]"),
-                        tpl.get("last_generated"),
-                        tpl.get("is_active", 1),
-                        tpl.get("sort_order", self._next_sort_order("goal_templates")),
-                        tpl.get("created_at", datetime.now().isoformat()),
-                        self._importable_uid("goal_templates", tpl.get("uid")),
-                    ),
-                )
-                new_template_id = int(cur.lastrowid)
-            if legacy_template_id is not None:
-                try:
-                    template_id_map[int(legacy_template_id)] = new_template_id
-                except (TypeError, ValueError):
-                    pass
-
-        # Import goals (legacy table name: todo_tasks); track ID mapping for
-        # milestones. Created-at + sort-order are included in modern backup
-        # identity so repeated generated goals with the same title are preserved.
-        goal_id_map: dict[int, int] = {}
-        for item in data.get("todo_tasks", []):
-            if not item.get("name"):
-                continue
-            legacy_goal_id = item.get("id")
-            created_at = item.get("created_at")
-            sort_order = item.get("sort_order")
-            if created_at is not None and sort_order is not None:
-                cur.execute(
-                    "SELECT id FROM todo_tasks WHERE name = ? COLLATE NOCASE "
-                    "AND COALESCE(deadline, '') = COALESCE(?, '') "
-                    "AND created_at = ? AND sort_order = ?",
-                    (item["name"], item.get("deadline"), created_at, sort_order),
-                )
-            else:
-                # Legacy payloads lacked reliable instance identity.
-                cur.execute(
-                    "SELECT id FROM todo_tasks WHERE name = ? COLLATE NOCASE "
-                    "AND COALESCE(deadline, '') = COALESCE(?, '')",
-                    (item["name"], item.get("deadline")),
-                )
-            existing = cur.fetchone()
-            if existing:
-                if legacy_goal_id is not None:
-                    try:
-                        goal_id_map[int(legacy_goal_id)] = int(existing["id"])
-                    except (TypeError, ValueError):
-                        pass
-                continue
-            legacy_template_id = item.get("template_id")
-            try:
-                new_template_id = template_id_map.get(int(legacy_template_id))
-            except (TypeError, ValueError):
-                new_template_id = None
-            cur.execute(
-                "INSERT INTO todo_tasks "
-                "(name, notes, deadline, is_completed, sort_order, created_at, "
-                "template_id, is_focused, uid) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    item["name"],
-                    item.get("notes", ""),
-                    item.get("deadline"),
-                    item.get("is_completed", 0),
-                    item.get("sort_order", self._next_sort_order("todo_tasks")),
-                    item.get("created_at", datetime.now().isoformat()),
-                    new_template_id,
-                    item.get("is_focused", 0),
-                    self._importable_uid("todo_tasks", item.get("uid")),
-                ),
-            )
-            if legacy_goal_id is not None:
-                try:
-                    goal_id_map[int(legacy_goal_id)] = int(cur.lastrowid)
-                except (TypeError, ValueError):
-                    pass
-
-        # Import milestones, remapping goal_id onto the imported goals.
-        for ms in data.get("milestones", []):
-            legacy_goal = ms.get("goal_id")
-            if legacy_goal is None or not ms.get("title"):
-                continue
-            try:
-                new_goal_id = goal_id_map.get(int(legacy_goal))
-            except (TypeError, ValueError):
-                new_goal_id = None
-            if not new_goal_id:
-                continue
-            cur.execute(
-                "SELECT id FROM milestones WHERE goal_id = ? "
-                "AND title = ? COLLATE NOCASE AND sort_order = ?",
-                (new_goal_id, ms["title"], ms.get("sort_order", 0)),
-            )
-            if cur.fetchone():
-                continue
-            cur.execute(
-                "INSERT INTO milestones "
-                "(goal_id, title, note, is_done, sort_order, created_at, uid) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    new_goal_id,
-                    ms["title"],
-                    ms.get("note", ""),
-                    ms.get("is_done", 0),
-                    ms.get("sort_order", 0),
-                    ms.get("created_at", datetime.now().isoformat()),
-                    self._importable_uid("milestones", ms.get("uid")),
-                ),
-            )
-
-        # Weights are independent rows with identities preserved on restore.
-        # Validation and duplicate handling use the same rules as source imports.
-        from jobtracker.services.weight_service import WeightService
-        WeightService(self).import_rows(data.get("weights", []))
-        for alias in data.get("weight_aliases", []):
-            if not isinstance(alias, dict):
-                raise ValueError("Invalid weight identity alias")
-            alias_uid, weight_uid = alias.get("alias_uid"), alias.get("weight_uid")
-            if not all(isinstance(uid, str) and uid for uid in (alias_uid, weight_uid)):
-                raise ValueError("Invalid weight identity alias")
-            if self.id_for_uid("weight_measurements", weight_uid) is None:
-                continue
-            canonical_id = self.id_for_uid("weight_measurements", alias_uid)
-            if canonical_id is not None and alias_uid != weight_uid:
-                raise ValueError("Weight identity alias conflicts with an existing measurement")
-            existing = cur.execute(
-                "SELECT weight_uid FROM weight_uid_aliases WHERE alias_uid = ?", (alias_uid,)
-            ).fetchone()
-            if existing is not None and existing["weight_uid"] != weight_uid:
-                raise ValueError("Weight identity alias refers to different entries")
-            cur.execute(
-                "INSERT INTO weight_uid_aliases (alias_uid, weight_uid) VALUES (?, ?) "
-                "ON CONFLICT(alias_uid) DO NOTHING", (alias_uid, weight_uid)
-            )
-
-        # Settings are part of the authoritative JSON backup. Unknown keys are
-        # intentionally retained for forward compatibility.
-        for setting in data.get("settings", []):
-            key = setting.get("key")
-            value = setting.get("value")
-            if not isinstance(key, str) or not isinstance(value, str) or not key:
-                continue
-            if key in sync_policy.DEVICE_LOCAL_SETTING_KEYS:
-                # Restoring a backup must not make this machine claim another
-                # machine's identity — two installs sharing a device_id would
-                # both think they own the same running session.
-                continue
-            cur.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
-
-        logger.info(
-            "Imported backup: %d subject(s), %d session(s), %d goal(s), "
-            "%d milestone(s), %d template(s), %d setting(s)",
-            len(subjects), len(data.get("sessions", [])), len(data.get("todo_tasks", [])),
-            len(data.get("milestones", [])), len(data.get("goal_templates", [])),
-            len(data.get("settings", [])),
-        )
+        return self._backup._import_data_rows(data)
 
 
 # Shared singleton — production code imports this. Tests construct their own

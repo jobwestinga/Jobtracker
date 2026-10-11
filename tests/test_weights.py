@@ -9,7 +9,7 @@ import pytest
 from jobtracker.core.database import Database
 from jobtracker.services.weight_service import WeightService, validate_measurement
 from server.import_weights import load_project, load_scale
-from tests.test_api import api, do, result_of  # noqa: F401
+from tests.support.api import api, do, result_of  # noqa: F401
 
 
 def test_daily_weight_save_is_fast_idempotent_update(database):

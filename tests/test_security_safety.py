@@ -14,7 +14,7 @@ from jobtracker.core import sync_policy
 from jobtracker.sync import client as client_module
 from jobtracker.sync.client import SyncClient, SyncError
 from server import app as app_module, auth
-from tests.test_sync_engine import world
+from tests.support.sync import world
 
 
 @pytest.mark.parametrize("malformed", [None, 7, "broken", {}, {"name": "bad", "sha256": "bad"}, {"sha256": "0" * 64}])
