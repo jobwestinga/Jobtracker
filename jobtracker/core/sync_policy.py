@@ -24,10 +24,11 @@ import uuid
 # children, so applying rows in this order never violates a foreign key.
 SYNCED_TABLES: tuple[str, ...] = (
     "tasks",          # subjects
-    "todo_tasks",     # goals
     "goal_templates",
+    "todo_tasks",     # goals; FK -> goal_templates
     "sessions",       # FK -> tasks
     "milestones",     # FK -> todo_tasks
+    "weight_measurements",
 )
 
 # Settings are mostly per-machine UI state: the theme, which graph range was
@@ -54,6 +55,7 @@ API_NAMES: dict[str, str] = {
     "goal_templates": "templates",
     "sessions": "sessions",
     "milestones": "milestones",
+    "weight_measurements": "weights",
 }
 TABLE_FOR_API_NAME: dict[str, str] = {v: k for k, v in API_NAMES.items()}
 

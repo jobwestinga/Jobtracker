@@ -85,9 +85,17 @@ class TrackerService:
             if s.device_id is None or s.device_id == self.device_id
         ]
 
-    def _adopt_open_session(self) -> None:
-        """Pick up the newest open session we own, without closing anything."""
-        owned = self._owned_open_sessions()
+    def _adopt_open_session(self, *, include_other_devices: bool = False) -> None:
+        """Refresh the timer from storage, without closing anything.
+
+        Server reads show the newest timer from any device. Recovery remains
+        device-scoped, so displaying a foreign timer never claims ownership.
+        """
+        owned = (
+            self.db.get_open_sessions()
+            if include_other_devices
+            else self._owned_open_sessions()
+        )
         self.active_session = owned[0] if owned else None
         self.active_subject = (
             self.db.get_subject(self.active_session.subject_id)
@@ -164,6 +172,24 @@ class TrackerService:
 
     def delete_setting(self, key: str) -> None:
         self.db.delete_setting(key)
+
+    # ── Personal weight (calendar days, independent of tracking days) ───
+    def list_weight_measurements(self) -> list[dict]:
+        from .weight_service import WeightService
+
+        return WeightService(self.db).list_measurements()
+
+    def upsert_weight(self, measured_at, weight_kg, *, weight_uid=None) -> dict:
+        from .weight_service import WeightService
+
+        return WeightService(self.db).upsert(
+            measured_at, weight_kg, weight_uid=weight_uid
+        )
+
+    def delete_weight(self, weight_uid) -> bool:
+        from .weight_service import WeightService
+
+        return WeightService(self.db).delete(weight_uid)
 
     def get_earliest_session_date(self) -> Optional[str]:
         return self.db.get_earliest_session_date()
@@ -248,13 +274,27 @@ class TrackerService:
         self.db.unarchive_subject(subject_id)
 
     # ── Timer (subjects) ────────────────────────────────────────────────
-    def start_subject(self, subject_id: int) -> bool:
-        if self.active_session:
+    def start_subject(
+        self, subject_id: int, start_time: Optional[datetime] = None,
+        *, allow_parallel: bool = False,
+    ) -> bool:
+        """Start at the captured client time, preserving offline work.
+
+        ``allow_parallel`` is for authoritative replay of an already recorded
+        client session. Normal interactive starts still require an idle timer.
+        """
+        if start_time is not None and not timeutils.is_local_datetime(start_time):
+            return False
+        self._adopt_open_session()
+        if not allow_parallel and self.db.get_open_sessions():
+            return False
+        subject = self.db.get_subject(subject_id)
+        if subject is None or (subject.is_archived and not allow_parallel):
             return False
         try:
             # Stamp the owner so another device's recovery never closes this.
             self.active_session = self.db.start_session(
-                subject_id, device_id=self.device_id
+                subject_id, device_id=self.device_id, start_time=start_time
             )
         except ValueError:
             return False
@@ -268,35 +308,83 @@ class TrackerService:
             return False
         return True
 
+    def _persisted_active_session(self) -> Optional[Session]:
+        """Resolve the exact cached timer after a sync or another writer.
+
+        A full mirror refresh can change local integer ids. The uid survives;
+        using only the old id can overwrite an unrelated, newly inserted row.
+        """
+        active = self.active_session
+        if active is None:
+            return None
+        session_id = (
+            self.db.id_for_uid("sessions", active.uid)
+            if active.uid else active.id
+        )
+        persisted = self.db.get_session(session_id) if session_id is not None else None
+        if persisted is None or persisted.end_time is not None:
+            self._adopt_open_session()
+            return None
+        self.active_session = persisted
+        self.active_subject = self.db.get_subject(persisted.subject_id)
+        return persisted
+
     def stop_active_subject(self, end_time: Optional[datetime] = None) -> None:
         """Stop the active session. Ends now unless an explicit ``end_time`` is
         given (used by crash-recovery to end at a chosen point in the past)."""
-        if not self.active_session:
+        session = self._persisted_active_session()
+        if session is None:
             return
-        if self.active_session.id is None:
+        if session.id is None:
             self.active_session = None
             self._set_active_subject(None)
             return
         end_dt = end_time or datetime.now()
-        start_dt = timeutils.parse_iso(self.active_session.start_time)
+        start_dt = timeutils.parse_iso(session.start_time)
+        if (
+            start_dt is None or not timeutils.is_local_datetime(end_dt)
+            or end_dt < start_dt
+        ):
+            # A delayed stop or malformed clock must never turn real work into
+            # a zero-second session and delete it under the accidental-tap rule.
+            logger.warning("Refusing invalid end time for active session %s", session.id)
+            return
         duration = timeutils.duration_seconds(start_dt, end_dt)
-        self.db.stop_session(self.active_session.id, end_dt, duration)
+        self.db.stop_session(session.id, end_dt, duration)
         self.active_session = None
         self._set_active_subject(None)
 
-    def switch_subject(self, subject_id: int) -> bool:
+    def switch_subject(self, subject_id: int, moment: Optional[datetime] = None) -> bool:
         """Stop the active session (normal stop rules) and start ``subject_id``.
 
         Refuses to "switch" to the subject already being tracked. Works as a
         plain start when nothing is active.
         """
+        self._adopt_open_session()
         if self.active_subject and self.active_subject.id == subject_id:
             return False
-        if self.db.get_subject(subject_id) is None:
+        subject = self.db.get_subject(subject_id)
+        if subject is None or subject.is_archived:
             return False
-        if self.active_session:
-            self.stop_active_subject()
-        return self.start_subject(subject_id)
+        moment = moment or datetime.now()
+        if not timeutils.is_local_datetime(moment):
+            return False
+        try:
+            with self.db.atomic():
+                if self.active_session:
+                    self.stop_active_subject(moment)
+                    if self.active_session is not None:
+                        return False
+                if not self.start_subject(subject_id, moment):
+                    # Keep the original session if the destination disappears
+                    # or its insert fails after we stopped the old one.
+                    raise ValueError("switch destination could not be started")
+            return True
+        except Exception as exc:
+            self._adopt_open_session()
+            if isinstance(exc, ValueError):
+                return False
+            raise
 
     # ── Crash / ghost-time recovery ─────────────────────────────────────
     def get_active_recovery_info(
@@ -318,14 +406,28 @@ class TrackerService:
             gap_threshold_seconds=threshold,
         )
 
-    def resolve_recovery(self, end_time: datetime) -> None:
+    def resolve_recovery(
+        self, end_time: datetime, *, session_id: Optional[int] = None
+    ) -> None:
         """Close the recovered active session at the user-chosen end time."""
+        session = self._persisted_active_session()
+        if session is None or (session_id is not None and session.id != session_id):
+            return
+        start = timeutils.parse_iso(session.start_time)
+        if start is None or not timeutils.is_local_datetime(end_time) or end_time < start:
+            return
         logger.info(
             "Recovery resolved: ending session %s at %s",
             self.active_session.id if self.active_session else None,
             end_time.isoformat(),
         )
-        self.stop_active_subject(end_time=end_time)
+        # Legacy sessions can have no heartbeat: "last active" is then their
+        # start. Keep even a zero-second recovery record so choosing the safe
+        # default cannot silently delete an hour of unfinished work.
+        self.db.close_recovered_session(
+            session.id, end_time, timeutils.duration_seconds(start, end_time)
+        )
+        self._adopt_open_session()
 
     def heartbeat_active_session(self, moment: Optional[datetime] = None) -> None:
         """Record that the active session is still legitimately running.
@@ -333,10 +435,13 @@ class TrackerService:
         Called ~once per minute by the UI. Cheap single UPDATE, no history.
         Safe no-op when nothing is being tracked.
         """
-        if not self.active_session or self.active_session.id is None:
+        session = self._persisted_active_session()
+        if session is None or session.id is None:
+            return
+        if moment is not None and not timeutils.is_local_datetime(moment):
             return
         when_iso = timeutils.to_iso(moment) if moment is not None else timeutils.now_iso()
-        self.db.touch_active_session(self.active_session.id, when_iso)
+        self.db.touch_active_session(session.id, when_iso)
         self.active_session.last_active_at = when_iso
 
     # ── Stats (subjects) ────────────────────────────────────────────────
@@ -672,6 +777,13 @@ class TrackerService:
         start_time: datetime,
         end_time: datetime,
     ) -> Optional[Session]:
+        if (
+            not timeutils.is_local_datetime(start_time)
+            or not timeutils.is_local_datetime(end_time)
+            or end_time < start_time
+            or self.db.get_subject(subject_id) is None
+        ):
+            return None
         duration = timeutils.duration_seconds(start_time, end_time)
         return self.db.add_session(subject_id, start_time, end_time, duration)
 
@@ -682,6 +794,15 @@ class TrackerService:
         start_time: datetime,
         end_time: datetime,
     ) -> Optional[Session]:
+        session = self.db.get_session(session_id)
+        if (
+            session is None or session.end_time is None
+            or not timeutils.is_local_datetime(start_time)
+            or not timeutils.is_local_datetime(end_time)
+            or end_time < start_time
+            or self.db.get_subject(subject_id) is None
+        ):
+            return None
         duration = timeutils.duration_seconds(start_time, end_time)
         return self.db.update_session(session_id, subject_id, start_time, end_time, duration)
 
@@ -705,6 +826,8 @@ class TrackerService:
 
     def delete_session(self, session_id: int) -> None:
         self.db.delete_session(session_id)
+        if self.active_session and self.active_session.id == session_id:
+            self._adopt_open_session()
 
     def duplicate_session(
         self, session_id: int, to: str = "today"

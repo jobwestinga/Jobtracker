@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Optional, Union
 from pathlib import Path
@@ -29,6 +30,16 @@ from .models import Subject, Session, TodoTask, Milestone, GoalTemplate
 logger = logging.getLogger("jobtracker")
 
 
+class _AtomicConnection(sqlite3.Connection):
+    """Keep existing CRUD commits inside a caller's larger transaction."""
+
+    _atomic_depth = 0
+
+    def commit(self) -> None:
+        if not self._atomic_depth:
+            super().commit()
+
+
 class Database:
     def __init__(self, db_path: Optional[Union[str, Path]] = None) -> None:
         # ``db_path`` lets tests / tooling use an isolated database. Production
@@ -36,7 +47,9 @@ class Database:
         # configured DB_PATH (see config.py, also overridable via env var).
         path = str(db_path) if db_path is not None else str(DB_PATH)
         self.db_path = path
-        self.connection = sqlite3.connect(path, check_same_thread=False)
+        self.connection = sqlite3.connect(
+            path, check_same_thread=False, factory=_AtomicConnection
+        )
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
         # WAL lets the background sync thread write on its own connection while
@@ -51,6 +64,40 @@ class Database:
             # never a correctness one, so carry on with the default.
             logger.warning("Could not enable WAL journal mode", exc_info=True)
         self._init_db()
+
+    @contextmanager
+    def atomic(self):
+        """Commit a mutation and its durable operation record together.
+
+        Nested callers use savepoints. Existing method-level commits are
+        deferred until the outer transaction succeeds, so an exception cannot
+        leave a saved row without the outbox or replay record that identifies it.
+        """
+        connection = self.connection
+        owns_transaction = not connection.in_transaction
+        savepoint = f"jobtracker_atomic_{connection._atomic_depth}"
+        connection.execute("BEGIN IMMEDIATE" if owns_transaction else f"SAVEPOINT {savepoint}")
+        connection._atomic_depth += 1
+        try:
+            yield
+        except BaseException:
+            connection._atomic_depth -= 1
+            if owns_transaction:
+                sqlite3.Connection.rollback(connection)
+            else:
+                connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
+        else:
+            connection._atomic_depth -= 1
+            if owns_transaction:
+                try:
+                    sqlite3.Connection.commit(connection)
+                except BaseException:
+                    sqlite3.Connection.rollback(connection)
+                    raise
+            else:
+                connection.execute(f"RELEASE SAVEPOINT {savepoint}")
 
     # ── Schema ───────────────────────────────────────────────────────────
     def _init_db(self) -> None:
@@ -138,6 +185,25 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+
+        # Weight history is independent of timed subjects and uses calendar
+        # dates. Adding a table leaves every existing row and schema intact.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weight_measurements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                measured_at TEXT NOT NULL,
+                weight_kg REAL NOT NULL CHECK(weight_kg > 0 AND weight_kg <= 1000),
+                source TEXT NOT NULL DEFAULT 'manual'
+                    CHECK(source IN ('manual', 'scale', 'historic')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_weights_measured_at "
+            "ON weight_measurements(measured_at)"
         )
 
         # Migration: DROP sessions.note.
@@ -233,6 +299,16 @@ class Database:
             # rather than 10 edited INSERT statements: no write path can forget,
             # including `import_data()` and any code added later.
             cur.execute(sync_policy.uid_trigger_sql(table))
+
+        # Offline clients can submit a new uid for an already saved day's
+        # manual weighing. Keep that alias so its queued edit/delete still finds
+        # the canonical row. Aliases are server bookkeeping, not synced rows.
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS weight_uid_aliases (
+                alias_uid TEXT PRIMARY KEY,
+                weight_uid TEXT NOT NULL REFERENCES weight_measurements(uid) ON DELETE CASCADE
+            )"""
+        )
 
         # Which install owns a running session. Only the owning device may
         # auto-close it during crash recovery, so the Mac can never end a timer
@@ -518,12 +594,13 @@ class Database:
 
     # ── Sessions ─────────────────────────────────────────────────────────
     def start_session(
-        self, subject_id: int, device_id: Optional[str] = None
+        self, subject_id: int, device_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
     ) -> Session:
         if self.get_subject(subject_id) is None:
             raise ValueError(f"Cannot start session for missing subject id {subject_id}")
         cur = self.connection.cursor()
-        start_time = datetime.now().isoformat()
+        start_time = (start_time or datetime.now()).isoformat()
         # Seed last_active_at with the start time so a session is always
         # "known active" from the moment it begins.
         cur.execute(
@@ -1077,6 +1154,11 @@ class Database:
         cur.execute("SELECT * FROM settings")
         settings = [dict(row) for row in cur.fetchall()]
 
+        cur.execute("SELECT * FROM weight_measurements ORDER BY measured_at")
+        weights = [dict(row) for row in cur.fetchall()]
+        cur.execute("SELECT alias_uid, weight_uid FROM weight_uid_aliases")
+        weight_aliases = [dict(row) for row in cur.fetchall()]
+
         logger.info(
             "Exported %d subjects, %d sessions, %d goals, %d milestones, "
             "%d templates, %d settings",
@@ -1090,6 +1172,8 @@ class Database:
             "milestones": milestones,
             "goal_templates": goal_templates,
             "settings": settings,
+            "weights": weights,
+            "weight_aliases": weight_aliases,
         }
 
     def import_data(self, data: dict) -> None:
@@ -1329,6 +1413,31 @@ class Database:
                     ms.get("created_at", datetime.now().isoformat()),
                     self._importable_uid("milestones", ms.get("uid")),
                 ),
+            )
+
+        # Weights are independent rows with identities preserved on restore.
+        # Validation and duplicate handling use the same rules as source imports.
+        from jobtracker.services.weight_service import WeightService
+        WeightService(self).import_rows(data.get("weights", []))
+        for alias in data.get("weight_aliases", []):
+            if not isinstance(alias, dict):
+                raise ValueError("Invalid weight identity alias")
+            alias_uid, weight_uid = alias.get("alias_uid"), alias.get("weight_uid")
+            if not all(isinstance(uid, str) and uid for uid in (alias_uid, weight_uid)):
+                raise ValueError("Invalid weight identity alias")
+            if self.id_for_uid("weight_measurements", weight_uid) is None:
+                continue
+            canonical_id = self.id_for_uid("weight_measurements", alias_uid)
+            if canonical_id is not None and alias_uid != weight_uid:
+                raise ValueError("Weight identity alias conflicts with an existing measurement")
+            existing = cur.execute(
+                "SELECT weight_uid FROM weight_uid_aliases WHERE alias_uid = ?", (alias_uid,)
+            ).fetchone()
+            if existing is not None and existing["weight_uid"] != weight_uid:
+                raise ValueError("Weight identity alias refers to different entries")
+            cur.execute(
+                "INSERT INTO weight_uid_aliases (alias_uid, weight_uid) VALUES (?, ?) "
+                "ON CONFLICT(alias_uid) DO NOTHING", (alias_uid, weight_uid)
             )
 
         # Settings are part of the authoritative JSON backup. Unknown keys are

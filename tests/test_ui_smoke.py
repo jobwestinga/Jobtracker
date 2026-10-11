@@ -50,7 +50,7 @@ def _application():
 
 def _window(database, monkeypatch):
     qt_app = _application()
-    monkeypatch.setattr(app_module, "TrackerService", lambda: TrackerService(database))
+    monkeypatch.setattr(app_module, "TrackerService", lambda **kwargs: TrackerService(database, **kwargs))
     window = app_module.MainWindow(qt_app)
     window.show()
     qt_app.processEvents()
@@ -61,9 +61,9 @@ def test_main_window_constructs_with_goals_and_graphs(database, monkeypatch):
     database.set_setting("graph_grouping", "weekly")
     qt_app, window = _window(database, monkeypatch)
     try:
-        assert window._pages.count() == 3
+        assert window._pages.count() == 4
         assert [button.text() for button in window._nav_buttons] == [
-            "Goals", "Subjects", "Graphs",
+            "Goals", "Subjects", "Graphs", "Weight",
         ]
         # graph_grouping is a real preference again: an explicit bucket size is
         # honoured rather than wiped at launch.

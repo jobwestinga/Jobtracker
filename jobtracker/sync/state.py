@@ -75,7 +75,7 @@ def set_value(connection: sqlite3.Connection, key: str, value: str) -> None:
 
 def last_seq(connection: sqlite3.Connection) -> int:
     try:
-        return int(get(connection, LAST_SEQ, "0") or 0)
+        return max(0, int(get(connection, LAST_SEQ, "0") or 0))
     except ValueError:
         return 0
 

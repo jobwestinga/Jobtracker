@@ -68,7 +68,7 @@ def build_recovery_info(
     when the gap is small enough that the session can be resumed/closed without
     interruption. Never mutates or deletes anything.
     """
-    if session is None:
+    if session is None or getattr(session, "end_time", None) is not None:
         return None
 
     start = timeutils.parse_iso(getattr(session, "start_time", None))
@@ -79,6 +79,8 @@ def build_recovery_info(
     last_active = timeutils.parse_iso(getattr(session, "last_active_at", None)) or start
 
     now = now or datetime.now()
+    if not timeutils.is_local_datetime(now) or start > now:
+        return None
 
     # Clamp last_active into a sane window: never before start, never after now.
     if last_active < start:

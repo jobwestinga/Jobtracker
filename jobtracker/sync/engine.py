@@ -71,7 +71,8 @@ class SyncResult:
             bits.append(f"removed {self.deleted}")
         if self.repaired:
             bits.append("re-downloaded")
-        return "Up to date" + (f" ({', '.join(bits)})" if bits else "")
+        status = f"{self.pending} change(s) waiting" if self.pending else "Up to date"
+        return status + (f" ({', '.join(bits)})" if bits else "")
 
 
 class SyncEngine:
@@ -85,13 +86,12 @@ class SyncEngine:
         state.install(self.db.connection)
 
     # ── applying server rows to the mirror ──────────────────────────────
-    def _upsert(self, api_table: str, uid: str, wire_row: dict, codec=None) -> None:
+    def _upsert(self, api_table: str, uid: str, wire_row: dict, codec=None, heartbeat=None) -> None:
         """Write one server row into the mirror, keyed by uid.
 
         Foreign keys arrive as uids and are translated back to this database's
-        local ids. A reference we have not seen yet resolves to NULL rather than
-        failing; the row is corrected when its parent arrives, and the integrity
-        check catches anything still wrong afterwards.
+        local ids. Missing parents roll the page back and require a complete
+        snapshot, so even nullable relationships cannot silently lose their link.
         """
         table = sync_policy.TABLE_FOR_API_NAME.get(api_table)
         if table is None:
@@ -100,35 +100,47 @@ class SyncEngine:
 
         resolver = codec if codec is not None else self.db
         row = sync_policy.from_wire(resolver, table, dict(wire_row))
+        # Nullable foreign keys (notably a goal's template) must not silently
+        # become NULL just because the parent is on a later feed page. Counts
+        # and uid hashes would consider that damaged relationship healthy.
+        for column, (_parent, wire_name) in sync_policy.FOREIGN_KEYS.get(table, {}).items():
+            if wire_row.get(wire_name) is not None and row.get(column) is None:
+                raise sqlite3.IntegrityError(f"missing parent for {api_table}.{wire_name}")
         row["uid"] = uid
 
         columns = [c for c in self._columns(table) if c in row]
-        values = [row[c] for c in columns]
         local_id = (
             codec.id_for_uid(table, uid) if codec is not None
             else self.db.id_for_uid(table, uid)
         )
+        if table == "sessions" and row.get("end_time") is None and row.get("device_id") in (None, self.device_id):
+            # Desktop heartbeats deliberately stay local. Pulling the server's
+            # older start-time heartbeat must not turn an hour of work into a
+            # false recovery gap the next time the app opens.
+            if heartbeat is None and local_id is not None:
+                local = self.db.connection.execute(
+                    "SELECT last_active_at FROM sessions WHERE id = ?", (local_id,)
+                ).fetchone()
+                heartbeat = local["last_active_at"] if local else None
+            local_stamp = timeutils.parse_iso(heartbeat)
+            remote_stamp = timeutils.parse_iso(row.get("last_active_at"))
+            started = timeutils.parse_iso(row.get("start_time"))
+            if local_stamp is not None and started is not None and local_stamp >= started and (
+                remote_stamp is None or local_stamp > remote_stamp
+            ):
+                row["last_active_at"] = heartbeat
+        values = [row[c] for c in columns]
         cur = self.db.connection.cursor()
-        try:
-            if local_id is None:
-                placeholders = ", ".join("?" for _ in columns)
-                cur.execute(
-                    f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
-                    values,
-                )
-            else:
-                assignments = ", ".join(f"{c} = ?" for c in columns)
-                cur.execute(
-                    f"UPDATE {table} SET {assignments} WHERE id = ?", [*values, local_id]
-                )
-        except sqlite3.IntegrityError:
-            # Almost always a child arriving before its parent (a session whose
-            # subject is still further down the feed). Skipping it keeps the rest
-            # of the pull working; the count check at the end of this pass sees
-            # the shortfall and re-downloads everything, which fixes it properly.
-            logger.warning(
-                "Could not apply %s %s yet; a full re-download will settle it",
-                api_table, uid, exc_info=True,
+        if local_id is None:
+            placeholders = ", ".join("?" for _ in columns)
+            cur.execute(
+                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+        else:
+            assignments = ", ".join(f"{c} = ?" for c in columns)
+            cur.execute(
+                f"UPDATE {table} SET {assignments} WHERE id = ?", [*values, local_id]
             )
 
     def _delete(self, api_table: str, uid: str, codec=None) -> bool:
@@ -177,61 +189,81 @@ class SyncEngine:
         Returns False when the queue is blocked, so the caller can skip the pull
         and leave the mirror alone until the user resolves it.
         """
-        queued = state.pending(self.db.connection)
-        if not queued:
-            return True
+        while True:
+            queued = state.pending(self.db.connection)
+            if not queued:
+                return True
+            try:
+                response = self.client.send_ops(queued, device_id=self.device_id)
+            except SyncError as exc:
+                # A failed ordered batch can still have a successful prefix.
+                # Acknowledge that prefix so the actual failing entry becomes
+                # the head, while every unacknowledged entry keeps its op_id.
+                if isinstance(exc.body, dict):
+                    self._acknowledge(queued, exc.body.get("applied", []), result)
+                raise
+            acknowledged = self._acknowledge(queued, response.get("applied", []), result)
+            if acknowledged != len(queued):
+                raise SyncError("server did not acknowledge the complete operation batch", status=502)
 
-        response = self.client.send_ops(queued, device_id=self.device_id)
-        applied = response.get("applied", [])
-        for entry in applied:
-            match = next(
-                (q for q in queued if q["op_id"] == entry.get("op_id")), None
-            )
-            if match:
-                state.drop(self.db.connection, match["id"])
-                result.pushed += 1
-        return True
+    def _acknowledge(self, queued: list[dict], applied: list, result: SyncResult) -> int:
+        if not isinstance(applied, list) or len(applied) > len(queued):
+            raise SyncError("server returned an invalid operation acknowledgement", status=502)
+        if any(not isinstance(entry, dict) or entry.get("op_id") != queued[index]["op_id"]
+               for index, entry in enumerate(applied)):
+            raise SyncError("server acknowledged operations out of order", status=502)
+        with self.db.atomic():
+            for entry in queued[:len(applied)]:
+                state.drop(self.db.connection, entry["id"])
+        result.pushed += len(applied)
+        return len(applied)
 
-    def pull(self, result: SyncResult) -> None:
+    def pull(self, result: SyncResult) -> bool:
         cursor = state.last_seq(self.db.connection)
         while True:
             response = self.client.pull(cursor)
             changes = response.get("changes", [])
+            if response.get("head") is not None and int(response["head"]) < cursor:
+                # Restoring an older server backup can keep all the same uids
+                # but rewind edits and the feed. Count/hash verification alone
+                # cannot detect that every row's contents became older.
+                result.messages.append("server history was restored; re-downloading")
+                return self.full_resync(result)
+            next_cursor = int(response.get("seq", cursor))
+            if next_cursor < cursor or (response.get("more") and next_cursor <= cursor):
+                raise SyncError("server returned a non-advancing change cursor", status=502)
             # One codec for the whole page: foreign keys resolve from a map
             # loaded once instead of a query per row.
-            codec = sync_policy.WireCodec(self.db)
-
-            # Apply parents before children, not in feed order.
-            #
-            # The feed orders rows by their most recent change, so a goal created
-            # early and edited later sorts AFTER a milestone created in between —
-            # and inserting that milestone fails, because its goal_id is NOT NULL
-            # and the goal is not here yet. Deletes go the other way round, so a
-            # parent never disappears out from under a child.
-            for change in sorted(changes, key=self._apply_order):
-                if change.get("op") == "delete":
-                    if self._delete(change["table"], change["uid"], codec):
-                        result.deleted += 1
-                else:
-                    row = change.get("row")
-                    if row:
-                        self._upsert(change["table"], change["uid"], row, codec)
-                        result.applied += 1
-            self.db.connection.commit()
-
-            # The server is the only writer of record, so its value wins. A
-            # change made here was already queued as an operation and comes back
-            # through this same path.
-            for key, value in (response.get("settings") or {}).items():
-                if key in sync_policy.SYNCED_SETTING_KEYS and value:
-                    if self.db.get_setting(key) != value:
-                        self.db.set_setting(key, value)
-                        result.messages.append(f"{key} is now {value}")
-
-            cursor = int(response.get("seq", cursor))
-            state.set_value(self.db.connection, state.LAST_SEQ, cursor)
+            applied = deleted = 0
+            with self.db.atomic():
+                # The UI can create new work while this network call is in
+                # flight. Hold the write lock across this check and the apply,
+                # and postpone the pull instead of overwriting those edits.
+                if state.pending_count(self.db.connection):
+                    result.messages.append("new local edits are waiting; pull postponed")
+                    return False
+                codec = sync_policy.WireCodec(self.db)
+                for change in sorted(changes, key=self._apply_order):
+                    if change.get("op") == "delete":
+                        if self._delete(change["table"], change["uid"], codec):
+                            deleted += 1
+                    else:
+                        row = change.get("row")
+                        if row:
+                            self._upsert(change["table"], change["uid"], row, codec)
+                            applied += 1
+                for key, value in (response.get("settings") or {}).items():
+                    if key in sync_policy.SYNCED_SETTING_KEYS and value:
+                        if self.db.get_setting(key) != value:
+                            self.db.set_setting(key, value)
+                            result.messages.append(f"{key} is now {value}")
+                # Applying a page and moving its cursor are one transaction.
+                state.set_value(self.db.connection, state.LAST_SEQ, next_cursor)
+            result.applied += applied
+            result.deleted += deleted
+            cursor = next_cursor
             if not response.get("more"):
-                break
+                return True
 
     def verify(self, result: SyncResult, deep: bool = False) -> bool:
         """Compare the mirror with the server. True when they agree.
@@ -290,33 +322,55 @@ class SyncEngine:
             logger.warning("Sync: %s", message)
             result.messages.append(message)
 
-    def full_resync(self, result: SyncResult) -> None:
+    def full_resync(self, result: SyncResult) -> bool:
         """Throw the mirror away and rebuild it from the server.
 
         Safe precisely because the mirror is not authoritative — but it must not
         run while the outbox still holds work, or unsent local changes would be
-        wiped. The caller guarantees that.
+        wiped. This method enforces that under the database write lock.
         """
+        # Check before the request, then again under the write lock: another
+        # thread can edit the mirror while the snapshot is downloading.
+        if state.pending_count(self.db.connection):
+            result.messages.append("outbox has unsent edits; re-download postponed")
+            return False
         snapshot = self.client.snapshot()
-        cur = self.db.connection.cursor()
-        # Children first: FKs are ON, so a parent cannot go while a child refers.
-        for table in reversed(sync_policy.SYNCED_TABLES):
-            cur.execute(f"DELETE FROM {table}")
-        codec = sync_policy.WireCodec(self.db)
         for table in sync_policy.SYNCED_TABLES:
-            for wire_row in snapshot.get(sync_policy.API_NAMES[table], []):
-                uid = wire_row.get("uid")
-                if uid:
-                    self._upsert(sync_policy.API_NAMES[table], uid, wire_row, codec)
-                    result.applied += 1
-        for key, value in (snapshot.get("settings") or {}).items():
-            if key in sync_policy.SYNCED_SETTING_KEYS:
-                self.db.set_setting(key, value)
-        self.db.connection.commit()
-        state.set_value(
-            self.db.connection, state.LAST_SEQ, int(snapshot.get("head", 0))
-        )
+            if not isinstance(snapshot.get(sync_policy.API_NAMES[table]), list):
+                raise SyncError("server snapshot is incomplete; local history was preserved", status=502)
+        applied = 0
+        with self.db.atomic():
+            if state.pending_count(self.db.connection):
+                result.messages.append("new local edits are waiting; re-download postponed")
+                return False
+            cur = self.db.connection.cursor()
+            heartbeats = {
+                row["uid"]: row["last_active_at"]
+                for row in cur.execute(
+                    "SELECT uid, last_active_at FROM sessions WHERE end_time IS NULL "
+                    "AND (device_id IS NULL OR device_id = ?)", (self.device_id,)
+                )
+            }
+            for table in reversed(sync_policy.SYNCED_TABLES):
+                cur.execute(f"DELETE FROM {table}")
+            codec = sync_policy.WireCodec(self.db)
+            for table in sync_policy.SYNCED_TABLES:
+                for wire_row in snapshot[sync_policy.API_NAMES[table]]:
+                    uid = wire_row.get("uid")
+                    if not isinstance(uid, str) or not uid:
+                        raise SyncError("server snapshot contains a row without an identity", status=502)
+                    self._upsert(
+                        sync_policy.API_NAMES[table], uid, wire_row, codec,
+                        heartbeat=heartbeats.get(uid) if table == "sessions" else None,
+                    )
+                    applied += 1
+            for key, value in (snapshot.get("settings") or {}).items():
+                if key in sync_policy.SYNCED_SETTING_KEYS:
+                    self.db.set_setting(key, value)
+            state.set_value(self.db.connection, state.LAST_SEQ, int(snapshot.get("head", 0)))
+        result.applied += applied
         result.repaired = True
+        return True
 
     def _due_for_periodic_check(self, every: int = 10) -> bool:
         """True once every ``every`` quiet passes, so drift cannot hide forever."""
@@ -336,7 +390,17 @@ class SyncEngine:
         result = SyncResult()
         try:
             self.push(result)
-            self.pull(result)
+            try:
+                pulled = self.pull(result)
+            except sqlite3.IntegrityError:
+                # A parent can land on a later feed page. Roll the page back,
+                # keep its old cursor, and rebuild from a complete snapshot.
+                logger.warning("Feed page is missing a dependency; re-downloading")
+                pulled = self.full_resync(result)
+            if not pulled:
+                result.ok = True
+                result.pending = state.pending_count(self.db.connection)
+                return result
             # Counts are compared every pass; the uid hash only occasionally,
             # since that makes the server read every uid in every table.
             if verify and not self.verify(result, deep=self._due_for_periodic_check()):

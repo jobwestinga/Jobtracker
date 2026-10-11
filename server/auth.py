@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import secrets
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("jobtracker.server")
@@ -45,18 +46,41 @@ def load_tokens() -> list[dict]:
     except (ValueError, OSError):
         logger.exception("Token store unreadable: %s", path)
         return []
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    # A damaged entry must fail closed instead of raising in every auth check
+    # (or authenticating a token as a device literally named "None").
+    return [entry for entry in data if (
+        isinstance(entry, dict)
+        and isinstance(entry.get("name"), str)
+        and bool(entry["name"].strip())
+        and isinstance(entry.get("sha256"), str)
+        and len(entry["sha256"]) == 64
+        and all(character in "0123456789abcdef" for character in entry["sha256"])
+        and isinstance(entry.get("revoked", False), bool)
+    )]
 
 
 def save_tokens(tokens: list[dict]) -> None:
     path = token_store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(tokens, indent=2))
-    path.chmod(0o600)
+    # mkstemp creates a private file before any bytes are written. Replacing it
+    # atomically avoids exposing a truncated token store to simultaneous reads.
+    descriptor, temporary = tempfile.mkstemp(prefix=".tokens-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(tokens, indent=2))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def issue_token(name: str) -> str:
     """Mint a token for a device. The plaintext is returned once and never stored."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("device name must not be empty")
     token = secrets.token_urlsafe(TOKEN_BYTES)
     tokens = load_tokens()
     tokens = [t for t in tokens if t.get("name") != name]

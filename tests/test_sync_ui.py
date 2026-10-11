@@ -21,7 +21,7 @@ def _application():
 
 def _window(database, monkeypatch):
     qt_app = _application()
-    monkeypatch.setattr(app_module, "TrackerService", lambda: TrackerService(database))
+    monkeypatch.setattr(app_module, "TrackerService", lambda **kwargs: TrackerService(database, **kwargs))
     window = app_module.MainWindow(qt_app)
     window.show()
     qt_app.processEvents()

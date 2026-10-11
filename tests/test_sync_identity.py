@@ -17,6 +17,7 @@ import pytest
 from jobtracker.core import sync_policy
 from jobtracker.core.database import Database
 from jobtracker.services.tracker_service import TrackerService
+from jobtracker.services.weight_service import WeightService
 
 UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -40,6 +41,7 @@ def _seed_one_of_everything(service):
     goal = service.add_todo_task("Pass the exam", "", None)
     milestone = service.add_milestone(goal.id, "Read chapter 1")
     template = service.add_goal_template("Daily review", "", "daily")
+    WeightService(service.db).upsert("2026-06-01", 80)
     return subject, session, goal, milestone, template
 
 

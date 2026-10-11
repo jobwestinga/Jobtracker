@@ -1,34 +1,34 @@
-// Talking to the JobTracker server from the phone.
-//
-// Same shape as the desktop client, for the same reasons: every write is an
-// operation with a client-generated op_id, so a request that is retried after a
-// dropped connection cannot be applied twice. Writes made with no signal wait in
-// a localStorage outbox and go out in order when the connection returns.
-
+// All changes enter a durable, ordered outbox before the network sees them.
+// A retry uses the same op_id, including after a reload or a lost response.
 const TOKEN_KEY = "jobtracker.token";
 const OUTBOX_KEY = "jobtracker.outbox";
+const MAX_BATCH = 200;
+const REQUEST_TIMEOUT_MS = 12000;
 
 export function getToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
 }
 export function setToken(token) {
-  try { localStorage.setItem(TOKEN_KEY, (token || "").trim()); } catch { /* private mode */ }
+  try { localStorage.setItem(TOKEN_KEY, (token || "").trim()); }
+  catch { throw new ApiError("This browser cannot save the access token.", 0); }
 }
 export function clearToken() {
   try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
 }
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, payload = {}) {
     super(message);
     this.status = status;
-    // No status means the request never reached the server: an outage, not a
-    // refusal. Callers queue in the first case and complain in the second.
     this.offline = status === undefined || status === null;
+    this.retryable = this.offline || status >= 500 || status === 408 || status === 429;
+    this.applied = payload.applied || [];
+    this.failed_op_id = payload.failed_op_id;
+    this.failed_index = payload.failed_index;
   }
 }
 
-function uuid() {
+export function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -38,101 +38,147 @@ function uuid() {
 
 async function request(method, path, body) {
   const token = getToken();
-  if (!token) throw new ApiError("no token", 401);
-  let response;
+  if (!token) throw new ApiError("Connect this phone first.", 401);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    response = await fetch(path, {
+    const response = await fetch(path, {
       method,
+      cache: "no-store",
+      redirect: "error",
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${token}`,
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    let payload;
+    try { payload = response.status === 204 ? {} : await response.json(); }
+    catch {
+      throw new ApiError("The server returned an unreadable response; your changes are kept.",
+        response.ok ? undefined : response.status);
+    }
+    if (!response.ok) {
+      throw new ApiError(String(payload.detail ?? response.statusText), response.status, payload);
+    }
+    if (getToken() !== token) throw new ApiError("The connection changed while loading; refresh to continue.", 409);
+    return payload;
   } catch (err) {
-    throw new ApiError(`cannot reach server: ${err.message}`);
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(controller.signal.aborted
+      ? "The server took too long to reply."
+      : `Cannot reach server: ${err.message}`);
+  } finally {
+    clearTimeout(timeout);
   }
-  if (!response.ok) {
-    let detail = response.statusText;
-    try { detail = (await response.json()).detail ?? detail; } catch { /* not json */ }
-    throw new ApiError(String(detail), response.status);
+}
+
+function queryPath(path, params) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, value);
   }
-  return response.status === 204 ? {} : response.json();
+  return `${path}?${query}`;
 }
 
 export const api = {
   context: () => request("GET", "/api/context"),
-  snapshot: () => request("GET", "/api/snapshot"),
+  snapshot: () => request("GET", "/api/snapshot?include_weights=false"),
+  pull: (since) => request("GET", `/sync/pull?since=${encodeURIComponent(since)}`),
   active: () => request("GET", "/api/active"),
-  day: (isoDate) => request("GET", `/api/sessions/day/${isoDate}`),
-  breakdown: (grouping = "daily", days = 14) =>
-    request("GET", `/api/graphs/breakdown?grouping=${grouping}&days=${days}`),
-  agenda: (days = 7) => request("GET", `/api/graphs/agenda?days=${days}`),
-  heatmap: () => request("GET", "/api/graphs/heatmap"),
+  weights: () => request("GET", "/api/weight"),
+  day: (isoDate) => request("GET", `/api/sessions/day/${encodeURIComponent(isoDate)}`),
+  breakdown: (grouping = "daily", days = 14, options = {}) =>
+    request("GET", queryPath("/api/graphs/breakdown", { grouping, days, ...options })),
+  agenda: (days = 7, options = {}) => request("GET", queryPath("/api/graphs/agenda", { days, ...options })),
   sendOps: (ops) => request("POST", "/ops", { ops }),
 };
 
-// ── outbox ──────────────────────────────────────────────────────────────
-
-function readOutbox() {
-  try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); } catch { return []; }
+export function pendingOperations() {
+  let entries;
+  try { entries = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); }
+  catch { throw new ApiError("Cannot read saved changes. Keep this browser's data to recover them.", 0); }
+  if (!Array.isArray(entries) || entries.some((entry) =>
+    !entry || typeof entry.op_id !== "string" || typeof entry.op !== "string" ||
+    !entry.params || typeof entry.params !== "object" || Array.isArray(entry.params))) {
+    throw new ApiError("Saved changes are damaged. Keep this browser's data to recover them.", 0);
+  }
+  return entries;
 }
+
 function writeOutbox(entries) {
-  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries)); } catch { /* full */ }
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries)); }
+  catch {
+    throw new ApiError("This browser cannot save changes. Free browser storage and try again.", 0);
+  }
 }
-export function pendingCount() {
-  return readOutbox().length;
+export function pendingCount() { return pendingOperations().length; }
+
+// Web Locks protect a browser tab and the home-screen app from draining the
+// same queue at once. The single-flight promise below handles ordinary taps.
+function withQueueLock(callback, name = "jobtracker.outbox") {
+  return globalThis.navigator?.locks?.request
+    ? navigator.locks.request(name, callback)
+    : callback();
 }
 
-/**
- * Send one operation, queueing it if the server cannot be reached.
- *
- * Returns { ok, queued, result }. A refusal (4xx) is NOT queued: the server
- * decided, and retrying forever would block everything behind it.
- */
+let flushing = null;
+
 export async function send(op, params, { uid } = {}) {
-  const entry = { op_id: uuid(), op, params: uid ? { ...params, uid } : params };
-  const queue = readOutbox();
-
-  // Anything already waiting must go first, or a delete could overtake the
-  // create it refers to.
-  if (queue.length) {
+  const entry = { op_id: uuid(), op, params: uid ? { ...params, uid } : { ...params } };
+  await withQueueLock(() => {
+    const queue = pendingOperations();
     queue.push(entry);
     writeOutbox(queue);
-    const flushed = await flush();
-    return { ok: flushed.ok, queued: !flushed.ok, result: null };
-  }
+  });
+  const outcome = await flush();
+  const queued = pendingOperations().some((item) => item.op_id === entry.op_id);
+  return {
+    ok: !queued,
+    queued,
+    result: outcome.applied?.find((item) => item.op_id === entry.op_id)?.result ?? null,
+    error: queued ? outcome.error : undefined,
+    offline: outcome.offline,
+  };
+}
 
-  try {
-    const response = await api.sendOps([entry]);
-    return { ok: true, queued: false, result: response.applied?.[0]?.result ?? null };
-  } catch (err) {
-    if (err.offline) {
-      writeOutbox([...queue, entry]);
-      return { ok: false, queued: true, result: null };
+/** Drain only acknowledged entries. Never overwrite additions made mid-request. */
+export function flush() {
+  if (flushing) return flushing;
+  flushing = Promise.resolve().then(() => withQueueLock(drain, "jobtracker.outbox.drain"))
+    .finally(() => { flushing = null; });
+  return flushing;
+}
+
+async function drain() {
+  let sent = 0;
+  const applied = [];
+  while (true) {
+    const queue = pendingOperations().slice(0, MAX_BATCH);
+    if (!queue.length) return { ok: true, sent, applied };
+    let response;
+    let failure;
+    try { response = await api.sendOps(queue); }
+    catch (err) { failure = err; }
+    const batchIds = new Set(queue.map((item) => item.op_id));
+    const acknowledgements = (response?.applied || failure?.applied || [])
+      .filter((item) => batchIds.has(item.op_id));
+    const acknowledged = new Set(acknowledgements.map((item) => item.op_id));
+    if (acknowledged.size) {
+      // Re-read: another action may have appended while fetch was pending.
+      await withQueueLock(() => {
+        writeOutbox(pendingOperations().filter((item) => !acknowledged.has(item.op_id)));
+      });
+      sent += acknowledged.size;
+      applied.push(...acknowledgements);
     }
-    throw err;
+    if (failure) {
+      return { ok: false, sent, applied, offline: failure.offline, retryable: failure.retryable,
+        error: failure.message, failed_op_id: failure.failed_op_id };
+    }
+    if (acknowledged.size !== queue.length) {
+      return { ok: false, sent, applied, error: "The server did not acknowledge all changes; they are kept." };
+    }
   }
 }
-
-/** Drain the outbox in order. Stops at the first refusal, keeping the rest. */
-export async function flush() {
-  let queue = readOutbox();
-  if (!queue.length) return { ok: true, sent: 0 };
-
-  try {
-    await api.sendOps(queue);
-    writeOutbox([]);
-    return { ok: true, sent: queue.length };
-  } catch (err) {
-    if (err.offline) return { ok: false, sent: 0, offline: true };
-    // A refusal names how far it got; drop what was applied and keep the rest
-    // so the queue does not replay work the server already did.
-    const appliedIds = new Set((err.applied || []).map((a) => a.op_id));
-    queue = queue.filter((entry) => !appliedIds.has(entry.op_id));
-    writeOutbox(queue);
-    return { ok: false, sent: appliedIds.size, error: err.message };
-  }
-}
-
-export { uuid };

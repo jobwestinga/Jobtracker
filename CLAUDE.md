@@ -43,8 +43,10 @@ drift between clients.
   so Tailscale never touches DNS for the user's other sites; the side effect is
   that MagicDNS does not resolve *on the server itself*, so test from there with
   `curl --resolve "$JT_TAILNET_HOST:$JT_HTTPS_PORT:$JT_TAILNET_IP"`.
-- Deploy with `./deploy/install.sh` (renders the unit file from the template and
-  restarts the service). Do not commit a rendered unit file.
+- Deploy with `./deploy/install.sh`: online database backup, code and web assets,
+  existing-unit verification, then a restart under its supervisor. Routine
+  updates preserve root-owned system files. `--provision` installs those files
+  and requires sudo access. Do not commit a rendered unit file.
 - Layout under `$JT_ROOT`: code `app/`, venv `venv/`, database
   `data/jobtracker.db`, hashed tokens `secrets/tokens.json` (0600), nightly
   backups `backups/` (cron 04:17, 30 days, SQLite online-backup API).
@@ -70,7 +72,10 @@ them does.
 - Every action paints optimistically before the request goes out (a tap that
   waited a round trip felt broken), then the refresh that follows replaces the
   guess with the server's answer.
-- Tab order matches the desktop's pages: Goals, Subjects, Sessions, Graphs.
+- Tab order: Goals, Subjects, Sessions, Graphs, Weight.
+- A fresh phone launch starts on Weight; foreground resume preserves the current
+  tab and draft. A durable weight save clears its picker unless a newer draft
+  was entered while saving. Fullscreen plots keep their DOM and resize on rotation.
 - **The app is a fixed frame**: `#app { position: fixed; inset: 0 }`, flex
   column, `#views` scrolling in the middle, tab bar as a flex item. Not
   `height: 100dvh` — in an iOS standalone app dvh resolves before the viewport
@@ -106,8 +111,17 @@ Rules for the server:
 - **A batch stops at the first failure** and reports `failed_index`. Do not make
   it skip and continue: an ordered outbox that lets later writes jump a failed
   one is exactly how a queue corrupts state.
-- **Recovery runs once at startup**, never per request (it closes sessions).
-  Request handlers that need the live timer call `_adopt_open_session()`.
+- **The server never runs timer recovery**, including at startup: it does not
+  own a user's timer. Desktop recovery remains device-scoped. Server reads adopt
+  the newest persisted open row with `_adopt_open_session(include_other_devices=True)`.
+- Timer operations carry captured local timestamps and stable session uids.
+  A queued stop, heartbeat, switch, or recovery must target its own session and
+  never a newer timer. Timed offline replays may preserve overlapping open rows;
+  stop only closes the addressed row.
+- `Database.atomic()` commits mutations and their outbox/replay records together.
+  Keep method-level commits inside that context deferred. A receipt is bound to
+  operation parameters and authenticated principal, so `op_id` reuse for a
+  different request is rejected rather than replayed.
 - The change feed is produced by SQLite triggers in `server/feed.py`, keyed on
   **rowid, not uid** — a row's uid is filled by an `AFTER INSERT` trigger, so at
   INSERT-trigger time `NEW.uid` is still NULL. Rowids are safe to key on because
@@ -150,9 +164,16 @@ offline wait in an ordered outbox.
 4. The phone app in `web/`: timer, sessions, goals with inline milestones,
    graphs, settings.
 
-All six phases of the original plan are done. The remaining known limitation is
-that **subjects can only be created on the Mac** — the phone starts, edits and
-reports on them but has no create/archive UI.
+The phone also creates, edits, archives/restores and reorders subjects. Weight
+history is stored in the synced `weight_measurements` table (`weights` on the
+wire); `weight_uid_aliases` is server bookkeeping for daily manual saves with
+different offline identities. Phone snapshots omit weight rows and load them
+only through `/api/weight`. All weight writes still go through `/ops`.
+
+Synced backup restores use the `import_backup` operation. The client queues a
+normalized post-merge backup with stable row UIDs and only shared settings;
+the server preserves known canonical UIDs and maps legacy integer parent IDs
+for new children. Restore, outbox and retry receipts remain atomic.
 
 ## Hard rules (do not break)
 
@@ -189,8 +210,10 @@ reports on them but has no create/archive UI.
   session to the logical day of its **start** time. `split_by_logical_day()`
   exists (and is tested) for precise per-day splitting when a future heatmap /
   export needs it.
-- The agenda timeline intentionally uses **calendar** days (it paints clock
-  positions), not logical days.
+- The agenda uses **logical days**, matching `get_agenda_data()` and the native
+  view. Post-midnight hours appear as 24+ in the prior logical day's column.
+  Weight entries separately use calendar dates. The phone's current-time line
+  uses the agenda API's `day_start_hour` and updates on minute ticks/resume.
 
 ## Definition of done — ALWAYS test + rebuild
 
@@ -232,14 +255,14 @@ After ANY code change, before reporting back to the user:
   `python3 -m pytest` fails with `No module named pytest`. The interpreter that
   has both pytest and PySide6 is the framework build:
   `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest`
-  (it is also what the "fast path" rebuild in *Definition of done* uses). Suite
-  is ~278 tests and runs in a couple of seconds.
+  (it is also what the "fast path" rebuild in *Definition of done* uses).
 - **Tests must never touch real user data.** `tests/conftest.py` sets
   `JOBTRACKER_DB_PATH` to a throwaway temp file *before* importing the package
   (which redirects the module-level `Database()` singleton), and each test gets
   its own isolated `Database(tmp_path)` via the `database`/`service` fixtures.
-- Tests run **headless** — no QApplication / GUI. Keep core logic testable in
-  the `core`/`services` layers, not buried in widgets.
+- Tests isolate databases. Native UI tests create an offscreen QApplication;
+  core/service tests stay independent of Qt. Node mobile regressions run through
+  `test_mobile_client.py`; the browser smoke harness is a separate check.
 - **Do not change core time-tracking behavior without tests.** If you touch
   start/stop, the 30s rule, recovery, day-bucketing, or import/export, add or
   update tests and run `python -m pytest` before finishing.
@@ -318,7 +341,12 @@ The UI shell is `ui/app.py` (`MainWindow`) plus three mixins —
 `TrackerService` as `self.service`; **widgets and mixins never touch `Database`
 directly**, they go through the injected service (dialogs take it as a
 constructor argument). Page order in the stack is **0 = Goals, 1 = Subjects,
-2 = Graphs** — several shortcut handlers test the index literally.
+2 = Graphs, 3 = Weight** — existing shortcut handlers keep their indices.
+Weight widgets use `list_weight_measurements()`, `upsert_weight()` and
+`delete_weight()` through that service. Synced mutations persist their outbox
+entry atomically. New manual entries use calendar dates at midnight, independent
+of the tracking-day boundary; imported measurements keep their timestamp and
+precision. Weight display preferences stay device-local.
 
 `ui/widgets/dialog_utils.py` and `ui/widgets/reorderable_list.py` are shared UI
 infrastructure; see the two sections below before adding dialogs or list cards.

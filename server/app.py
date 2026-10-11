@@ -48,8 +48,10 @@ _state: dict[str, Any] = {"db": None, "svc": None}
 def build_state(db_path: Optional[str] = None) -> dict[str, Any]:
     database = Database(db_path or os.environ.get("JOBTRACKER_DB_PATH") or str(DB_PATH))
     feed.install(database.connection)
-    # Recovery CLOSES sessions, so it runs once at startup and never per request.
-    service = TrackerService(database, device_id="server", recover=True)
+    # The server is an authority, not a timer-owning UI. Restarts must preserve
+    # every client's unfinished timer; desktop recovery belongs to that client.
+    service = TrackerService(database, device_id="server", recover=False)
+    service._adopt_open_session(include_other_devices=True)
     logger.info("Server bound to %s", database.db_path)
     return {"db": database, "svc": service}
 
@@ -69,6 +71,22 @@ app = FastAPI(title="JobTracker API", version="1.0.0", lifespan=lifespan)
 # largest thing either client ever asks for. Small responses are left alone —
 # compressing 80 bytes costs more than it saves.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+@app.middleware("http")
+async def private_data_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith(("/api/", "/sync/")) or request.url.path == "/ops":
+        response.headers["Cache-Control"] = "no-store"
+        vary = [value.strip() for value in response.headers.get("Vary", "").split(",") if value.strip()]
+        if "authorization" not in {value.lower() for value in vary}:
+            vary.append("Authorization")
+        response.headers["Vary"] = ", ".join(vary)
+    elif request.url.path.endswith((".js", ".css", ".webmanifest")) or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def svc() -> TrackerService:
@@ -134,7 +152,8 @@ def apply_ops(batch: OpBatch, device: str = Depends(require_device)) -> dict:
         for index, item in enumerate(batch.ops):
             try:
                 result = ops.apply_op(
-                    service, item.op, item.params, item.op_id, item.device_id or device
+                    service, item.op, item.params, item.op_id, item.device_id or device,
+                    request_device=device,
                 )
             except ops.OpError as exc:
                 return JSONResponse(
@@ -243,7 +262,10 @@ def _raw_rows(codec, table: str, where: str = "", params: tuple = ()) -> list[di
 
 
 @app.get("/api/snapshot")
-def api_snapshot(device: str = Depends(require_device)) -> dict:
+def api_snapshot(
+    include_weights: bool = Query(default=True),
+    device: str = Depends(require_device),
+) -> dict:
     """Everything a fresh client needs, in one call.
 
     This is the "throw the mirror away and start over" path, and also what the
@@ -251,11 +273,13 @@ def api_snapshot(device: str = Depends(require_device)) -> dict:
     """
     with _lock:
         service = svc()
+        service._adopt_open_session(include_other_devices=True)
         db = service.db
         codec = sync_policy.WireCodec(db)
         payload = {
             sync_policy.API_NAMES[table]: _raw_rows(codec, table)
             for table in sync_policy.SYNCED_TABLES
+            if include_weights or table != "weight_measurements"
         }
         payload["settings"] = {
             key: db.get_setting(key)
@@ -288,7 +312,7 @@ def api_active(device: str = Depends(require_device)) -> dict:
     """
     with _lock:
         service = svc()
-        service._adopt_open_session()
+        service._adopt_open_session(include_other_devices=True)
         active = service.active_session
         if active is None or active.id is None:
             return {"active": None}
@@ -299,8 +323,9 @@ def api_active(device: str = Depends(require_device)) -> dict:
         elapsed = timeutils.duration_seconds(
             timeutils.parse_iso(active.start_time), datetime.now()
         )
+        active_wire = sync_policy.to_wire(service.db, "sessions", dict(row))
     return {
-        "active": sync_policy.to_wire(service.db, "sessions", dict(row)),
+        "active": active_wire,
         "subject_uid": subject_uid,
         "elapsed_seconds": elapsed,
     }
@@ -321,11 +346,13 @@ def api_context(device: str = Depends(require_device)) -> dict:
         # `head` lets a client ask "has anything changed?" for a few dozen bytes
         # instead of re-downloading a snapshot that is several hundred kilobytes.
         head = feed.current_seq(service.db.connection)
-        service._adopt_open_session()
+        service._adopt_open_session(include_other_devices=True)
         active = service.active_session
         active_payload = None
         if active is not None and active.id is not None:
             active_payload = {
+                "session_uid": active.uid,
+                "uid": active.uid,
                 "subject_uid": service.db.uid_for_id("tasks", active.subject_id),
                 "start_time": active.start_time,
                 "elapsed_seconds": timeutils.duration_seconds(
@@ -345,6 +372,9 @@ def api_context(device: str = Depends(require_device)) -> dict:
 def api_breakdown(
     grouping: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
     days: int = Query(default=14, ge=1, le=3660),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    all_time: bool = Query(default=False),
     device: str = Depends(require_device),
 ) -> dict:
     """Server-computed totals — the phone draws, it never recalculates.
@@ -353,8 +383,21 @@ def api_breakdown(
     """
     with _lock:
         service = svc()
+        service._adopt_open_session(include_other_devices=True)
         codec = sync_policy.WireCodec(service.db)
-        buckets = service.get_subject_breakdown(grouping=grouping, days=days)
+        start, end = _plot_window(start_date, end_date)
+        if all_time:
+            day_start = service.get_day_start()
+            start = timeutils.logical_day(datetime.now(), day_start)
+            for row in service.db.connection.execute("SELECT start_time FROM sessions ORDER BY start_time"):
+                earliest = timeutils.parse_iso(row["start_time"])
+                if earliest is not None:
+                    start = timeutils.logical_day(earliest, day_start)
+                    break
+            end = service.graph_end_day(day_start)
+        buckets = service.get_subject_breakdown(
+            grouping=grouping, days=days, start_date=start, end_date=end
+        )
         out_buckets = []
         for bucket in buckets:
             out_buckets.append(
@@ -381,6 +424,8 @@ def api_breakdown(
 @app.get("/api/graphs/agenda")
 def api_agenda(
     days: int = Query(default=7, ge=1, le=60),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     device: str = Depends(require_device),
 ) -> dict:
     """The agenda timeline: sessions placed at their clock position.
@@ -391,11 +436,19 @@ def api_agenda(
     """
     with _lock:
         service = svc()
+        service._adopt_open_session(include_other_devices=True)
         day_start = service.get_day_start()
         end_day = service.graph_end_day(day_start)
         start_day = timeutils.logical_day(datetime.now(), day_start) - timedelta(
             days=days - 1
         )
+        explicit_start, explicit_end = _plot_window(start_date, end_date)
+        start_day = explicit_start or start_day
+        end_day = explicit_end or end_day
+        if start_day > end_day:
+            raise HTTPException(status_code=400, detail="Plot end date must be on or after the start date")
+        if explicit_start and explicit_end and (end_day - start_day).days >= 60:
+            raise HTTPException(status_code=400, detail="Agenda supports up to 60 days. Choose a shorter range.")
         codec = sync_policy.WireCodec(service.db)
         day_keys, sessions = service.get_agenda_data(start_day, end_day, day_start)
         out = [
@@ -416,6 +469,17 @@ def api_agenda(
         "sessions": out,
         "day_start_hour": day_start.hour + day_start.minute / 60.0,
     }
+
+
+def _plot_window(start, end):
+    try:
+        start = date.fromisoformat(start) if start else None
+        end = date.fromisoformat(end) if end else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Plot dates must be YYYY-MM-DD") from None
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="Plot end date must be on or after the start date")
+    return start, end
 
 
 def _mount_web() -> None:
@@ -441,6 +505,7 @@ def api_sessions_for_day(day: str, device: str = Depends(require_device)) -> dic
         raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
     with _lock:
         service = svc()
+        service._adopt_open_session(include_other_devices=True)
         codec = sync_policy.WireCodec(service.db)
         rows = service.get_sessions_for_logical_day(logical)
         out = []
@@ -459,6 +524,19 @@ def api_sessions_for_day(day: str, device: str = Depends(require_device)) -> dic
                 }
             )
     return {"day": day, "sessions": out}
+
+
+@app.get("/api/weight")
+def api_weight(device: str = Depends(require_device)) -> dict:
+    from jobtracker.services.weight_service import WeightService
+    with _lock:
+        measurements = WeightService(svc().db).list_measurements()
+        now = datetime.now()
+        return {
+            "measurements": measurements,
+            "today": now.date().isoformat(),
+            "now": now.isoformat(timespec="seconds"),
+        }
 
 
 # Registered last on purpose: a mount at "/" shadows anything added after it.

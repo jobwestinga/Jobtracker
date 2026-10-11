@@ -1,6 +1,16 @@
 from dataclasses import dataclass
 from typing import Optional
 
+
+@dataclass
+class WeightMeasurement:
+    id: Optional[int]
+    measured_at: str
+    weight_kg: float
+    source: str
+    created_at: str
+    uid: Optional[str] = None
+
 # Every shared model carries ``uid``. Rows are read with ``Model(**dict(row))``
 # over ``SELECT *``, so a column added to the table MUST have a field here or
 # every read raises TypeError. ``id`` stays local to one database; ``uid`` is the

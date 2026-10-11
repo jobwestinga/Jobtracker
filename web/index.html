@@ -12,6 +12,8 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon.png">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/weight.css">
+<link rel="stylesheet" href="/fullscreen.css">
 <title>JobTracker</title>
 </head>
 <body>
@@ -29,7 +31,7 @@
 
 <main id="app" class="hidden">
   <header class="topbar">
-    <h1 id="view-title">Today</h1>
+    <h1 id="view-title">Weight</h1>
     <div class="topbar-actions">
       <button id="refresh" class="icon-btn" aria-label="Refresh">&#8635;</button>
       <button id="open-settings" class="icon-btn" aria-label="Settings">&#9881;</button>
@@ -40,7 +42,11 @@
 
   <!-- Today: the running timer and one-tap start. -->
   <div id="views">
-  <section id="view-today" class="view">
+  <section id="view-today" class="view hidden">
+    <div class="seg">
+      <button id="subjects-active" class="seg-btn on">Active</button>
+      <button id="subjects-archived" class="seg-btn">Archived</button>
+    </div>
     <div id="active-card" class="card active-card hidden">
       <div class="active-dot" id="active-dot"></div>
       <div class="active-body">
@@ -57,9 +63,13 @@
   <!-- Sessions for one logical day. -->
   <section id="view-sessions" class="view hidden">
     <div class="day-nav">
-      <button id="day-prev" class="ghost">&#8592;</button>
+      <button id="day-prev" class="ghost" aria-label="Previous tracking day">&#8592;</button>
       <div id="day-label" class="day-label">—</div>
-      <button id="day-next" class="ghost">&#8594;</button>
+      <button id="day-next" class="ghost" aria-label="Next tracking day">&#8594;</button>
+    </div>
+    <div class="day-tools row">
+      <input id="day-date" type="date" aria-label="Tracking day">
+      <button id="day-today" class="secondary">Today</button>
     </div>
     <div id="day-total" class="muted day-total"></div>
     <div id="session-list" class="list"></div>
@@ -74,9 +84,14 @@
     </div>
     <div id="goal-list" class="list"></div>
     <button id="add-goal" class="primary wide">+ Add goal</button>
+    <button id="goal-templates" class="ghost wide">Recurring goals</button>
   </section>
 
   <section id="view-graphs" class="view hidden">
+    <div class="graph-toolbar">
+      <span class="muted">Tracked time</span>
+      <button id="graph-fullscreen" class="secondary" aria-expanded="false">Fullscreen</button>
+    </div>
     <!-- Two choices, like the desktop: which view, and over what range. -->
     <div class="seg">
       <button class="seg-btn on" data-mode="bars">Bars</button>
@@ -86,6 +101,12 @@
       <button class="seg-btn on" data-range="7">Week</button>
       <button class="seg-btn" data-range="30">Month</button>
       <button class="seg-btn" data-range="365">Year</button>
+      <button class="seg-btn" data-range="all">All</button>
+      <button class="seg-btn" data-range="custom">Custom</button>
+    </div>
+    <div id="graph-custom" class="row hidden">
+      <div class="field"><label for="graph-start">From</label><input id="graph-start" type="date"></div>
+      <div class="field"><label for="graph-end">Through</label><input id="graph-end" type="date"></div>
     </div>
     <!-- Bucket size, same choice the desktop offers. "Auto" follows the range. -->
     <div class="seg seg-group">
@@ -95,17 +116,23 @@
       <button class="seg-btn" data-group="monthly">Months</button>
     </div>
     <div id="graph-total" class="muted day-total"></div>
+    <button id="graph-options" class="ghost wide hidden">Agenda hours</button>
     <div id="graph-body"></div>
     <div id="graph-legend" class="legend"></div>
   </section>
 
+  <section id="view-weight" class="view">
+    <div id="weight-body"></div>
+  </section>
+
   </div>
 
-  <nav class="tabbar four">
+  <nav class="tabbar five" aria-label="App sections">
     <button class="tab" data-view="goals"><span>&#9873;</span>Goals</button>
-    <button class="tab on" data-view="today"><span>&#9201;</span>Subjects</button>
+    <button class="tab" data-view="today"><span>&#9201;</span>Subjects</button>
     <button class="tab" data-view="sessions"><span>&#128197;</span>Sessions</button>
     <button class="tab" data-view="graphs"><span>&#128202;</span>Graphs</button>
+    <button class="tab on" data-view="weight"><span>&#9878;</span>Weight</button>
   </nav>
 </main>
 

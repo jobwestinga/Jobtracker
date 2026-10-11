@@ -1,0 +1,2 @@
+# Optional, importing computer only. Server/mobile/desktop do not need Excel libraries.
+openpyxl>=3.1

@@ -81,7 +81,7 @@ def world(api):
 EXPECTED_OPS = {
     "add_subject", "update_subject", "archive_subject", "unarchive_subject",
     "delete_subject", "set_subject_order",
-    "start_subject", "stop_active_subject", "switch_subject", "heartbeat",
+    "start_subject", "stop_active_subject", "switch_subject", "heartbeat", "resolve_recovery",
     "add_session", "update_session", "delete_session", "duplicate_session",
     "shift_session",
     "add_goal", "update_goal", "delete_goal", "complete_goal", "uncomplete_goal",
@@ -91,6 +91,7 @@ EXPECTED_OPS = {
     "add_template", "update_template", "set_template_active", "delete_template",
     "generate_due_goals",
     "set_setting",
+    "upsert_weight", "delete_weight", "import_weights", "import_backup",
 }
 
 

@@ -60,6 +60,7 @@ from .widgets.recovery_dialog import RecoveryDialog
 from .widgets.dialog_utils import information
 from .widgets.dialog_utils import open_dialog
 from .widgets.settings_dialog import SettingsDialog
+from .widgets.weight_view import WeightView
 
 logger = logging.getLogger("jobtracker")
 
@@ -183,17 +184,16 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def __init__(self, app_instance) -> None:
         super().__init__()
         self.app_instance = app_instance
-        # Build the ordinary service first — recovery and all — then upgrade it
-        # to the outbox-backed one only if sync is switched on. Done in this
-        # order so the plain path (and the test seam that replaces
-        # ``TrackerService``) stays exactly as it was: with sync off the app
-        # touches no network and queues nothing.
-        self.service = TrackerService()
+        # A synced mirror must queue recovery writes too. Inspect settings
+        # without recovery first, then recover through the appropriate service.
+        self.service = TrackerService(recover=False)
         self._sync_on = sync_settings.is_enabled(self.service)
         if self._sync_on:
             self.service = SyncedTrackerService(
-                self.service.db, device_id=self.service.device_id, recover=False
+                self.service.db, device_id=self.service.device_id, recover=True
             )
+        else:
+            self.service.recover_open_sessions()
         self._sync_controller = None
         self.setWindowTitle("JobTracker")
         self.setMinimumSize(560, 760)
@@ -213,12 +213,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             # bars rather than a blank page.
             self._graph_view_mode = "bar"
             self.service.set_setting("graph_view_mode", "bar")
-        self._graph_hour_start: int = int(
-            self.service.get_setting("graph_hour_start", "6")
-        )
-        self._graph_hour_end: int = int(
-            self.service.get_setting("graph_hour_end", "23")
-        )
+        self._graph_hour_start = self._load_graph_hour("graph_hour_start", 6)
+        self._graph_hour_end = self._load_graph_hour("graph_hour_end", 23)
+        if self._graph_hour_end <= self._graph_hour_start:
+            self._graph_hour_start, self._graph_hour_end = 6, 23
         self._graph_custom_range: tuple[date, date] | None = self._load_custom_range()
 
         self._showing_archived: bool = False
@@ -267,6 +265,12 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._setup_sync()
 
     # ── sync ────────────────────────────────────────────────────────────
+    def _load_graph_hour(self, key: str, default: int) -> int:
+        try:
+            return min(27, max(0, int(self.service.get_setting(key, str(default)))))
+        except (TypeError, ValueError):
+            return default
+
     def _setup_sync(self) -> None:
         """Start the background sync thread, if sync is switched on.
 
@@ -299,6 +303,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def _on_sync_finished(self, result) -> None:
         if result.applied or result.deleted or result.repaired:
             # The mirror changed underneath the widgets, so redraw from it.
+            self.service._adopt_open_session()
             self._reload()
         if not result.ok and not result.offline:
             logger.warning("Sync problem: %s", result.error)
@@ -317,12 +322,19 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         info = self.service.get_active_recovery_info()
         if not info:
             return
+        self._recovery_session_id = info.session_id
+        self._recovery_session_uid = self.service.active_session.uid
         dlg = RecoveryDialog(info, self)
         open_dialog(dlg, self._finish_recovery)
 
     def _finish_recovery(self, result: int, dialog: QDialog) -> None:
-        if result == QDialog.Accepted:
-            self.service.resolve_recovery(dialog.chosen_end())
+        active = self.service.active_session
+        if (
+            result == QDialog.Accepted and active is not None
+            and active.uid == getattr(self, "_recovery_session_uid", None)
+        ):
+            self.service.resolve_recovery(dialog.chosen_end(), session_id=active.id)
+        self._recovery_session_uid = None
         # If dismissed, the session stays active (non-destructive) and keeps ticking.
         self._reload_subjects()
         self._reload_graphs()
@@ -333,6 +345,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             # Coming back to the window is the moment the user is most likely to
             # care that the phone's changes have landed.
             self.sync_now()
+            if hasattr(self, "_weight_view"):
+                self._weight_view.refresh()
         if hasattr(self, "_fx_bg"):
             self._fx_bg.set_animating(active)
         if hasattr(self, "_graph_live_timer"):
@@ -539,7 +553,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
     def _heartbeat(self) -> None:
         try:
-            self.service.heartbeat_active_session()
+            # Preserve the last known activity shown in an unresolved recovery
+            # prompt; a minute tick must not silently validate its whole gap.
+            if not getattr(self, "_recovery_session_uid", None):
+                self.service.heartbeat_active_session()
         except Exception:
             logger.exception("Heartbeat failed")
         # Card totals include the live session, so nudge them along roughly
@@ -594,6 +611,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._build_tasks_page()
         self._build_subjects_page()
         self._build_graphs_page()
+        self._weight_view = WeightView(self.service)
+        self._weight_view.changed.connect(self.sync_now)
+        self._pages.addWidget(self._weight_view)
 
         self._active_session_indicator = QPushButton()
         self._active_session_indicator.setMinimumHeight(38)
@@ -619,7 +639,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         nav.setContentsMargins(0, 0, 0, 0)
         nav.setSpacing(0)
 
-        labels = ["Goals", "Subjects", "Graphs"]
+        labels = ["Goals", "Subjects", "Graphs", "Weight"]
         self._nav_buttons: list[QPushButton] = []
 
         for idx, label in enumerate(labels):
@@ -647,6 +667,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             self._generate_due_goals()
         elif index == 2:
             self._reload_graphs()
+        elif index == 3:
+            self._weight_view.refresh()
         self._sync_active_session_indicator()
 
     def _sync_active_session_indicator(self) -> None:
@@ -704,6 +726,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._timer.apply_tokens(self._tokens)
         self._graph_view.set_tokens(self._tokens)
         self._agenda_view.set_tokens(self._tokens)
+        self._weight_view.set_tokens(self._tokens)
         self._fx_bg.apply_theme(self._tokens, self._fx)
         self._sync_active_session_indicator()
 
@@ -711,6 +734,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._reload_subjects()
         self._reload_tasks()
         self._reload_graphs()
+        self._weight_view.refresh()
 
     # ═══════════════════════════════════════════════════════════════════
     #  GLOBAL SETTINGS

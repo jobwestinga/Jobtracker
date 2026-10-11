@@ -79,6 +79,8 @@ def install(connection: sqlite3.Connection) -> None:
     instead of silently archiving an out-of-date shape on delete.
     """
     connection.executescript(FEED_SCHEMA)
+    if "request_hash" not in _columns(connection, "applied_ops"):
+        connection.execute("ALTER TABLE applied_ops ADD COLUMN request_hash TEXT")
     # Databases created before this was noticed carry an index on `seq`, which
     # is the rowid; it costs a write on every change and buys nothing.
     connection.execute("DROP INDEX IF EXISTS idx_change_feed_seq")

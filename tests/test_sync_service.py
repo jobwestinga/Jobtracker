@@ -46,7 +46,7 @@ MUTATING_METHODS = [
     "set_milestone_order",
     "add_goal_template", "update_goal_template", "set_goal_template_active",
     "delete_goal_template", "generate_due_goal_instances",
-    "set_setting", "set_day_start",
+    "set_setting", "set_day_start", "import_data", "upsert_weight", "delete_weight",
 ]
 
 

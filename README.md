@@ -4,14 +4,17 @@ JobTracker is a native macOS desktop application designed to capture and visuali
 
 ## Features
 
+- **Daily weight on phone and Mac:** The Weight tab has seven whole-kilogram buttons centered on your latest reading and ten decimal buttons (.0–.9). Tap one in each row, then Save. On the phone, both rows span the available width and a durable save clears the selection. Entry controls adjust dates, tile size and contrast. Entries use calendar days, and saving again on the same day updates the manual entry. Offline saves enter a durable queue; previous readings can be edited or deleted.
+- **Personal weight plots:** Choose 30/90 days, six months, a year, all history, or custom dates. The original LOESS trend uses a 4% span, with smoother options, a seven-day average, measurement visibility, historic readings, and an optional zero-based axis. Sparse historic readings use shape-preserving interpolation. Export the plot as PNG or the measurements as CSV.
+
 - **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions. New subjects suggest colors that stay visually distinct from your existing ones.
 - **Crash-safe recovery:** If the app or laptop dies mid-session, on reopen JobTracker asks how to handle the unfinished session — end it at the last time it was known active, end it now, or set a custom end time/length. It never silently counts hours you weren't working, and never deletes the session for you.
-- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—quick-add a preset or custom duration ending now, drop a session into a fixed time slot, duplicate one to today or the next day, or nudge it ±15m/±1h without retyping any dates. Use stacked bar charts (grouped **daily, weekly, or monthly**), compact agenda timelines, or an all-history **heatmap** of tracked time. Pick a preset range (Weeks/Months/Year/All) or a one-off custom date range. All three views are interactive: hover a bar, agenda block, or heatmap cell for details, click a block to edit that exact session, or click a day to inspect everything on it.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—quick-add a preset or custom duration ending now, drop a session into a fixed time slot, duplicate one to today or the next day, or nudge it ±15m/±1h without retyping any dates. Use stacked bar charts (grouped **daily, weekly, or monthly**) and compact agenda timelines. Pick a preset range (Weeks/Months/Year/All) or a custom date range. Hover a bar or agenda block for details, click a block to edit that exact session, or click a day to inspect everything on it.
 - **Outcome-focused Goals:** Keep goals separate from timed subjects. Add a description and milestone checklist, track progress, complete a goal only after its milestones are done, and reopen completed goals at any time. Star the handful you're concentrating on with **Focus This Week** so they stand out in the list.
 - **Recurring Goal Templates:** Daily, weekly, or monthly templates generate ordinary goals at the top of the list — on or after their scheduled weekday/day-of-month, so nothing is skipped just because the app stayed closed. Previous unfinished instances remain, and opening the app repeatedly in one logical period never creates duplicates.
 - **Quick Subject Switching:** Clicking another subject (or pressing its number key) while tracking asks to switch — the current session keeps running until you confirm, so a misclick costs nothing.
 - **Keyboard-first navigation:** `←`/`→` move between Goals, Subjects, and Graphs; `1`–`9` open that row's goal or start that subject; `Esc` leaves the Completed/Archived views; `W`/`M`/`Y`/`A` switch graph ranges; `⌘Z` undoes the last archive or reorder.
-- **Offline & Fully Local:** Your data never leaves your computer. Backed by a local SQLite engine, all your tracking history is private and portable. Every clean quit also writes a rotating JSON auto-backup (newest 10 kept) to a `backups/` folder beside your database.
+- **Offline & Private Sync:** SQLite keeps your tracking history available offline. When sync is enabled, changes go to your own server and connected devices. Every clean quit also writes a rotating JSON auto-backup (newest 10 kept) to a `backups/` folder beside your database.
 - **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
 
 ## Project Structure
@@ -24,11 +27,60 @@ JobTracker/
 ├── build_macos.sh            # Automated PyInstaller build script
 ├── JobTracker.spec           # PyInstaller packaging configuration
 ├── assets/                   # App icons and related assets
-├── tests/                    # Headless pytest suite (no GUI, temp databases)
+├── tests/                    # Isolated pytest, offscreen Qt and mobile regressions
+├── server/                   # Authenticated API, operation handlers and imports
+├── web/                      # Plain ES-module phone app and offline shell
+├── deploy/                   # Own-server deployment and backup scripts
+├── MOD/                      # Modularity/reference proposal (PDF and Markdown)
 └── jobtracker/               # Core application package
     ├── core/                 # SQLite database, models, time/day math, themes
-    ├── services/             # TrackerService — all business logic
+    ├── services/             # Shared tracking and weight business logic
+    ├── sync/                 # Durable outbox, server transport and local mirror
     └── ui/                   # PySide6 window, page mixins, widgets, styles
+```
+
+## Phone App and Weight History
+
+The phone app is served by your own authenticated JobTracker server. Its writes
+use the same operations as the Mac app. A write is stored on the device before
+it is sent, and reconnecting replays it in order using the original timestamps
+and session identity. Locking the phone or restarting the server leaves an
+unfinished timer intact.
+
+The phone opens on **Weight** after a fresh launch. Returning to an app still
+open in the background preserves its current tab and unfinished selection.
+Use the plot's fullscreen button, then rotate the phone for a wider chart;
+close fullscreen to return. Weight plot options and the time graphs remain
+available. The agenda shows a current-time line in the current logical day,
+updated each minute and when the app resumes.
+
+To import an existing `Weight_graph` project, install the optional importer
+dependency on the importing computer and run:
+
+```sh
+python3 -m pip install -r requirements-weight-import.txt
+python3 -m server.import_weights --source ../Weight_graph --dry-run
+python3 -m server.import_weights --source ../Weight_graph \
+  --server https://your-server --token-file /path/to/sync_token
+```
+
+The importer reads the newest HealthManager CSV, then manual `WeightData.xlsx`
+readings on days the scale does not cover, then `HistoricWeight.xlsx`. Repeated
+imports preserve saved edits and never duplicate imported identities. Source
+workbooks are retained unchanged. Weight uses calendar dates, independently of
+the time tracker's logical day boundary. Full JSON backups include weight
+readings and any offline identity aliases.
+
+Restoring a backup with sync enabled queues the restored history durably for
+your server. Retries preserve imported identities, existing server edits remain
+authoritative, and device preferences stay on the importing device.
+
+To feed the current server history back into an external plotting workflow:
+
+```sh
+python3 -m server.import_weights --source ../Weight_graph \
+  --server https://your-server --token-file /path/to/sync_token \
+  --export-json ../Weight_graph/data/JobTrackerWeights.json
 ```
 
 ## Local Setup
@@ -61,7 +113,9 @@ python main.py
 ## Running the Tests
 
 The core logic (database, time/day calculations, sessions, import/export) is
-covered by a headless pytest suite that never touches your real database.
+covered by an isolated pytest suite that never touches your real database.
+Native widget tests use offscreen Qt; mobile JavaScript regressions use Node
+when available. The separate browser smoke harness lives in `tests/mobile/`.
 
 ```bash
 # Install dev dependencies (pytest) on top of the runtime requirements
@@ -119,13 +173,10 @@ Stacked bars can be grouped daily, by ISO week number, or by calendar month.
 
 The graph settings dialog also stores the agenda's visible hour window (default
 06:00–23:00, with an optional auto-fit to the sessions actually shown) and
-whether the chart is scaled to the window width. Grouping is derived from the
-selected range rather than chosen separately.
-
-The **Heatmap** always includes all history and opens on the newest weeks;
-scroll left for older days. Its continuous cell intensity represents tracked
-time using the same configurable day boundary as the other graphs. Clicking a
-cell opens that day’s sessions in the existing session editor.
+whether the chart is scaled to the window width. Grouping can follow the
+selected range automatically or be overridden with daily, weekly or monthly
+buckets. On the phone, both graphs offer fullscreen viewing and the agenda
+marks the current time in the current logical day's column.
 
 ## Exporting Your Data
 

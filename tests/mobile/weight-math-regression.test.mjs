@@ -1,0 +1,133 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { loess, pchip, rollingMean, trendFor, selectMeasurements, pointsFor as measurementPoints } from "../../web/weight-utils.js";
+
+const reference = JSON.parse(readFileSync(new URL("./fixtures/weight_math.json", import.meta.url), "utf8"));
+const day = 86400000, epoch = Date.UTC(2026, 0, 1);
+const pointsFor = (xs, ys, source = "scale") => xs.map((x, index) => ({ x: epoch + x * day, y: ys[index], row: { source } }));
+const close = (actual, expected, tolerance = 1e-8) => {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((value, index) => assert.ok(Number.isFinite(value) && Math.abs(value - expected[index]) < tolerance,
+    `point ${index}: actual ${value}, reference ${expected[index]}`));
+};
+
+for (const sample of reference.loess) {
+  test(`LOESS matches original statsmodels: ${sample.name}`, () => {
+    const points = pointsFor(sample.days, sample.weights);
+    close(loess(points, sample.span).map((point) => point.y), sample.expected);
+    // Neither out-of-order imports nor input-array mutation change the fit.
+    close(loess([...points].reverse(), sample.span).map((point) => point.y), sample.expected);
+  });
+}
+
+for (const sample of reference.pchip) {
+  test(`PCHIP matches original scipy: ${sample.name}`, () => {
+    const points = pointsFor(sample.days, sample.weights);
+    close(pchip(points, undefined, sample.samples).map((point) => point.y), sample.expected);
+  });
+}
+
+test("historic join matches scipy anchored on the first 20 dense statsmodels fits", () => {
+  const sample = reference.historic;
+  const dense = pointsFor(sample.dense_days, sample.dense_weights);
+  const historic = pointsFor(sample.historic_days, sample.historic_weights, "historic");
+  const fitted = trendFor([...historic, ...dense], "loess", sample.span);
+  close(fitted.slice(0, 120).map((point) => point.y), sample.expected);
+  close(fitted.slice(120).map((point) => point.y), sample.dense_expected);
+  assert.equal(fitted[119].x, fitted[120].x);
+  assert.ok(Math.abs(fitted[119].y - fitted[120].y) < 1e-8);
+});
+
+test("bad smoothing preferences fall back safely and finite spans are clamped", () => {
+  const sample = reference.loess.find((item) => item.name === "regular_default_span");
+  const points = pointsFor(sample.days, sample.weights);
+  for (const span of [NaN, Infinity, -Infinity, "bad"]) {
+    close(loess(points, span).map((point) => point.y), sample.expected);
+  }
+  assert.deepEqual(loess(points, 20), loess(points, 1));
+  close(loess(points, -1).map((point) => point.y), sample.weights);
+});
+
+test("duplicate timestamps are averaged, invalid points omitted, and source points stay unchanged", () => {
+  const points = [{ x: epoch, y: 70 }, { x: epoch, y: 90 }, { x: epoch + day, y: 82 },
+    { x: epoch + 2 * day, y: 84 }, { x: NaN, y: 80 }, { x: epoch + 3 * day, y: Infinity }, null];
+  const fitted = loess(points);
+  assert.deepEqual(fitted, [{ x: epoch, y: 80 }, { x: epoch + day, y: 82 }, { x: epoch + 2 * day, y: 84 }]);
+  const interpolated = pchip(points);
+  assert.equal(interpolated[0].y, 80);
+  assert.ok(interpolated.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+  assert.equal(points[0].y, 70);
+  assert.equal(points[1].y, 90);
+});
+
+test("short, empty, and duplicate-only series have finite interpolation", () => {
+  assert.deepEqual(loess([]), []);
+  assert.deepEqual(pchip([]), []);
+  assert.deepEqual(pchip([{ x: epoch, y: 70 }, { x: epoch, y: 90 }]), [{ x: epoch, y: 80 }]);
+  const points = [{ x: epoch, y: 80 }, { x: epoch + day, y: 82 }];
+  for (const samples of [0, 1, -1, 1.5, NaN, Infinity, "bad"]) {
+    const fitted = pchip(points, NaN, samples);
+    assert.ok(fitted.length >= 2);
+    assert.equal(fitted[0].y, 80);
+    assert.equal(fitted.at(-1).y, 82);
+    assert.ok(fitted.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+  }
+  assert.deepEqual(pchip(points, epoch - day), [points[0]]);
+  assert.deepEqual(pchip(points, epoch + 5 * day), pchip(points));
+});
+
+test("PCHIP never overshoots each segment at extrema or uneven intervals", () => {
+  const points = pointsFor([0, 1, 1.2, 500], [60, 100, 70, 85]);
+  for (const point of pchip(points, undefined, 2000)) {
+    const index = point.x <= points[1].x ? 0 : point.x <= points[2].x ? 1 : 2;
+    const lower = Math.min(points[index].y, points[index + 1].y);
+    const upper = Math.max(points[index].y, points[index + 1].y);
+    assert.ok(point.y >= lower - 1e-10 && point.y <= upper + 1e-10);
+  }
+});
+
+test("seven calendar days include the whole first day despite measurement-time changes", () => {
+  const points = [
+    { x: new Date("2026-01-01T00:01:00").getTime(), y: 70 },
+    { x: new Date("2026-01-01T23:59:00").getTime(), y: 80 },
+    { x: new Date("2026-01-07T23:59:00").getTime(), y: 90 },
+  ];
+  assert.equal(rollingMean(points, 7).at(-1).y, 80);
+  assert.equal(rollingMean(points, 1).at(-1).y, 90);
+  assert.equal(rollingMean(points.slice(0, 2), 1).at(-1).y, 75);
+});
+
+test("rolling calendar windows survive both Amsterdam daylight-saving transitions", () => {
+  const moduleUrl = new URL("../../web/weight-utils.js", import.meta.url).href;
+  const script = `import { rollingMean } from ${JSON.stringify(moduleUrl)};
+    const cases = [
+      ["2026-03-22T23:59:59", "2026-03-23T00:01:00", "2026-03-28T12:00:00", "2026-03-29T20:00:00"],
+      ["2026-10-18T23:59:59", "2026-10-19T00:01:00", "2026-10-24T12:00:00", "2026-10-25T20:00:00"]
+    ];
+    process.stdout.write(JSON.stringify(cases.map(dates => rollingMean(dates.map((value,index) =>
+      ({x:new Date(value).getTime(),y:[100,80,82,84][index]})),7).at(-1).y)));`;
+  const actual = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8", env: { ...process.env, TZ: "Europe/Amsterdam" },
+  }));
+  assert.deepEqual(actual, [82, 82]);
+});
+
+test("invalid rolling windows remain finite and use sensible defaults", () => {
+  const points = pointsFor([0, 1, 10], [80, 82, 90]);
+  for (const days of [NaN, Infinity, "bad", 0, -1]) {
+    assert.ok(rollingMean(points, days).every((point) => Number.isFinite(point.y)));
+  }
+  assert.deepEqual(rollingMean(points, NaN), rollingMean(points, 7));
+});
+
+test("damaged cached measurements cannot break chart selection or fitting", () => {
+  const valid = { measured_at: "2026-10-10T12:00:00", weight_kg: 80, source: "manual" };
+  const cached = [null, {}, { measured_at: null, weight_kg: 80 }, { measured_at: "bad date", weight_kg: 80 }, valid];
+  assert.deepEqual(selectMeasurements(cached), [valid]);
+  assert.equal(measurementPoints(cached).length, 1);
+  assert.deepEqual(trendFor([null, { x: NaN, y: 80 }]), []);
+  assert.deepEqual(selectMeasurements(null), []);
+  assert.deepEqual(measurementPoints(null), []);
+});

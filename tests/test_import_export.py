@@ -20,11 +20,13 @@ def test_export_shape(service):
     data = service.export_data()
     assert set(data.keys()) == {
         "subjects", "sessions", "todo_tasks", "milestones", "goal_templates",
-        "settings",
+        "settings", "weights", "weight_aliases",
     }
     assert len(data["subjects"]) == 1
     assert len(data["sessions"]) == 2
     assert len(data["todo_tasks"]) == 1
+    assert data["weights"] == []
+    assert data["weight_aliases"] == []
 
 
 def test_round_trip_into_fresh_db(service, tmp_path):

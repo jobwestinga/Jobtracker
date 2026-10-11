@@ -28,6 +28,15 @@ logger = logging.getLogger("jobtracker")
 
 DEFAULT_TIMEOUT = 15.0
 
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """API endpoints have fixed paths; never forward a bearer token elsewhere."""
+
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        raise urllib.error.HTTPError(
+            request.full_url, code, "server redirect refused", headers, response
+        )
+
 # Trust roots, in the order we prefer them.
 #
 # This matters more than it looks: the python.org framework build (which is what
@@ -92,6 +101,21 @@ class SyncClient:
     def _request(self, method: str, path: str, payload: Optional[dict] = None) -> dict:
         if not self.base_url:
             raise SyncError("no server configured")
+        try:
+            address = urllib.parse.urlsplit(self.base_url)
+            # Read port too so malformed ports are rejected before any network
+            # call. Plain HTTP is only useful for local development.
+            _ = address.port
+            if (address.scheme not in ("http", "https") or not address.hostname
+                    or address.username is not None or address.password is not None
+                    or address.query or address.fragment):
+                raise ValueError("invalid server address")
+            if address.scheme == "http" and address.hostname not in ("localhost", "127.0.0.1", "::1"):
+                raise ValueError("server address must use HTTPS")
+            if "\r" in self.token or "\n" in self.token:
+                raise ValueError("access token contains invalid characters")
+        except ValueError as exc:
+            raise SyncError(str(exc), status=400) from exc
         url = f"{self.base_url}{path}"
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(url, data=data, method=method)
@@ -102,28 +126,35 @@ class SyncClient:
             request.add_header("Content-Type", "application/json")
 
         try:
-            context = build_ssl_context() if url.startswith("https://") else None
-            with urllib.request.urlopen(
-                request, timeout=self.timeout, context=context
-            ) as response:
+            context = build_ssl_context() if address.scheme == "https" else None
+            handlers = [_NoRedirect()]
+            if context is not None:
+                handlers.append(urllib.request.HTTPSHandler(context=context))
+            opener = urllib.request.build_opener(*handlers)
+            with opener.open(request, timeout=self.timeout) as response:
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", "replace")
             try:
                 parsed = json.loads(raw)
-                detail = parsed.get("detail", raw)
+                detail = parsed.get("detail", raw) if isinstance(parsed, dict) else raw
             except ValueError:
                 parsed, detail = None, raw
             # A refusal, not an outage: the caller should surface this.
             raise SyncError(str(detail)[:300], status=exc.code, body=parsed) from exc
+        except UnicodeError as exc:
+            raise SyncError("server returned invalid text", status=502) from exc
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
             # Unreachable. Normal while offline — never treated as data loss.
             raise SyncError(f"cannot reach server: {exc}") from exc
 
         try:
-            return json.loads(body) if body else {}
-        except ValueError as exc:
-            raise SyncError("server returned invalid JSON") from exc
+            parsed = json.loads(body) if body else {}
+            if not isinstance(parsed, dict):
+                raise ValueError("response must be an object")
+            return parsed
+        except (ValueError, UnicodeError) as exc:
+            raise SyncError("server returned invalid JSON", status=502) from exc
 
     # ── endpoints ───────────────────────────────────────────────────────
     def health(self) -> dict:

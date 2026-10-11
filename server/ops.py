@@ -19,11 +19,15 @@ Two properties this module exists to guarantee:
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
+import sqlite3
+import uuid
 from datetime import datetime
 from typing import Any, Callable
 
 from jobtracker.core import sync_policy, timeutils
+from jobtracker.core.backup_validation import validate_backup
 
 logger = logging.getLogger("jobtracker.server")
 
@@ -123,16 +127,22 @@ def _adopt_uid(db, table: str, row_id: int, wanted: str | None) -> None:
     up with *that* uid — otherwise the server would invent a second identity for
     the same thing and the client would pull it back as a duplicate.
 
-    Ignored when the uid is already taken here: that means this exact row was
-    already created (a retry that outran its own idempotency record), and the
-    existing row is the one to keep.
+    A uid already belonging to a different row is a conflict. The surrounding
+    transaction rolls back the newly created row instead of duplicating it.
     """
-    if not wanted or row_id is None:
+    if wanted is None:
+        return
+    if not isinstance(wanted, str):
+        raise OpError("row identity must be a UUID string")
+    try:
+        uuid.UUID(wanted)
+    except (ValueError, AttributeError) as exc:
+        raise OpError("row identity must be a UUID string") from exc
+    if row_id is None:
         return
     existing = db.id_for_uid(table, wanted)
     if existing is not None and int(existing) != int(row_id):
-        logger.warning("uid %s already used in %s; leaving the new row alone", wanted, table)
-        return
+        raise OpError("row identity already belongs to an existing row", status=409)
     db.connection.execute(
         f"UPDATE {table} SET uid = ? WHERE id = ?", (wanted, int(row_id))
     )
@@ -203,8 +213,17 @@ def _set_subject_order(svc, p):
 
 @op("start_subject")
 def _start_subject(svc, p):
-    sid = _target_uid(svc.db, "tasks", p["subject_uid"], "subject")
-    if not svc.start_subject(sid):
+    wanted = p.get("uid")
+    # A captured offline timer is a create: skipping it after its parent was
+    # deleted would acknowledge and erase recorded work on the client.
+    resolver = _require_uid if wanted and "start_time" in p else _target_uid
+    sid = resolver(svc.db, "tasks", p["subject_uid"], "subject")
+    existing_id = svc.db.id_for_uid("sessions", wanted) if wanted else None
+    if existing_id is not None:
+        return {"started": False, "session": _row(svc.db, "sessions", existing_id),
+                "reason": "this session is already recorded"}
+    start_time = _parse_dt(p["start_time"], "start_time") if "start_time" in p else None
+    if not svc.start_subject(sid, start_time, allow_parallel=bool(wanted and start_time)):
         # Something is already running. Retrying will not change that, so report
         # it rather than jamming everything queued behind it.
         return {"started": False, "reason": "a session is already running"}
@@ -214,21 +233,60 @@ def _start_subject(svc, p):
 
 @op("stop_active_subject")
 def _stop_active_subject(svc, p):
-    if svc.active_session is None:
+    session = _timer_target(svc, p)
+    if session is None or session.end_time is not None:
         # Not an error: two devices may both send a stop for the same timer, and
         # the second one should be a no-op rather than a failure.
         return {"stopped": False}
-    session_id = svc.active_session.id
-    end_time = _parse_dt(p["end_time"], "end_time") if p.get("end_time") else None
+    session_id = session.id
+    end_time = _parse_dt(p["end_time"], "end_time") if "end_time" in p else None
+    svc.active_session = session
+    svc.active_subject = svc.db.get_subject(session.subject_id)
     svc.stop_active_subject(end_time)
-    return {"stopped": True, "session": _row(svc.db, "sessions", session_id)}
+    row = _row(svc.db, "sessions", session_id)
+    stopped = row is None or row.get("end_time") is not None
+    svc._adopt_open_session(include_other_devices=True)
+    return {"stopped": stopped, "session": row,
+            **({"reason": "end time precedes session start"} if not stopped else {})}
 
 
 @op("switch_subject")
 def _switch_subject(svc, p):
-    sid = _target_uid(svc.db, "tasks", p["subject_uid"], "subject")
-    if not svc.switch_subject(sid):
-        return {"switched": False, "reason": "already tracking that subject"}
+    wanted = p.get("uid")
+    recorded = bool(wanted and any(key in p for key in ("moment", "start_time", "end_time")))
+    resolver = _require_uid if recorded else _target_uid
+    sid = resolver(svc.db, "tasks", p["subject_uid"], "subject")
+    existing_id = svc.db.id_for_uid("sessions", wanted) if wanted else None
+    if existing_id is not None:
+        return {"switched": False, "session": _row(svc.db, "sessions", existing_id),
+                "reason": "this session is already recorded"}
+    moment_key = next((key for key in ("moment", "start_time", "end_time") if key in p), None)
+    moment_value = p[moment_key] if moment_key else None
+    moment = _parse_dt(moment_value, "moment") if moment_key else datetime.now()
+    # Parse every timestamp before closing the previous timer. An invalid new
+    # start must never leave a switch half-applied.
+    end_time = _parse_dt(p["end_time"], "end_time") if "end_time" in p else moment
+    source = None
+    if "source_session_uid" in p:
+        source_id = svc.db.id_for_uid("sessions", p["source_session_uid"])
+        source = svc.db.get_session(source_id) if source_id is not None else None
+    else:
+        source = svc.active_session
+        if source is not None and source.subject_id == sid:
+            return {"switched": False, "reason": "already tracking that subject"}
+    subject = svc.db.get_subject(sid)
+    if subject is None or (subject.is_archived and not recorded):
+        return {"switched": False, "reason": "subject is archived or missing"}
+    if source is not None and source.end_time is None:
+        start = timeutils.parse_iso(source.start_time)
+        if start is None or end_time < start:
+            return {"switched": False, "reason": "end time precedes session start"}
+        svc.active_session = source
+        svc.active_subject = svc.db.get_subject(source.subject_id)
+        svc.stop_active_subject(end_time)
+    if not svc.start_subject(sid, moment, allow_parallel=bool(wanted and moment_value)):
+        return {"switched": False, "reason": "a session is already running"}
+    _adopt_uid(svc.db, "sessions", svc.active_session.id, wanted)
     return {
         "switched": True,
         "session": _model_row(svc.db, "sessions", svc.active_session),
@@ -237,8 +295,37 @@ def _switch_subject(svc, p):
 
 @op("heartbeat")
 def _heartbeat(svc, p):
-    svc.heartbeat_active_session()
+    session = _timer_target(svc, p)
+    if session is None or session.end_time is not None:
+        return {"ok": True}
+    svc.active_session = session
+    svc.active_subject = svc.db.get_subject(session.subject_id)
+    moment = _parse_dt(p["moment"], "moment") if "moment" in p else None
+    svc.heartbeat_active_session(moment)
+    svc._adopt_open_session(include_other_devices=True)
     return {"ok": True}
+
+
+def _timer_target(svc, p):
+    """Target the timer originally tapped, even after a different one starts."""
+    if "session_uid" in p:
+        session_id = svc.db.id_for_uid("sessions", p["session_uid"])
+        return svc.db.get_session(session_id) if session_id is not None else None
+    return svc.active_session
+
+
+@op("resolve_recovery")
+def _resolve_recovery(svc, p):
+    session = _timer_target(svc, p)
+    if session is None or session.end_time is not None:
+        return {"resolved": False}
+    end_time = _parse_dt(p["end_time"], "end_time")
+    svc.active_session = session
+    svc.active_subject = svc.db.get_subject(session.subject_id)
+    svc.resolve_recovery(end_time, session_id=session.id)
+    row = _row(svc.db, "sessions", session.id)
+    svc._adopt_open_session(include_other_devices=True)
+    return {"resolved": bool(row and row.get("end_time")), "session": row}
 
 
 # ── sessions ────────────────────────────────────────────────────────────
@@ -490,16 +577,90 @@ def _set_setting(svc, p):
 # ── dispatch ────────────────────────────────────────────────────────────
 
 
-def apply_op(svc, op_name: str, params: dict, op_id: str, device_id: str | None) -> dict:
+@op("upsert_weight")
+def _upsert_weight(svc, p):
+    from jobtracker.services.weight_service import WeightService
+    return WeightService(svc.db).upsert(
+        p["measured_at"], p["weight_kg"], uid=p.get("uid"), weight_uid=p.get("weight_uid")
+    )
+
+
+@op("delete_weight")
+def _delete_weight(svc, p):
+    from jobtracker.services.weight_service import WeightService
+    return {"deleted": WeightService(svc.db).delete(p["weight_uid"])}
+
+
+@op("import_weights")
+def _import_weights(svc, p):
+    from jobtracker.services.weight_service import WeightService
+    if not isinstance(p.get("measurements"), list) or len(p["measurements"]) > 5000:
+        raise OpError("Import must contain at most 5000 measurements")
+    return WeightService(svc.db).import_rows(p["measurements"])
+
+
+@op("import_backup")
+def _import_backup(svc, p):
+    data = p["data"]
+    validate_backup(data)
+    # The existing importer maps legacy parent IDs and merges by contents.
+    # A queued mirror export may have stale contents for a known UID: replace
+    # those parents with their authoritative rows while retaining the export's
+    # IDs for mapping its new children. Known children need no second import.
+    merged = dict(data)
+    for key, table in (
+        ("subjects", "tasks"), ("tasks", "tasks"),
+        ("goal_templates", "goal_templates"), ("todo_tasks", "todo_tasks"),
+    ):
+        if key not in data:
+            continue
+        canonical = {
+            row["uid"]: dict(row)
+            for row in svc.db.connection.execute(f"SELECT * FROM {table}")
+        }
+        rows = []
+        for incoming in data[key]:
+            existing = canonical.get(incoming.get("uid"))
+            rows.append({**existing, "id": incoming.get("id")} if existing else incoming)
+        merged[key] = rows
+    for table in ("sessions", "milestones"):
+        existing = {row["uid"] for row in svc.db.connection.execute(f"SELECT uid FROM {table}")}
+        merged[table] = [row for row in data.get(table, []) if row.get("uid") not in existing]
+    merged["settings"] = [
+        row for row in data.get("settings", [])
+        if row.get("key") in sync_policy.SYNCED_SETTING_KEYS
+    ]
+    svc.import_data(merged)
+    return {"imported": True}
+
+
+def apply_op(
+    svc, op_name: str, params: dict, op_id: str, device_id: str | None,
+    *, request_device: str | None = None,
+) -> dict:
     """Run one operation, exactly once.
 
     A repeated ``op_id`` short-circuits to the recorded response, so a client that
     retries after a timeout gets the original result rather than a duplicate.
     """
     cur = svc.db.connection.cursor()
-    cur.execute("SELECT response FROM applied_ops WHERE op_id = ?", (op_id,))
+    try:
+        request_hash = hashlib.sha256(json.dumps(
+            {"op": op_name, "params": params or {}, "device_id": device_id,
+             "principal": request_device or device_id},
+            sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode()).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise OpError("operation parameters must be valid JSON") from exc
+    cur.execute(
+        "SELECT response, op_name, device_id, request_hash FROM applied_ops WHERE op_id = ?", (op_id,)
+    )
     seen = cur.fetchone()
     if seen:
+        if seen["op_name"] != op_name or seen["device_id"] != device_id or (
+            seen["request_hash"] is not None and seen["request_hash"] != request_hash
+        ):
+            raise OpError("op_id already belongs to a different request", status=409)
         logger.info("op %s (%s) already applied; replaying result", op_id, op_name)
         return {**json.loads(seen["response"]), "replayed": True}
 
@@ -507,18 +668,30 @@ def apply_op(svc, op_name: str, params: dict, op_id: str, device_id: str | None)
     if handler is None:
         raise OpError(f"unknown operation: {op_name}", status=400)
 
+    original_device = svc.device_id
     try:
-        result = handler(svc, params or {})
-    except Skipped as skip:
-        # Recorded like any other result, so a later retry replays this instead
-        # of trying (and failing) again.
-        logger.info("op %s skipped: %s", op_name, skip.reason)
-        result = {"skipped": True, "reason": skip.reason}
-
-    cur.execute(
-        "INSERT INTO applied_ops (op_id, op_name, device_id, response) "
-        "VALUES (?, ?, ?, ?)",
-        (op_id, op_name, device_id, json.dumps(result, default=str)),
-    )
-    svc.db.connection.commit()
+        # Persist the write and its retry receipt together. Otherwise a crash
+        # after the row commits but before its receipt can repeat the mutation.
+        with svc.db.atomic():
+            svc._adopt_open_session(include_other_devices=True)
+            svc.device_id = device_id or original_device
+            try:
+                for field in ("name", "title", "color", "notes", "note", "recurrence"):
+                    if field in (params or {}) and params[field] is not None and not isinstance(params[field], str):
+                        raise ValueError(f"{field} must be text")
+                result = handler(svc, params or {})
+            except Skipped as skip:
+                logger.info("op %s skipped: %s", op_name, skip.reason)
+                result = {"skipped": True, "reason": skip.reason}
+            except (KeyError, TypeError, ValueError, OverflowError, AttributeError,
+                    sqlite3.ProgrammingError, sqlite3.IntegrityError) as exc:
+                raise OpError(f"invalid parameters for {op_name}: {exc}") from exc
+            cur.execute(
+                "INSERT INTO applied_ops (op_id, op_name, device_id, response, request_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (op_id, op_name, device_id, json.dumps(result, default=str), request_hash),
+            )
+    finally:
+        svc.device_id = original_device
+        svc._adopt_open_session(include_other_devices=True)
     return {**result, "replayed": False}

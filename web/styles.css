@@ -13,7 +13,7 @@
   --green: #10B981;
   --red: #EF4444;
   --amber: #F59E0B;
-  --radius: 14px;
+  --radius: 8px;
   /* Room for the iPhone's home indicator and notch. */
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -46,7 +46,7 @@ html, body {
 /* ── chrome ────────────────────────────────────────────────────────── */
 .topbar {
   flex: 0 0 auto; z-index: 5;
-  padding: calc(var(--safe-t) + 12px) 16px 12px;
+  padding: calc(var(--safe-t) + 6px) 12px 6px;
   /* Opaque for the same reason as the tab bar: it is a flex item now, nothing
      passes under it, and the blur cost a composite every frame while scrolling. */
   background: var(--bg);
@@ -72,7 +72,7 @@ html, body {
    always the real viewport and is recomputed on rotation automatically. */
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
 #views { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.view { padding: 12px 16px 20px; }
+.view { padding: 10px 12px 16px; }
 
 /* Big touch targets: this is used one-handed, often in a hurry. */
 .tabbar {
@@ -89,14 +89,14 @@ html, body {
 }
 .tab {
   appearance: none; border: 0; background: none; color: var(--dim);
-  font-size: 11px; padding: 0;
+  font-size: 12px; padding: 0;
   /* Centre the icon+label block in a fixed-height row, instead of relying on
      uneven top/bottom padding. */
-  min-height: 54px;
+  min-height: 60px;
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 3px;
 }
-.tab span { font-size: 20px; line-height: 1; }
+.tab span { font-size: 22px; line-height: 1; }
 .tab.on { color: var(--accent); }
 
 /* ── cards and lists ───────────────────────────────────────────────── */
@@ -106,8 +106,8 @@ html, body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px;
-  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px;
+  display: flex; align-items: center; gap: 8px;
 }
 .card.tappable:active { background: var(--panel-2); }
 
@@ -128,32 +128,36 @@ html, body {
 .active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; }
 
 /* ── buttons and inputs ────────────────────────────────────────────── */
-button { font: inherit; cursor: pointer; }
+button { font: inherit; cursor: pointer; touch-action: manipulation; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 .primary, .danger, .ghost, .secondary {
-  border-radius: 10px; border: 1px solid var(--line);
-  padding: 12px 14px; font-weight: 600;
+  border-radius: 6px; border: 1px solid var(--line);
+  min-height: 44px; padding: 10px 12px; font-weight: 600;
   background: var(--panel-2); color: var(--text);
 }
 .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .danger { background: var(--red); border-color: var(--red); color: #fff; padding: 10px 14px; }
 .ghost { background: transparent; }
-.wide { width: 100%; margin-top: 14px; }
+.wide { width: 100%; margin-top: 10px; }
 .icon-btn {
   background: none; border: 0; color: var(--dim);
-  font-size: 20px; padding: 6px 10px; border-radius: 8px;
+  font-size: 22px; padding: 6px; border-radius: 6px;
+  min-width: 44px; min-height: 44px; flex: 0 0 44px;
 }
 
 input, select, textarea {
-  width: 100%; padding: 12px; border-radius: 10px;
+  width: 100%; padding: 10px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--panel-2);
   color: var(--text); font: inherit;
 }
 /* 16px keeps iOS from zooming the page when a field is focused. */
 input, select { font-size: 16px; }
 
-.seg { display: flex; gap: 8px; }
+.seg { display: flex; gap: 4px; }
 .seg-btn {
-  flex: 1; padding: 9px; border-radius: 10px;
+  flex: 1; min-width: 0; min-height: 44px; padding: 8px 6px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--panel); color: var(--dim);
   font-size: 14px; font-weight: 600;
 }
@@ -162,16 +166,18 @@ input, select { font-size: 16px; }
 .day-nav { display: flex; align-items: center; gap: 8px; }
 .day-label { flex: 1; text-align: center; font-weight: 700; }
 .day-total { text-align: center; margin-top: 6px; }
+.day-tools { margin-top: 8px; }
+.day-tools button { flex: 0 0 auto; }
 
 /* ── goals ─────────────────────────────────────────────────────────── */
 .check {
-  width: 26px; height: 26px; border-radius: 50%;
+  width: 44px; height: 44px; border-radius: 50%;
   border: 2px solid var(--dim); background: none; color: transparent;
   flex: 0 0 auto; display: grid; place-items: center; font-size: 14px;
 }
 .check.done { border-color: var(--green); background: var(--green); color: #fff; }
 .check.blocked { opacity: 0.4; }
-.star { background: none; border: 0; font-size: 20px; color: var(--dim); padding: 4px 6px; }
+.star { background: none; border: 0; font-size: 24px; color: var(--dim); padding: 4px; min-width: 44px; min-height: 44px; flex: 0 0 44px; }
 .star.on { color: var(--amber); }
 .bar { height: 4px; border-radius: 2px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
@@ -185,19 +191,23 @@ input, select { font-size: 16px; }
 .sheet {
   width: 100%; max-height: 88vh; overflow-y: auto;
   background: var(--panel);
-  border-radius: 18px 18px 0 0;
+  border-radius: 10px 10px 0 0;
   border-top: 1px solid var(--line);
-  padding: 16px 16px calc(var(--safe-b) + 20px);
+  padding: 10px 12px calc(var(--safe-b) + 16px);
 }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .sheet-head h2 { margin: 0; font-size: 18px; }
+.sheet-head { gap: 8px; }
+.sheet-head h2 { min-width: 0; overflow-wrap: anywhere; }
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
 .row { display: flex; gap: 8px; }
-.row > * { flex: 1; }
+.row > * { flex: 1; min-width: 0; }
+.row > button { flex: 0 0 auto; }
+input[type="datetime-local"], input[type="date"] { min-width: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
-  padding: 9px 12px; border-radius: 999px;
+  padding: 9px 12px; min-height: 44px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--panel-2);
   color: var(--text); font-size: 14px;
 }
@@ -207,19 +217,27 @@ input, select { font-size: 16px; }
 
 /* ── four tabs ─────────────────────────────────────────────────────── */
 .tabbar.four { grid-template-columns: repeat(4, 1fr); }
+.tabbar.five { grid-template-columns: repeat(5, 1fr); }
+.subject-start { border: 0; background: none; color: var(--accent); min-width: 44px; min-height: 44px; padding: 0; }
+.card > .icon-btn { min-height: 44px; }
+button:disabled { opacity: .5; cursor: default; }
+input[type="checkbox"] { width: 24px; height: 24px; padding: 0; }
+.sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-notes, .ms-row .grow { overflow-wrap: anywhere; }
 
 /* ── goals: read and tick, without opening anything ────────────────── */
 .goal-card { flex-direction: column; align-items: stretch; gap: 0; }
-.goal-head { display: flex; align-items: center; gap: 12px; }
+.goal-head { display: flex; align-items: center; gap: 6px; }
 .goal-panel {
   margin-top: 12px; padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 .goal-notes { margin: 0 0 8px; }
-.check.small { width: 22px; height: 22px; font-size: 12px; }
+.check.small { width: 44px; height: 44px; font-size: 14px; }
 .ms-row .struck { color: var(--dim); text-decoration: line-through; }
 /* Comfortable one-thumb targets for the thing done most often. */
-.ms-row { min-height: 40px; }
+.ms-row { min-height: 44px; }
+.ms-row .icon-btn { flex: 0 0 44px; }
 .ms-row .grow { padding: 4px 0; }
 
 /* ── graphs ────────────────────────────────────────────────────────── */
@@ -228,6 +246,9 @@ input, select { font-size: 16px; }
   height: 260px; margin-top: 14px;
   overflow-x: auto; padding-bottom: 4px;
 }
+.graph-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+#view-graphs.plot-fullscreen .graph-toolbar { position: sticky; top: 0; z-index: 3; background: var(--bg); padding-bottom: 4px; }
+#graph-body { min-width: 0; }
 .bar-col {
   flex: 1 0 34px; height: 100%;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 4px;
@@ -237,7 +258,7 @@ input, select { font-size: 16px; }
   justify-content: flex-start;
   background: var(--panel); border-radius: 6px; overflow: hidden;
 }
-.bar-seg { width: 100%; min-height: 1px; }
+.bar-seg { width: 100%; flex-shrink: 0; }
 .bar-val { font-size: 10px; color: var(--dim); text-align: center; height: 12px; }
 .bar-lbl { font-size: 10px; color: var(--dim); text-align: center; }
 
@@ -264,13 +285,16 @@ input, select { font-size: 16px; }
 
 /* ── agenda ────────────────────────────────────────────────────────── */
 .seg-range, .seg-group { margin-top: 8px; }
+.seg-range { gap: 4px; }
+.seg-range .seg-btn { padding: 9px 5px; font-size: 12px; }
+#graph-custom { margin-top: 10px; }
 .agenda-wrap { display: flex; margin-top: 14px; }
 .agenda-hours {
-  flex: 0 0 34px; position: relative;
-  font-size: 10px; color: var(--dim);
+  flex: 0 0 56px; position: relative;
+  font-size: 11px; color: var(--dim);
 }
 .agenda-hours span { position: absolute; right: 4px; transform: translateY(-50%); }
-.agenda-scroll { flex: 1; overflow-x: auto; }
+.agenda-scroll { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
 .agenda-grid { display: flex; gap: 4px; min-width: min-content; }
 .agenda-col { flex: 0 0 46px; }
 .agenda-track {
@@ -279,14 +303,21 @@ input, select { font-size: 16px; }
 }
 .agenda-block {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 4px; overflow: hidden;
+  border-radius: 3px; overflow: hidden; min-height: 3px;
   border-left: 3px solid;
   font-size: 9px; line-height: 1.1; color: var(--text);
   padding: 2px 3px;
 }
 .agenda-daylbl { font-size: 10px; color: var(--dim); text-align: center; margin-top: 4px; }
 .agenda-daylbl.today { color: var(--accent); font-weight: 700; }
+.agenda-now { position: absolute; z-index: 2; left: 0; right: 0; height: 0; border-top: 2px solid var(--red); pointer-events: none; }
+.agenda-now::before { content: ""; position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--red); left: -3px; top: -4px; }
+.agenda-now-label { position: absolute; right: 0; bottom: 3px; padding: 1px 2px; font-size: 10px; line-height: 1.2; color: var(--text); background: var(--bg); border-radius: 2px; }
 
 .swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
 .swatch.used { opacity: 0.35; }
 .swatch.picked { border-color: var(--text); transform: scale(1.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .active-dot { animation: none; }
+}

@@ -25,28 +25,67 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from functools import wraps
 from typing import Any, Optional
 
 from ..core import sync_policy
+from ..core.backup_validation import validate_backup
 from ..services.tracker_service import TrackerService
 from . import state
 
 logger = logging.getLogger("jobtracker")
 
 
+def _atomic_mutations(cls):
+    """Persist each optimistic edit and its outbox entries together.
+
+    The database also suppresses intermediate commits in nested service calls,
+    so a crash or queue failure cannot leave an unrecorded local write behind.
+    """
+    def wrap(method):
+        @wraps(method)
+        def mutate(self, *args, **kwargs):
+            try:
+                with self.db.atomic():
+                    return method(self, *args, **kwargs)
+            except Exception:
+                self._adopt_open_session()
+                raise
+        return mutate
+
+    for name, method in list(vars(cls).items()):
+        if not name.startswith("_") and callable(method):
+            setattr(cls, name, wrap(method))
+    return cls
+
+
+@_atomic_mutations
 class SyncedTrackerService(TrackerService):
     """TrackerService + an outbox. Drop-in replacement for the UI."""
 
     def __init__(self, database=None, *, device_id=None, recover=True):
-        super().__init__(database, device_id=device_id, recover=recover)
+        self._suppress_queue = False
+        super().__init__(database, device_id=device_id, recover=False)
         state.install(self.db.connection)
+        if recover:
+            # Recovery may close parallel sessions. Those closures must travel
+            # like an explicit recovery choice, including short retained rows.
+            with self.db.atomic():
+                previously_open = self.db.get_open_sessions()
+                self.recover_open_sessions()
+                for session in previously_open:
+                    closed = self.db.get_session(session.id)
+                    if closed is not None and closed.end_time is not None:
+                        self._queue("resolve_recovery", {
+                            "session_uid": closed.uid,
+                            "end_time": closed.end_time,
+                        })
 
     # ── queueing ────────────────────────────────────────────────────────
     def _queue(self, op_name: str, params: dict[str, Any]) -> None:
-        try:
+        if not self._suppress_queue:
+            # Propagate a queue failure so the encompassing edit rolls back.
             state.enqueue(self.db.connection, op_name, params)
-        except Exception:  # noqa: BLE001 - a queue failure must not lose the edit
-            logger.exception("Could not queue %s; local change kept", op_name)
 
     def _uid(self, table: str, row_id: Optional[int]) -> Optional[str]:
         return self.db.uid_for_id(table, row_id) if row_id is not None else None
@@ -119,21 +158,25 @@ class SyncedTrackerService(TrackerService):
         )
 
     # ── the running timer ───────────────────────────────────────────────
-    def start_subject(self, subject_id):
-        started = super().start_subject(subject_id)
+    def start_subject(self, subject_id, start_time=None, *, allow_parallel=False):
+        started = super().start_subject(
+            subject_id, start_time=start_time, allow_parallel=allow_parallel
+        )
         if started and self.active_session is not None:
             self._queue(
                 "start_subject",
                 {
                     "subject_uid": self._uid("tasks", subject_id),
                     "uid": self._uid("sessions", self.active_session.id),
+                    "start_time": self.active_session.start_time,
                 },
             )
         return started
 
     def stop_active_subject(self, end_time=None):
-        session = self.active_session
+        session = self._persisted_active_session()
         session_id = session.id if session else None
+        session_uid = self._uid("sessions", session_id)
         # Pin the end time and use the SAME value locally and in the operation.
         #
         # Letting the server fall back to its own "now" is a real divergence: the
@@ -142,24 +185,50 @@ class SyncedTrackerService(TrackerService):
         # while the server kept a multi-hour one.
         effective_end = end_time or datetime.now()
         super().stop_active_subject(effective_end)
-        if session_id is not None:
+        if session_id is not None and self.active_session is None:
             stopped = self.db.get_session(session_id)
             self._queue(
                 "stop_active_subject",
                 {
+                    "session_uid": session_uid,
                     "end_time": self._iso(
                         stopped.end_time if stopped else effective_end
                     )
                 },
             )
 
-    def switch_subject(self, subject_id):
-        switched = super().switch_subject(subject_id)
+    def switch_subject(self, subject_id, moment=None):
+        source = self._persisted_active_session()
+        source_uid = self._uid("sessions", source.id) if source else None
+        effective_moment = moment or datetime.now()
+        # Base switch calls self.stop/start; queue a single switch operation,
+        # rather than those two operations plus a second switch on the server.
+        self._suppress_queue = True
+        try:
+            switched = super().switch_subject(subject_id, moment=effective_moment)
+        finally:
+            self._suppress_queue = False
         if switched:
             self._queue(
-                "switch_subject", {"subject_uid": self._uid("tasks", subject_id)}
+                "switch_subject", {
+                    "subject_uid": self._uid("tasks", subject_id),
+                    "source_session_uid": source_uid,
+                    "uid": self._uid("sessions", self.active_session.id),
+                    "moment": self.active_session.start_time,
+                }
             )
         return switched
+
+    def resolve_recovery(self, end_time, *, session_id=None):
+        session = self.db.get_session(session_id) if session_id is not None else self._persisted_active_session()
+        session_uid = session.uid if session else None
+        super().resolve_recovery(end_time, session_id=session_id)
+        closed = self.db.get_session(session.id) if session else None
+        if session_uid and closed is not None and closed.end_time is not None:
+            self._queue("resolve_recovery", {
+                "session_uid": session_uid,
+                "end_time": closed.end_time,
+            })
 
     def heartbeat_active_session(self, moment=None):
         # Deliberately NOT queued. It fires roughly once a minute, and an offline
@@ -203,25 +272,15 @@ class SyncedTrackerService(TrackerService):
             self._queue("delete_session", {"session_uid": uid})
 
     def duplicate_session(self, session_id, to="today"):
-        source_uid = self._uid("sessions", session_id)
-        session = super().duplicate_session(session_id, to=to)
-        if session is not None and source_uid:
-            self._queue(
-                "duplicate_session",
-                {
-                    "session_uid": source_uid,
-                    "to": to,
-                    "uid": self._uid("sessions", session.id),
-                },
-            )
-        return session
+        # Base duplicate calls our add_session with the already-resolved date.
+        # Queue only that create: a second duplicate would insert another row
+        # and "today" might be a different day when the outbox is replayed.
+        return super().duplicate_session(session_id, to=to)
 
     def shift_session(self, session_id, seconds):
-        uid = self._uid("sessions", session_id)
-        session = super().shift_session(session_id, seconds)
-        if session is not None and uid:
-            self._queue("shift_session", {"session_uid": uid, "seconds": int(seconds)})
-        return session
+        # Base shift calls our update_session. Send the absolute resulting
+        # times once, rather than updating and then nudging the row again.
+        return super().shift_session(session_id, seconds)
 
     # ── goals ───────────────────────────────────────────────────────────
     def add_todo_task(self, name, notes, deadline):
@@ -420,6 +479,32 @@ class SyncedTrackerService(TrackerService):
         )
         return cur.fetchone() is not None
 
+    # ── personal weight ─────────────────────────────────────────────────
+    def upsert_weight(self, measured_at, weight_kg, *, weight_uid=None):
+        result = super().upsert_weight(
+            measured_at, weight_kg, weight_uid=weight_uid
+        )
+        measurement = result.get("measurement")
+        if measurement is not None:
+            params = {
+                "measured_at": measurement["measured_at"],
+                "weight_kg": measurement["weight_kg"],
+            }
+            if weight_uid is None:
+                # Reuse the locally persisted identity on every retry. Another
+                # device's same-day save may coalesce it into a server alias.
+                params["uid"] = measurement["uid"]
+            else:
+                params["weight_uid"] = weight_uid
+            self._queue("upsert_weight", params)
+        return result
+
+    def delete_weight(self, weight_uid):
+        deleted = super().delete_weight(weight_uid)
+        if deleted:
+            self._queue("delete_weight", {"weight_uid": weight_uid})
+        return deleted
+
     # ── settings ────────────────────────────────────────────────────────
     def set_setting(self, key, value):
         super().set_setting(key, value)
@@ -435,3 +520,16 @@ class SyncedTrackerService(TrackerService):
             {"key": "day_start_time", "value": self.db.get_setting("day_start_time")},
         )
         return parsed
+
+    # ── backup restore ─────────────────────────────────────────────────
+    def import_data(self, data: dict) -> None:
+        validate_backup(data)
+        super().import_data(data)
+        # Legacy backups have only local integer IDs. Export after merging so
+        # every new identity is minted exactly once, before the retryable write.
+        normalized = self.export_data()
+        normalized["settings"] = [
+            row for row in normalized["settings"]
+            if row.get("key") in sync_policy.SYNCED_SETTING_KEYS
+        ]
+        self._queue("import_backup", {"data": normalized})

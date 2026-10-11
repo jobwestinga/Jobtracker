@@ -53,9 +53,17 @@ def parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        # The stored model is deliberately naive local time. Accepting an
+        # offset here later crashes recovery/analytics when compared with now.
+        return parsed if is_local_datetime(parsed) else None
     except (ValueError, TypeError):
         return None
+
+
+def is_local_datetime(value) -> bool:
+    """Whether a value fits the app's naive local datetime model."""
+    return isinstance(value, datetime) and value.utcoffset() is None
 
 
 def to_iso(moment: datetime) -> str:
@@ -75,7 +83,7 @@ def duration_seconds(start: Optional[datetime], end: Optional[datetime]) -> int:
     Returns 0 if either value is missing. Never returns a negative number, so
     reversed start/end pairs collapse to 0 rather than corrupting totals.
     """
-    if start is None or end is None:
+    if not is_local_datetime(start) or not is_local_datetime(end):
         return 0
     return max(0, int((end - start).total_seconds()))
 

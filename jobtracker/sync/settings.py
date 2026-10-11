@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -45,8 +46,15 @@ def write_token(token: str) -> None:
     if not token.strip():
         path.unlink(missing_ok=True)
         return
-    path.write_text(token.strip())
-    path.chmod(0o600)
+    descriptor, temporary = tempfile.mkstemp(prefix=".sync-token-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(token.strip())
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def is_enabled(service) -> bool:
