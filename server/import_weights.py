@@ -20,12 +20,13 @@ from datetime import datetime
 from pathlib import Path
 
 from jobtracker.services.weight_service import validate_measurement
+from jobtracker.core.persistence.weight_codec import import_identity
 
 
 def _record(moment, value, source):
     timestamp, weight, source = validate_measurement(moment.isoformat(), value, source)
     return {
-        "uid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"jobtracker:weight:{source}:{timestamp}")),
+        "uid": import_identity(timestamp, source),
         "measured_at": timestamp, "weight_kg": weight, "source": source,
     }
 

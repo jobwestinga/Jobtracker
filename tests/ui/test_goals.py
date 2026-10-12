@@ -405,7 +405,10 @@ def test_goal_focus_star_toggles_and_highlights(database, monkeypatch):
         assert window.service.get_goal(goal.id).is_focused == 0
         card = window._todo_list.card_widget(goal.id)
         assert card.focus_btn.text() == "☆"
-        assert window._tokens["ACCENT"] not in card.styleSheet()
+        # Keyboard focus has its own accent ring; the normal card must lose
+        # the persistent weekly-focus emphasis.
+        normal_style = card.styleSheet().split("QFrame#todoTaskCard:focus", 1)[0]
+        assert window._tokens["ACCENT"] not in normal_style
     finally:
         window._graph_live_timer.stop()
         window._heartbeat_timer.stop()
@@ -427,5 +430,6 @@ def test_goal_card_transient_refresh_keeps_focus_star_consistent(service):
     service.complete_goal(goal.id)
     card.apply_transient(service.get_goal(goal.id), (0, 0))
     assert not card.focus_btn.isVisibleTo(card)
-    assert DEFAULT_TOKENS["ACCENT"] not in card.styleSheet()
+    normal_style = card.styleSheet().split("QFrame#todoTaskCard:focus", 1)[0]
+    assert DEFAULT_TOKENS["ACCENT"] not in normal_style
 

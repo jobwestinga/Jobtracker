@@ -1,15 +1,14 @@
 import { el as node } from "../../shared/dom.js";
 import { localDate } from "../../shared/time.js";
-import { weightDay as formatDay } from "../../shared/format.js";
 import { STORAGE_KEYS, accountTag } from "../../shared/storage.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
-import { projectWeightOperation } from "./projection.js";
-import { parseWeight, selectMeasurements, pointsFor, trendFor } from "./math.js";
+import { projectWeightOperation, findWeightMeasurement, withWeightAliases } from "./projection.js";
+import { parseWeight, selectMeasurements, pointsFor, trendFor, weightTimestamp, weightDayOffset } from "./math.js";
 import { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } from "./picker.js";
 
 export function createWeightFeature({ api, send, uuid, getToken, pendingOperations }) {
   const CACHE = STORAGE_KEYS.weightCache, PREFS = STORAGE_KEYS.weightPreferences;
-  const model = { rows: [], today: "", loaded: false, loading: null, token: null, editing: null,
+  const model = { rows: [], aliases: [], today: "", loaded: false, loading: null, token: null, editing: null,
     limit: 12, version: 0, epoch: 0, mutation: 0, draft: 0, cleanDraft: 0,
     calendar: "", automaticDate: true, saving: null, deleting: null,
     picker: { anchor: null, whole: null, decimal: null, original: null, changed: false } };
@@ -24,16 +23,24 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   if (!["loess", "mean7", "none"].includes(preferences.trend)) preferences.trend = "loess";
   if (!["0.04", "0.08", "0.15"].includes(String(preferences.span))) preferences.span = "0.04";
   for (const key of ["points", "historic", "zero"]) if (typeof preferences[key] !== "boolean") preferences[key] = key === "points";
-  for (const key of ["start", "end"]) if (!/^\d{4}-\d{2}-\d{2}$/.test(preferences[key])) preferences[key] = "";
+  for (const key of ["start", "end"]) if (!/^\d{4}-\d{2}-\d{2}$/.test(preferences[key]) || weightTimestamp(preferences[key]) === null) preferences[key] = "";
   if (!["comfortable", "compact"].includes(preferences.density)) preferences.density = "comfortable";
   if (!["normal", "high"].includes(preferences.contrast)) preferences.contrast = "normal";
-  let host, chartObserver, fullscreen, drawnVersion = -1;
+  let host, chartObserver, fullscreen, calendarInterval = null, drawnVersion = -1, chartRows = [], inspectedUid = null;
 
   const field = (id) => host.querySelector(`#${id}`);
+  const formatDay = (value) => {
+    const timestamp = weightTimestamp(value.slice(0, 10));
+    return timestamp === null ? "Choose a date" : new Date(timestamp).toLocaleDateString(undefined,
+      { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
+  };
+  const historyRows = (rows) => selectMeasurements(rows, { historic: true })
+    .filter((row) => typeof row.uid === "string" && row.uid)
+    .map((row) => row.weight_kg === parseWeight(row.weight_kg) ? row : { ...row, weight_kg: parseWeight(row.weight_kg) });
 
   function status(text, error = false) {
     const output = field("weight-status");
-    output.textContent = text;
+    if (output.textContent !== text) output.textContent = text;
     output.classList.toggle("error", error);
   }
   function clearSavedReceipt() {
@@ -42,39 +49,46 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   }
   const savedReceipt = () => unsavedSelection() ? "Previous weighing saved. Current selection is unsaved." : "Saved.";
   function cache() {
-    try { localStorage.setItem(CACHE, JSON.stringify({ owner: accountTag(model.token), rows: model.rows, today: model.today })); } catch { /* send() verifies durable write storage */ }
+    try { localStorage.setItem(CACHE, JSON.stringify({ owner: accountTag(model.token), rows: model.rows, aliases: model.aliases, today: model.today })); } catch { /* send() verifies durable write storage */ }
   }
   const current = (epoch, token) => Boolean(host && model.epoch === epoch && model.token === token && getToken() === token);
   function overlay(rows) {
-    return pendingOperations().reduce(projectWeightOperation, rows);
+    return pendingOperations().reduce(projectWeightOperation, withWeightAliases(rows, model.aliases));
   }
 
   function invalidateWeight() { model.loaded = false; }
   function resetWeight() {
-    model.rows = []; model.loaded = false; model.today = ""; model.token = null;
+    model.rows = []; model.aliases = []; model.loaded = false; model.today = ""; model.token = null;
     model.editing = null; model.loading = null; model.saving = null; model.deleting = null;
     model.version++; model.epoch++; model.draft++;
     model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
     resetPicker();
+    chartRows = []; inspectedUid = null;
     try { localStorage.removeItem(CACHE); } catch { /* ignore */ }
     fullscreen?.destroy(); fullscreen = null;
     host = null; chartObserver?.disconnect();
   }
 
   function renderWeight(container) {
+    mount();
     const token = getToken();
     if (model.token !== token) {
-      model.rows = []; model.loaded = false; model.editing = null; model.loading = null;
+      model.rows = []; model.aliases = []; model.loaded = false; model.editing = null; model.loading = null;
       model.today = ""; model.limit = 12; model.saving = null; model.deleting = null;
       model.token = token;
       model.epoch++; model.draft++;
       model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
       resetPicker();
+      chartRows = []; inspectedUid = null;
       fullscreen?.destroy(); fullscreen = null;
       host = null; chartObserver?.disconnect();
       try {
         const stored = JSON.parse(localStorage.getItem(CACHE) || "null");
-        if (stored?.owner === accountTag(token) && Array.isArray(stored?.rows)) model.rows = stored.rows;
+        if (stored?.owner === accountTag(token) && Array.isArray(stored?.rows)) {
+          model.rows = historyRows(stored.rows);
+          if (Array.isArray(stored.aliases)) model.aliases = stored.aliases;
+          model.rows = overlay(model.rows);
+        }
       } catch { /* no saved mirror */ }
       model.version++;
     }
@@ -92,7 +106,8 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
         if (!current(epoch, requestToken)) return;
         if (revision !== model.mutation) { model.loaded = false; return; }
         if (!Array.isArray(data.measurements)) throw new Error("The weight history response was incomplete; saved history is kept.");
-        model.rows = overlay(data.measurements);
+        if (Array.isArray(data.aliases)) model.aliases = data.aliases;
+        model.rows = overlay(historyRows(data.measurements));
         model.today = requestDay === localDate() ? data.today || localDate() : localDate();
         model.loaded = true; model.version++;
         if (draft === model.draft && model.automaticDate && !model.editing && !unsavedSelection()) field("weight-date").value = model.today;
@@ -160,12 +175,14 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       <div id="weight-plot" class="weight-plot">
         <div class="weight-plot-toolbar"><h2>Weight over time</h2><select id="weight-range" aria-label="Plot date range">
           <option value="30">30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option><option value="custom">Custom</option>
-        </select><button id="weight-fullscreen" class="ghost" type="button" aria-label="Open weight plot fullscreen" aria-pressed="false">⛶</button></div>
+        </select><button id="weight-fullscreen" class="ghost" type="button" aria-label="Open weight plot fullscreen" aria-pressed="false" aria-expanded="false">⛶</button></div>
         <div id="weight-custom" class="weight-custom hidden">
           <label>From<input id="weight-start" type="date"></label><label>To<input id="weight-end" type="date"></label>
         </div>
-        <canvas id="weight-canvas" role="img" aria-label="Body weight over time"></canvas>
-        <p id="weight-chart-detail" class="muted" aria-live="polite">Tap the plot to inspect a weighing.</p>
+        <canvas id="weight-canvas" role="img" tabindex="0" aria-label="Body weight over time" aria-describedby="weight-chart-help"></canvas>
+        <p id="weight-chart-help" class="muted">Tap the plot or use Left and Right arrows to inspect a weighing.</p>
+        <p id="weight-chart-detail" class="muted" aria-live="polite" aria-atomic="true"></p>
+        <details id="weight-chart-data" class="weight-options"><summary>Read plot data</summary><div id="weight-data-table"></div></details>
         <details class="weight-options"><summary>Plot options</summary>
           <label>Trend<select id="weight-trend"><option value="loess">LOESS (original plot)</option><option value="mean7">7-day average</option><option value="none">No trend</option></select></label>
           <label>Smoothing<select id="weight-span"><option value="0.04">Original (4%)</option><option value="0.08">Smoother (8%)</option><option value="0.15">Broad (15%)</option></select></label>
@@ -187,6 +204,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     field("weight-today").onclick = () => { cancelEdit(); field("weight-date").value = localDate(); };
     field("weight-cancel").onclick = cancelEdit;
     field("weight-delete").onclick = deleteEntry;
+    field("weight-chart-data").addEventListener("toggle", () => { if (field("weight-chart-data").open) paintChartData(); });
     field("weight-more").onclick = () => { model.limit += 30; paintHistory(); };
     for (const key of ["range", "trend", "span", "points", "historic", "zero", "start", "end", "density", "contrast"]) {
       const input = field(`weight-${key}`);
@@ -204,12 +222,13 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       const rows = ["measured_at,weight_kg,source", ...model.rows.map((r) => `${r.measured_at},${Number(r.weight_kg)},${r.source}`)];
       download(new Blob([rows.join("\r\n")], { type: "text/csv;charset=utf-8" }), "weight-data.csv");
     };
-    fullscreen = createFullscreenController(field("weight-plot"), { onChange: (open) => {
+    fullscreen = createFullscreenController(field("weight-plot"), { label: "Weight over time", onChange: (open) => {
       if (!host) return;
       const button = field("weight-fullscreen");
       button.textContent = open ? "×" : "⛶";
       button.setAttribute("aria-label", open ? "Close weight plot fullscreen" : "Open weight plot fullscreen");
       button.setAttribute("aria-pressed", String(open));
+      button.setAttribute("aria-expanded", String(open));
       drawnVersion = -1;
       requestAnimationFrame(() => { if (host) paintChart(); });
     } });
@@ -244,9 +263,20 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   }
   // Weight entry follows calendar midnight independently of the timer's 03:00
   // logical day. Check on resume and while open without repainting the plot.
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkCalendarDay(); });
-  window.addEventListener("pageshow", checkCalendarDay);
-  setInterval(() => { if (!document.hidden) checkCalendarDay(); }, 60000);
+  function onCalendarTick() { if (!document.hidden) checkCalendarDay(); }
+  function mount() {
+    if (calendarInterval !== null) return;
+    document.addEventListener("visibilitychange", onCalendarTick);
+    window.addEventListener("pageshow", checkCalendarDay);
+    calendarInterval = setInterval(onCalendarTick, 60000);
+  }
+  function destroy() {
+    resetWeight();
+    if (calendarInterval === null) return;
+    clearInterval(calendarInterval); calendarInterval = null;
+    document.removeEventListener("visibilitychange", onCalendarTick);
+    window.removeEventListener("pageshow", checkCalendarDay);
+  }
 
   function chosenWeight() {
     if (!model.picker.changed && parseWeight(model.picker.original) !== null &&
@@ -305,7 +335,11 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     if (picker.anchor === null || (!selecting && !picker.shifted && !model.editing)) picker.anchor = weightTileAnchor(model.rows);
     const whole = field("weight-whole"), decimal = field("weight-decimal");
     if (whole.dataset.anchor !== String(picker.anchor)) {
+      const focusedValue = whole.contains(document.activeElement) ? document.activeElement.dataset.value : null;
       tileRow(whole, "whole", wholeWeightTiles(picker.anchor)); whole.dataset.anchor = picker.anchor;
+      if (focusedValue !== null) {
+        ([...whole.querySelectorAll("button")].find((button) => button.dataset.value === focusedValue) || whole.querySelector("button:not(:disabled)"))?.focus({ preventScroll: true });
+      }
     }
     if (!decimal.children.length) tileRow(decimal, "decimal", Array.from({ length: 10 }, (_, index) => index));
     for (const [part, group] of [["whole", whole], ["decimal", decimal]]) {
@@ -321,12 +355,13 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     }
     const value = chosenWeight();
     const exact = value !== null && Math.abs(value * 10 - Math.round(value * 10)) > 1e-8;
-    field("weight-value").textContent = value !== null ? `${exact ? String(value) : value.toFixed(1)} kg` :
-      `${picker.whole ?? "—"}.${picker.decimal ?? "—"} kg`;
-    field("weight-picker-hint").textContent = exact ? "Original precision kept. Choose a tile to change the weight." :
+    const display = value !== null ? `${exact ? String(value) : value.toFixed(1)} kg` : `${picker.whole ?? "—"}.${picker.decimal ?? "—"} kg`;
+    if (field("weight-value").textContent !== display) field("weight-value").textContent = display;
+    const hint = exact ? "Original precision kept. Choose a tile to change the weight." :
       picker.whole === null && picker.decimal === null ? "" :
       picker.whole === null ? "Choose the whole kilograms." : picker.decimal === null ? "Choose the decimal, including .0." :
       value === null ? "Choose a weight between 0 and 1000 kg." : "";
+    if (field("weight-picker-hint").textContent !== hint) field("weight-picker-hint").textContent = hint;
     field("weight-save").disabled = value === null || Boolean(model.saving || model.deleting);
     field("weight-delete").disabled = !model.editing || Boolean(model.saving || model.deleting);
     field("weight-lower").disabled = picker.anchor <= 0;
@@ -340,9 +375,9 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     event.preventDefault();
     if (model.saving || model.deleting) return;
     const value = chosenWeight(), day = field("weight-date").value;
-    if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(day)) { status("Choose both weight tiles and a valid date.", true); return; }
+    if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(day) || weightTimestamp(day) === null) { status("Choose both weight tiles and a valid date.", true); return; }
     const previous = model.rows;
-    const original = model.rows.find((row) => row.uid === model.editing);
+    const original = findWeightMeasurement(model.rows, model.editing);
     if (manualDateCollision(model.rows, original, day)) {
       status("This date already has a weighing; open that entry to update it.", true); return;
     }
@@ -364,15 +399,22 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       else status(outcome.queued ? `${receipt} on this phone — will sync when connected.${draftNotice}` : `${receipt}.${draftNotice}`);
       const skipped = !outcome.queued && outcome.result?.skipped;
       if (skipped) {
-        model.rows = model.rows.filter((r) => r.uid !== params.weight_uid);
+        const removed = findWeightMeasurement(model.rows, params.weight_uid);
+        model.rows = model.rows.filter((row) => row !== removed);
         if (model.editing === params.weight_uid) {
           model.editing = null; field("weight-edit-actions").classList.add("hidden"); field("weight-save").textContent = "Save";
         }
         status("This weighing was removed on another device. Your selection is kept; Save again to add it.", true);
       } else if (!outcome.queued && outcome.result?.measurement) {
         const saved = outcome.result.measurement;
-        model.rows = model.rows.filter((r) => r.uid !== params.uid && r.uid !== params.weight_uid && r.uid !== saved.uid);
-        model.rows.push(saved); model.rows.sort((a, b) => a.measured_at.localeCompare(b.measured_at));
+        const previousRow = findWeightMeasurement(model.rows, params.weight_uid || params.uid);
+        const aliases = [...new Set([params.uid, params.weight_uid, previousRow?.uid,
+          ...(Array.isArray(previousRow?.pending_uids) ? previousRow.pending_uids : [])]
+          .filter((uid) => uid && uid !== saved.uid))];
+        model.aliases = [...model.aliases.filter((alias) => !aliases.includes(alias.alias_uid)),
+          ...aliases.map((uid) => ({ alias_uid: uid, weight_uid: saved.uid }))];
+        model.rows = model.rows.filter((row) => row !== previousRow && row.uid !== saved.uid);
+        model.rows.push(saved); model.rows = overlay(model.rows);
       }
       cache(); model.version++; model.mutation++;
       if (draft === model.draft && !skipped) {
@@ -410,7 +452,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     model.deleting = marker; model.mutation++;
     field("weight-delete").disabled = true;
     field("weight-save").disabled = true;
-    model.rows = model.rows.filter((r) => r.uid !== uid); model.version++; paint();
+    model.rows = projectWeightOperation(model.rows, { op: "delete_weight", params: { weight_uid: uid } }); model.version++; paint();
     try {
       const outcome = await send("delete_weight", { weight_uid: uid });
       if (!current(epoch, token)) return;
@@ -435,7 +477,8 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     if (newest) {
       const latest = node("div"); latest.append(node("div", "muted", "Latest"), node("strong", "weight-metric", `${Number(newest.weight_kg).toFixed(1)} kg`), node("div", "muted", formatDay(newest.measured_at)));
       summary.append(latest);
-      const old = model.rows.findLast((r) => r.measured_at.slice(0, 10) <= new Date(new Date(newest.measured_at).getTime() - 30 * 86400000).toISOString().slice(0, 10));
+      const cutoff = weightDayOffset(newest.measured_at.slice(0, 10), -30);
+      const old = cutoff && model.rows.findLast((r) => r.measured_at.slice(0, 10) <= cutoff);
       if (old) {
         const delta = Number(newest.weight_kg) - Number(old.weight_kg), change = node("div");
         change.append(node("div", "muted", "Change since"), node("strong", "weight-metric", `${delta > 0 ? "+" : ""}${delta.toFixed(1)} kg`), node("div", "muted", formatDay(old.measured_at)));
@@ -446,9 +489,11 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   }
 
   function paintHistory() {
+    const focusedUid = field("weight-history").contains(document.activeElement) ? document.activeElement.dataset.weightUid : null;
     const list = field("weight-history"); list.replaceChildren();
     for (const row of [...model.rows].reverse().slice(0, model.limit)) {
       const button = node("button", "card weight-history-row"); button.type = "button";
+      button.dataset.weightUid = row.uid;
       const kind = row.source === "scale" ? "Scale" : row.source === "historic" ? "Historic" : "Manual";
       const time = row.source === "manual" ? "" : ` · ${row.measured_at.slice(11, 16)}`;
       const detail = node("div", "grow"); detail.append(node("div", "name", formatDay(row.measured_at)), node("div", "sub", `${row.pending ? "Waiting to sync" : kind}${time}`));
@@ -470,6 +515,24 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     }
     if (!model.rows.length) list.append(node("p", "muted", "Your weighings will appear here."));
     field("weight-more").classList.toggle("hidden", model.rows.length <= model.limit);
+    if (focusedUid) [...list.querySelectorAll("button")].find((button) => button.dataset.weightUid === focusedUid)?.focus({ preventScroll: true });
+  }
+
+  function paintChartData() {
+    const output = field("weight-data-table"); output.replaceChildren();
+    if (!chartRows.length) { output.append(node("p", "muted", "No weighings in this date range.")); return; }
+    const table = node("table", "weight-data-table");
+    table.append(node("caption", "sr-only", "Weighings in the selected plot range"));
+    const head = node("thead"), header = node("tr");
+    for (const text of ["Date", "kg", "Source"]) { const cell = node("th", null, text); cell.scope = "col"; header.append(cell); }
+    head.append(header); table.append(head);
+    const body = node("tbody");
+    for (const row of chartRows) {
+      const record = node("tr");
+      record.append(node("td", null, formatDay(row.measured_at)), node("td", null, String(row.weight_kg)), node("td", null, row.source || "manual"));
+      body.append(record);
+    }
+    table.append(body); output.append(table);
   }
 
   function paintChart() {
@@ -482,10 +545,12 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     let start = "", end = "";
     if (preferences.range === "custom") { start = preferences.start; end = preferences.end; }
     else if (preferences.range !== "all") {
-      const day = new Date(`${localDate()}T12:00:00`); day.setDate(day.getDate() - Number(preferences.range) + 1);
-      start = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+      end = localDate();
+      start = weightDayOffset(end, -Number(preferences.range) + 1);
     }
     const rows = selectMeasurements(model.rows, { start, end, historic: preferences.historic });
+    chartRows = rows;
+    if (field("weight-chart-data").open) paintChartData();
     const points = pointsFor(rows);
     const trend = trendFor(points, preferences.trend, Number(preferences.span));
     const height = Math.max(120, Math.round(canvas.clientHeight)), ratio = Math.min(2, devicePixelRatio || 1);
@@ -497,7 +562,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       ctx.fillStyle = "#555"; ctx.textAlign = "center";
       ctx.fillText(start && end && start > end ? "Choose an end date after the start date." : "No weighings in this date range", width / 2, height / 2);
       canvas.setAttribute("aria-label", "No weight measurements in the selected date range");
-      canvas.onpointerdown = null; return;
+      canvas.tabIndex = -1; canvas.onpointerdown = null; canvas.onkeydown = null; return;
     }
     const left = 48, right = width - 15, top = 18, bottom = height - 42;
     const first = points[0].x, last = points.at(-1).x;
@@ -523,8 +588,8 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       const x = x0 + (x1 - x0) * i / (labels - 1);
       ctx.textAlign = i === 0 ? "left" : i === labels - 1 ? "right" : "center";
       const date = new Date(x);
-      ctx.fillText(date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), px(x), bottom + 18);
-      if (x1 - x0 > 365 * 86400000) ctx.fillText(String(date.getFullYear()), px(x), bottom + 33);
+      ctx.fillText(date.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" }), px(x), bottom + 18);
+      if (x1 - x0 > 365 * 86400000) ctx.fillText(String(date.getUTCFullYear()), px(x), bottom + 33);
     }
     ctx.save(); ctx.beginPath(); ctx.rect(left - 3, top - 3, right - left + 6, bottom - top + 6); ctx.clip();
     if (preferences.points) {
@@ -538,11 +603,27 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     }
     ctx.restore();
     canvas.setAttribute("aria-label", `${points.length} weight measurements from ${formatDay(rows[0].measured_at)} to ${formatDay(rows.at(-1).measured_at)}, latest ${points.at(-1).y} kilograms`);
+    canvas.tabIndex = 0;
+    const inspect = (point) => {
+      inspectedUid = point.row.uid;
+      const message = `${formatDay(point.row.measured_at)} · ${point.y} kg`;
+      if (field("weight-chart-detail").textContent !== message) field("weight-chart-detail").textContent = message;
+    };
+    canvas.onkeydown = (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      let index = points.findIndex((point) => point.row.uid === inspectedUid);
+      if (index < 0) index = points.length - 1;
+      if (event.key === "Home") index = 0;
+      else if (event.key === "End") index = points.length - 1;
+      else index = Math.max(0, Math.min(points.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1)));
+      inspect(points[index]);
+    };
     canvas.onpointerdown = (event) => {
       const box = canvas.getBoundingClientRect(), at = x0 + (event.clientX - box.left - left) / (right - left) * (x1 - x0);
       const closest = points.reduce((a, b) => Math.abs(a.x - at) <= Math.abs(b.x - at) ? a : b);
-      field("weight-chart-detail").textContent = `${formatDay(closest.row.measured_at)} · ${closest.y.toFixed(2)} kg`;
+      inspect(closest);
     };
   }
-  return { render: renderWeight, invalidate: invalidateWeight, reset: resetWeight, destroy: resetWeight };
+  return { mount, render: renderWeight, invalidate: invalidateWeight, reset: resetWeight, destroy };
 }

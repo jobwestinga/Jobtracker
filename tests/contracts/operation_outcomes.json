@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "description": "Expected public response subsets from real API execution; sequence numbers and unrelated entity fields are intentionally not pinned.",
+  "cases": [
+    {
+      "id": "lost-ack-replay",
+      "setup": [
+        {
+          "op_id": "setup-subject",
+          "op": "add_subject",
+          "params": {
+            "uid": "11111111-1111-4111-8111-111111111111",
+            "name": "Contract subject"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "ops": [
+            {
+              "op_id": "replay-session",
+              "op": "add_session",
+              "params": {
+                "uid": "22222222-2222-4222-8222-222222222222",
+                "subject_uid": "11111111-1111-4111-8111-111111111111",
+                "start_time": "2026-10-10T09:00:00",
+                "end_time": "2026-10-10T10:15:00"
+              }
+            }
+          ]
+        },
+        {
+          "ops": [
+            {
+              "op_id": "replay-session",
+              "op": "add_session",
+              "params": {
+                "uid": "22222222-2222-4222-8222-222222222222",
+                "subject_uid": "11111111-1111-4111-8111-111111111111",
+                "start_time": "2026-10-10T09:00:00",
+                "end_time": "2026-10-10T10:15:00"
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "applied": [
+              {
+                "op_id": "replay-session",
+                "result": {
+                  "replayed": false,
+                  "session": {
+                    "uid": "22222222-2222-4222-8222-222222222222"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "applied": [
+              {
+                "op_id": "replay-session",
+                "result": {
+                  "replayed": true,
+                  "session": {
+                    "uid": "22222222-2222-4222-8222-222222222222"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "queue_remaining": []
+    },
+    {
+      "id": "milestone-refusal",
+      "setup": [
+        {
+          "op_id": "setup-goal",
+          "op": "add_goal",
+          "params": {
+            "uid": "33333333-3333-4333-8333-333333333333",
+            "name": "Contract goal"
+          }
+        },
+        {
+          "op_id": "setup-milestone",
+          "op": "add_milestone",
+          "params": {
+            "goal_uid": "33333333-3333-4333-8333-333333333333",
+            "title": "Unchecked"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "ops": [
+            {
+              "op_id": "refused-goal",
+              "op": "complete_goal",
+              "params": {
+                "goal_uid": "33333333-3333-4333-8333-333333333333"
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "applied": [
+              {
+                "op_id": "refused-goal",
+                "result": {
+                  "replayed": false,
+                  "completed": false,
+                  "reason": "goal has unchecked milestones",
+                  "goal": {
+                    "uid": "33333333-3333-4333-8333-333333333333",
+                    "is_completed": 0
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "queue_remaining": []
+    },
+    {
+      "id": "deleted-target-skip",
+      "setup": [],
+      "requests": [
+        {
+          "ops": [
+            {
+              "op_id": "skipped-goal",
+              "op": "update_goal",
+              "params": {
+                "goal_uid": "33333333-3333-4333-8333-333333333333",
+                "name": "Missing goal"
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "applied": [
+              {
+                "op_id": "skipped-goal",
+                "result": {
+                  "replayed": false,
+                  "skipped": true,
+                  "reason": "goal 33333333-3333-4333-8333-333333333333 no longer exists"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "queue_remaining": []
+    },
+    {
+      "id": "daily-weight-canonical-identity",
+      "setup": [],
+      "requests": [
+        {
+          "ops": [
+            {
+              "op_id": "weight-first",
+              "op": "upsert_weight",
+              "params": {
+                "uid": "44444444-4444-4444-8444-444444444444",
+                "measured_at": "2026-10-10",
+                "weight_kg": 81.1
+              }
+            },
+            {
+              "op_id": "weight-second",
+              "op": "upsert_weight",
+              "params": {
+                "uid": "55555555-5555-4555-8555-555555555555",
+                "measured_at": "2026-10-10",
+                "weight_kg": 81.2
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "applied": [
+              {
+                "op_id": "weight-first",
+                "result": {
+                  "replayed": false,
+                  "measurement": {
+                    "uid": "44444444-4444-4444-8444-444444444444",
+                    "measured_at": "2026-10-10T00:00:00",
+                    "weight_kg": 81.1
+                  }
+                }
+              },
+              {
+                "op_id": "weight-second",
+                "result": {
+                  "replayed": false,
+                  "measurement": {
+                    "uid": "44444444-4444-4444-8444-444444444444",
+                    "measured_at": "2026-10-10T00:00:00",
+                    "weight_kg": 81.2
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "queue_remaining": []
+    },
+    {
+      "id": "ordered-partial-failure",
+      "setup": [],
+      "requests": [
+        {
+          "ops": [
+            {
+              "op_id": "weight-first",
+              "op": "upsert_weight",
+              "params": {
+                "uid": "44444444-4444-4444-8444-444444444444",
+                "measured_at": "2026-10-10",
+                "weight_kg": 81.1
+              }
+            },
+            {
+              "op_id": "weight-invalid",
+              "op": "upsert_weight",
+              "params": {
+                "measured_at": "2026-10-10",
+                "weight_kg": "bad"
+              }
+            },
+            {
+              "op_id": "weight-later",
+              "op": "upsert_weight",
+              "params": {
+                "measured_at": "2026-10-11",
+                "weight_kg": 81.3
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "status": 400,
+          "body": {
+            "applied": [
+              {
+                "op_id": "weight-first",
+                "result": {
+                  "replayed": false,
+                  "measurement": {
+                    "uid": "44444444-4444-4444-8444-444444444444",
+                    "weight_kg": 81.1
+                  }
+                }
+              }
+            ],
+            "failed_op_id": "weight-invalid",
+            "failed_index": 1
+          }
+        }
+      ],
+      "queue_remaining": [
+        "weight-invalid",
+        "weight-later"
+      ]
+    }
+  ]
+}

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QWidget,
 )
+from ..accessibility import reduced_motion
 
 
 class ReorderableCardList(QListWidget):
@@ -53,6 +54,9 @@ class ReorderableCardList(QListWidget):
         self._reflow_anims: list[QPropertyAnimation] = []
         self._reflow_overlays: list[QLabel] = []
         self._remove_anims: dict[int, QVariantAnimation] = {}
+        # Stopped animations have no card callbacks. Retaining/reusing their
+        # wrappers avoids self-capturing deleteLater callbacks during Qt GC.
+        self._idle_remove_anims: list[QVariantAnimation] = []
         self._pulse_anims: dict[int, QVariantAnimation] = {}
         # id -> structural signature of the card currently rendered for it, so
         # a reconcile can tell a content change (rebuild one card) from a
@@ -172,6 +176,8 @@ class ReorderableCardList(QListWidget):
         """Make descendants non-visible before Qt reparents/destroys a card."""
         if item is None:
             return
+        item_id = item.data(Qt.UserRole)
+        self._release_remove_animation(item_id)
         widget = self.itemWidget(item)
         if widget is None:
             return
@@ -240,6 +246,8 @@ class ReorderableCardList(QListWidget):
 
     def pulse_card(self, item_id: int, duration_ms: int = 180) -> None:
         """Give one card a restrained opacity pulse as shortcut feedback."""
+        if reduced_motion(self):
+            return
         row = self._row_for_id(item_id)
         if row < 0:
             return
@@ -343,6 +351,8 @@ class ReorderableCardList(QListWidget):
         duration_ms: int = 320,
     ) -> None:
         """Fade + shrink the card, then remove it. Other rows reflow via sizeHint updates."""
+        if item_id in self._remove_anims:
+            return
         row = self._row_for_id(item_id)
         if row < 0:
             if on_finished:
@@ -357,7 +367,9 @@ class ReorderableCardList(QListWidget):
                 on_finished()
             return
 
-        if not self.isVisible() or not self.viewport().isVisible():
+        if reduced_motion(self) or not self.isVisible() or not self.viewport().isVisible():
+            self._hide_card_for_detach(item)
+            self._card_signatures.pop(item_id, None)
             self.takeItem(row)
             if on_finished:
                 on_finished()
@@ -372,7 +384,10 @@ class ReorderableCardList(QListWidget):
         widget.setGraphicsEffect(effect)
         effect.setOpacity(1.0)
 
-        anim = QVariantAnimation(self)
+        anim = (
+            self._idle_remove_anims.pop()
+            if self._idle_remove_anims else QVariantAnimation(self)
+        )
         anim.setDuration(max(120, int(duration_ms)))
         anim.setStartValue(1.0)
         anim.setEndValue(0.0)
@@ -393,7 +408,7 @@ class ReorderableCardList(QListWidget):
             item.setSizeHint(QSize(original_hint.width(), new_h))
 
         def on_done() -> None:
-            self._remove_anims.pop(item_id, None)
+            self._release_remove_animation(item_id)
             self._card_signatures.pop(item_id, None)
             # Remove row; list will relayout remaining items.
             cur_row = self._row_for_id(item_id)
@@ -408,6 +423,15 @@ class ReorderableCardList(QListWidget):
         anim.finished.connect(on_done)
         self._remove_anims[item_id] = anim
         anim.start()
+
+    def _release_remove_animation(self, item_id: int) -> None:
+        animation = self._remove_anims.pop(item_id, None)
+        if animation is None:
+            return
+        animation.stop()
+        animation.valueChanged.disconnect()
+        animation.finished.disconnect()
+        self._idle_remove_anims.append(animation)
 
     def _move_item_rows(self, source_row: int, target_row: int) -> None:
         if (

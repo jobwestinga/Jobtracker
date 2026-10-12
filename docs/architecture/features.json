@@ -1,0 +1,778 @@
+{
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "subjects.manage",
+      "title": "Subjects and archive",
+      "entrypoints": [
+        {
+          "path": "web/features/subjects/index.js",
+          "symbol": "createSubjectsFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/subject_service.py",
+        "symbol": "SubjectService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/subjects.py",
+          "symbol": "SubjectRepository"
+        }
+      ],
+      "operations": [
+        "add_subject",
+        "update_subject",
+        "archive_subject",
+        "unarchive_subject",
+        "delete_subject",
+        "set_subject_order"
+      ],
+      "tables": [
+        "tasks"
+      ],
+      "contracts": [
+        "sync.ordered-outbox",
+        "facades.state-ownership"
+      ],
+      "routes": [
+        "GET /api/snapshot"
+      ],
+      "tests": [
+        "tests/test_subjects.py",
+        "tests/test_deletion.py",
+        "tests/ui/test_subjects.py",
+        "tests/ui/test_workflow_races.py",
+        "tests/mobile/subject-quick-add.cjs"
+      ],
+      "related": [
+        "timer.sessions"
+      ]
+    },
+    {
+      "id": "timer.sessions",
+      "title": "Timers, switching and crash recovery",
+      "entrypoints": [
+        {
+          "path": "web/features/subjects/index.js",
+          "symbol": "createSubjectsFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/timer_service.py",
+        "symbol": "TimerService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/sessions.py",
+          "symbol": "SessionRepository"
+        }
+      ],
+      "operations": [
+        "start_subject",
+        "stop_active_subject",
+        "switch_subject",
+        "heartbeat",
+        "resolve_recovery"
+      ],
+      "tables": [
+        "sessions"
+      ],
+      "contracts": [
+        "timer.session-identity",
+        "time.logical-day",
+        "sync.ordered-outbox",
+        "auth.principal-receipt"
+      ],
+      "routes": [
+        "GET /api/active",
+        "GET /api/context"
+      ],
+      "tests": [
+        "tests/test_timer_reliability.py",
+        "tests/test_recovery_logic.py",
+        "tests/test_switch_and_stats.py",
+        "tests/test_sync_safety.py",
+        "tests/test_timer_ui_reliability.py",
+        "tests/ui/test_workflow_races.py"
+      ],
+      "related": [
+        "sessions.edit",
+        "sync.replication"
+      ]
+    },
+    {
+      "id": "sessions.edit",
+      "title": "Session editing and history",
+      "entrypoints": [
+        {
+          "path": "web/features/sessions/index.js",
+          "symbol": "createSessionsFeature"
+        },
+        {
+          "path": "web/features/sessions/duration-picker.js",
+          "symbol": "createDurationPicker"
+        },
+        {
+          "path": "jobtracker/ui/widgets/manage_sessions_dialog.py",
+          "symbol": "ManageSessionsDialog"
+        },
+        {
+          "path": "jobtracker/ui/widgets/session_dialog.py",
+          "symbol": "DurationDialog"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/session_service.py",
+        "symbol": "SessionService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/sessions.py",
+          "symbol": "SessionRepository"
+        }
+      ],
+      "operations": [
+        "add_session",
+        "update_session",
+        "delete_session",
+        "duplicate_session",
+        "shift_session"
+      ],
+      "tables": [
+        "sessions"
+      ],
+      "contracts": [
+        "time.logical-day",
+        "timer.session-identity",
+        "sync.ordered-outbox",
+        "operations.compatible-outcomes"
+      ],
+      "routes": [
+        "GET /api/sessions/day/{day}"
+      ],
+      "tests": [
+        "tests/test_sessions.py",
+        "tests/test_session_validation.py",
+        "tests/ui/test_sessions.py",
+        "tests/mobile/session-duration.test.mjs",
+        "tests/test_operation_contracts.py",
+        "tests/mobile/sheet-action.test.mjs",
+        "tests/mobile/subject-quick-add.cjs"
+      ],
+      "related": [
+        "graphs.tracking",
+        "sync.replication"
+      ]
+    },
+    {
+      "id": "goals.milestones",
+      "title": "Goals, focus and milestone gate",
+      "entrypoints": [
+        {
+          "path": "web/features/goals/index.js",
+          "symbol": "createGoalsFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/goal_service.py",
+        "symbol": "GoalService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/goals.py",
+          "symbol": "GoalRepository"
+        }
+      ],
+      "operations": [
+        "add_goal",
+        "update_goal",
+        "delete_goal",
+        "complete_goal",
+        "uncomplete_goal",
+        "toggle_goal_focused",
+        "set_goal_order",
+        "add_milestone",
+        "update_milestone",
+        "set_milestone_done",
+        "delete_milestone",
+        "set_milestone_order"
+      ],
+      "tables": [
+        "todo_tasks",
+        "milestones"
+      ],
+      "contracts": [
+        "operations.compatible-outcomes",
+        "sync.ordered-outbox"
+      ],
+      "routes": [
+        "GET /api/snapshot"
+      ],
+      "tests": [
+        "tests/test_goals.py",
+        "tests/test_focus.py",
+        "tests/ui/test_goals.py",
+        "tests/test_operation_contracts.py",
+        "tests/ui/test_workflow_races.py",
+        "tests/mobile/sheet-action.test.mjs",
+        "tests/mobile/feature-sheets.cjs",
+        "tests/mobile/accessibility.cjs"
+      ],
+      "related": [
+        "goals.recurrence"
+      ]
+    },
+    {
+      "id": "goals.recurrence",
+      "title": "Recurring templates and occurrence generation",
+      "entrypoints": [
+        {
+          "path": "web/features/templates.js",
+          "symbol": "createTemplatesFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/recurrence_service.py",
+        "symbol": "RecurrenceService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/templates.py",
+          "symbol": "TemplateRepository"
+        }
+      ],
+      "operations": [
+        "add_template",
+        "update_template",
+        "set_template_active",
+        "delete_template",
+        "generate_due_goals"
+      ],
+      "tables": [
+        "goal_templates",
+        "todo_tasks"
+      ],
+      "contracts": [
+        "time.logical-day",
+        "sync.ordered-outbox"
+      ],
+      "routes": [
+        "GET /api/context"
+      ],
+      "tests": [
+        "tests/test_templates.py",
+        "tests/test_service_structure.py",
+        "tests/mobile/sheet-action.test.mjs",
+        "tests/mobile/feature-sheets.cjs"
+      ],
+      "related": [
+        "goals.milestones"
+      ]
+    },
+    {
+      "id": "graphs.tracking",
+      "title": "Tracking bars, agenda and current-time marker",
+      "entrypoints": [
+        {
+          "path": "web/features/graphs/index.js",
+          "symbol": "createGraphsFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/analytics_service.py",
+        "symbol": "AnalyticsService"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/sessions.py",
+          "symbol": "SessionRepository"
+        }
+      ],
+      "operations": [],
+      "tables": [
+        "sessions",
+        "tasks"
+      ],
+      "contracts": [
+        "time.logical-day"
+      ],
+      "routes": [
+        "GET /api/graphs/breakdown",
+        "GET /api/graphs/agenda"
+      ],
+      "tests": [
+        "tests/test_aggregation.py",
+        "tests/test_agenda.py",
+        "tests/test_grouping_override.py",
+        "tests/test_time_contracts.py",
+        "tests/ui/test_graphs.py",
+        "tests/mobile/agenda-now.test.mjs",
+        "tests/mobile/fullscreen.test.mjs",
+        "tests/mobile/accessibility.cjs"
+      ],
+      "related": [
+        "sessions.edit",
+        "weight.plot"
+      ]
+    },
+    {
+      "id": "weight.daily-entry",
+      "title": "Daily weight tiles and canonical identity",
+      "entrypoints": [
+        {
+          "path": "web/features/weight/index.js",
+          "symbol": "createWeightFeature"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        },
+        {
+          "path": "jobtracker/ui/widgets/weight_view.py",
+          "symbol": "WeightView"
+        },
+        {
+          "path": "server/routes/weight.py",
+          "symbol": "api_weight"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/services/weight_service.py",
+        "symbol": "WeightService.upsert"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/weights.py",
+          "symbol": "WeightRepository"
+        },
+        {
+          "path": "jobtracker/core/persistence/weight_codec.py",
+          "symbol": "validate_measurement"
+        },
+        {
+          "path": "jobtracker/core/persistence/weight_codec.py",
+          "symbol": "import_identity"
+        }
+      ],
+      "operations": [
+        "upsert_weight",
+        "delete_weight",
+        "import_weights"
+      ],
+      "tables": [
+        "weight_measurements",
+        "weight_uid_aliases"
+      ],
+      "contracts": [
+        "weight.calendar-day",
+        "sync.ordered-outbox",
+        "operations.compatible-outcomes"
+      ],
+      "routes": [
+        "GET /api/weight"
+      ],
+      "tests": [
+        "tests/test_weight_daily_edges.py",
+        "tests/test_weight_reliability.py",
+        "tests/test_native_weight_ui.py",
+        "tests/test_operation_contracts.py",
+        "tests/mobile/weight-picker.test.mjs",
+        "tests/test_weight_validation_edges.py",
+        "tests/mobile/weight-edges.test.mjs",
+        "tests/mobile/accessibility.cjs"
+      ],
+      "related": [
+        "weight.plot",
+        "sync.replication"
+      ]
+    },
+    {
+      "id": "weight.plot",
+      "title": "Weight history, smoothing and fullscreen",
+      "entrypoints": [
+        {
+          "path": "web/features/weight/math.js",
+          "symbol": "trendFor"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        },
+        {
+          "path": "jobtracker/ui/widgets/weight_view.py",
+          "symbol": "WeightChart"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/core/weight_plot.py",
+        "symbol": "trend_for"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/weights.py",
+          "symbol": "WeightRepository"
+        }
+      ],
+      "operations": [],
+      "tables": [
+        "weight_measurements"
+      ],
+      "contracts": [
+        "weight.calendar-day"
+      ],
+      "routes": [
+        "GET /api/weight"
+      ],
+      "tests": [
+        "tests/test_native_weight_plot.py",
+        "tests/test_weight_export.py",
+        "tests/mobile/weight-math-regression.test.mjs",
+        "tests/mobile/fullscreen.test.mjs",
+        "tests/test_weight_validation_edges.py",
+        "tests/mobile/weight-edges.test.mjs",
+        "tests/mobile/accessibility.cjs"
+      ],
+      "related": [
+        "weight.daily-entry"
+      ]
+    },
+    {
+      "id": "sync.replication",
+      "title": "Queue, mirror, transport and integrity",
+      "entrypoints": [
+        {
+          "path": "web/data/outbox.js",
+          "symbol": "flush"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/sync/engine.py",
+        "symbol": "SyncEngine.sync"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/sync/mirror.py",
+          "symbol": "upsert"
+        },
+        {
+          "path": "jobtracker/sync/integrity.py",
+          "symbol": "verify_report"
+        },
+        {
+          "path": "jobtracker/sync/state.py",
+          "symbol": "pending"
+        }
+      ],
+      "operations": [],
+      "tables": [
+        "sync_outbox",
+        "sync_state",
+        "applied_ops"
+      ],
+      "contracts": [
+        "sync.ordered-outbox",
+        "sync.mirror-repair",
+        "auth.principal-receipt"
+      ],
+      "routes": [
+        "POST /ops",
+        "GET /sync/pull",
+        "GET /sync/integrity"
+      ],
+      "tests": [
+        "tests/test_sync_engine.py",
+        "tests/test_sync_service.py",
+        "tests/test_sync_safety.py",
+        "tests/test_sync_identity.py",
+        "tests/test_sync_structure.py",
+        "tests/test_security_safety.py",
+        "tests/mobile/api.test.mjs",
+        "tests/mobile/offline.test.mjs",
+        "tests/mobile/sync-status.test.mjs",
+        "tests/ui/test_sync_status.py"
+      ],
+      "related": [
+        "backups.restore",
+        "timer.sessions"
+      ]
+    },
+    {
+      "id": "backups.restore",
+      "title": "Backup validation, UID merge and export",
+      "entrypoints": [
+        {
+          "path": "web/data/api.js",
+          "symbol": "api"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/core/persistence/backup.py",
+        "symbol": "BackupCodec"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/core/persistence/identity.py",
+          "symbol": "IdentityRepository"
+        }
+      ],
+      "operations": [
+        "import_backup"
+      ],
+      "tables": [
+        "tasks",
+        "sessions",
+        "todo_tasks",
+        "milestones",
+        "goal_templates",
+        "weight_measurements"
+      ],
+      "contracts": [
+        "sync.mirror-repair",
+        "facades.state-ownership"
+      ],
+      "routes": [
+        "POST /ops"
+      ],
+      "tests": [
+        "tests/test_backup_sync.py",
+        "tests/test_import_export.py",
+        "tests/test_export_bundle.py",
+        "tests/test_auto_backup.py",
+        "tests/test_backup_snapshot.py"
+      ],
+      "related": [
+        "sync.replication"
+      ]
+    },
+    {
+      "id": "native.shell",
+      "title": "Native window, keyboard and sync lifecycle",
+      "entrypoints": [
+        {
+          "path": "jobtracker/ui/app.py"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/ui/app.py",
+        "symbol": "MainWindow"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/ui/controllers/keyboard.py",
+          "symbol": "KeyboardController"
+        },
+        {
+          "path": "jobtracker/ui/controllers/sync.py",
+          "symbol": "WindowSyncController"
+        }
+      ],
+      "operations": [],
+      "tables": [
+        "settings"
+      ],
+      "contracts": [
+        "facades.state-ownership",
+        "imports.layer-direction"
+      ],
+      "routes": [],
+      "tests": [
+        "tests/ui/test_shell.py",
+        "tests/ui/test_keyboard.py",
+        "tests/test_sync_ui.py",
+        "tests/ui/test_workflow_races.py",
+        "tests/ui/test_accessibility.py",
+        "tests/ui/test_sync_status.py"
+      ],
+      "related": [
+        "mobile.shell"
+      ]
+    },
+    {
+      "id": "mobile.shell",
+      "title": "Phone startup, navigation and offline shell",
+      "entrypoints": [
+        {
+          "path": "web/app.js"
+        },
+        {
+          "path": "web/data/actions.js",
+          "symbol": "createActionRunner"
+        },
+        {
+          "path": "jobtracker/services/tracker_service.py",
+          "symbol": "TrackerService"
+        },
+        {
+          "path": "web/shared/sheet.js",
+          "symbol": "createSheetAction"
+        },
+        {
+          "path": "web/features/settings/index.js",
+          "symbol": "createSettingsFeature"
+        },
+        {
+          "path": "web/data/sync-status.js",
+          "symbol": "createSyncStatus"
+        }
+      ],
+      "rule_owner": {
+        "path": "web/data/outbox.js",
+        "symbol": "send"
+      },
+      "persistence": [
+        {
+          "path": "web/data/mirror.js",
+          "symbol": "createMirror"
+        },
+        {
+          "path": "web/shared/storage.js",
+          "symbol": "STORAGE_KEYS"
+        }
+      ],
+      "operations": [],
+      "tables": [],
+      "contracts": [
+        "sync.ordered-outbox",
+        "imports.layer-direction"
+      ],
+      "routes": [],
+      "tests": [
+        "tests/test_mobile_client.py",
+        "tests/mobile/actions.test.mjs",
+        "tests/mobile/feature-lifecycle.test.mjs",
+        "tests/mobile/mirror.test.mjs",
+        "tests/mobile/sheet-action.test.mjs",
+        "tests/mobile/feature-sheets.cjs",
+        "tests/mobile/subject-quick-add.cjs",
+        "tests/mobile/sync-status.test.mjs",
+        "tests/mobile/accessibility.cjs"
+      ],
+      "related": [
+        "weight.daily-entry",
+        "sync.replication"
+      ]
+    },
+    {
+      "id": "release.packaging",
+      "title": "Staged build, idle install and own-server deployment",
+      "entrypoints": [
+        {
+          "path": "scripts/build_macos.py",
+          "symbol": "main"
+        },
+        {
+          "path": "deploy/install.sh"
+        }
+      ],
+      "rule_owner": {
+        "path": "scripts/install_macos.py",
+        "symbol": "install_app"
+      },
+      "persistence": [],
+      "operations": [],
+      "tables": [],
+      "contracts": [
+        "timer.session-identity",
+        "sync.ordered-outbox"
+      ],
+      "routes": [],
+      "tests": [
+        "tests/test_macos_tooling.py",
+        "tests/test_deploy_assets.py",
+        "tests/test_source_filters.py"
+      ],
+      "related": [
+        "native.shell",
+        "mobile.shell"
+      ]
+    },
+    {
+      "id": "sync.status",
+      "title": "Persistent connection, pending changes and last sync feedback",
+      "entrypoints": [
+        {
+          "path": "web/data/sync-status.js",
+          "symbol": "createSyncStatus"
+        },
+        {
+          "path": "jobtracker/ui/widgets/sync_status.py",
+          "symbol": "SyncStatusWidget"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/ui/controllers/sync.py",
+        "symbol": "WindowSyncController.refresh_status"
+      },
+      "persistence": [
+        {
+          "path": "web/shared/storage.js",
+          "symbol": "STORAGE_KEYS"
+        },
+        {
+          "path": "jobtracker/sync/state.py",
+          "symbol": "get"
+        }
+      ],
+      "operations": [],
+      "tables": [
+        "sync_state",
+        "sync_outbox"
+      ],
+      "contracts": [
+        "sync.ordered-outbox",
+        "facades.state-ownership"
+      ],
+      "routes": [
+        "GET /api/context",
+        "POST /ops"
+      ],
+      "tests": [
+        "tests/mobile/sync-status.test.mjs",
+        "tests/ui/test_sync_status.py",
+        "tests/mobile/browser.cjs"
+      ],
+      "related": [
+        "sync.replication",
+        "native.shell",
+        "mobile.shell"
+      ]
+    }
+  ]
+}

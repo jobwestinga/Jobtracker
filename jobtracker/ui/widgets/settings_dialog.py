@@ -6,8 +6,10 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QFrame, QMessageBox, QFileDialog, QComboBox,
     QCheckBox, QLineEdit,
+    QScrollArea, QWidget,
+    QApplication,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 import json
 import logging
 import zipfile
@@ -37,8 +39,11 @@ class SettingsDialog(InlineDialog):
         # All persistence goes through the service (not the db directly).
         self._svc = service or getattr(parent, "service", None) or TrackerService()
         self.setWindowTitle("Settings")
-        # Tall enough for the Sync section too; still fits a 13" MacBook screen.
-        self.setFixedSize(440, 780)
+        self.setFixedWidth(440)
+        self._settings_host = parent.window() if parent is not None else None
+        self._fit_owner_height()
+        if self._settings_host is not None:
+            self._settings_host.installEventFilter(self)
 
         # Load current prefs
         self._fx = self._svc.get_setting("theme_fx", "Glow")
@@ -48,11 +53,26 @@ class SettingsDialog(InlineDialog):
         self._original_palette = self._palette
 
         self._build_ui()
+        self._settings_app = QApplication.instance()
+        if self._settings_app is not None:
+            self._settings_app.focusChanged.connect(self._keep_focus_visible)
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("settingsScroll")
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setAccessibleName("Settings options")
+        content = QWidget(self.scroll_area)
+        content.setObjectName("settingsScrollContents")
+        layout = QVBoxLayout(content)
+        self.scroll_area.setWidget(content)
+        outer.addWidget(self.scroll_area)
         layout.setContentsMargins(24, 24, 24, 20)
-        layout.setSpacing(18)
+        layout.setSpacing(14)
 
         # ── FX Style ─────────────────────────────────────────────────────
         fx_lbl = QLabel("Theme FX")
@@ -71,6 +91,7 @@ class SettingsDialog(InlineDialog):
         }
         for name in FX_NAMES:
             btn = QPushButton(fx_labels.get(name, name))
+            btn.setAccessibleName(f"Theme effect {fx_labels.get(name, name)}")
             btn.setFixedHeight(42)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("fx_name", name)
@@ -95,6 +116,7 @@ class SettingsDialog(InlineDialog):
             btn.setFixedSize(48, 48)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setToolTip(name)
+            btn.setAccessibleName(f"Color palette {name}")
             btn.setProperty("palette_name", name)
             btn.clicked.connect(lambda checked, n=name: self._select_palette(n))
             row, col = divmod(idx, max_cols)
@@ -107,6 +129,13 @@ class SettingsDialog(InlineDialog):
         self._palette_name_lbl = QLabel(self._palette)
         self._palette_name_lbl.setStyleSheet("font-size: 12px; font-weight: 500;")
         layout.addWidget(self._palette_name_lbl)
+
+        self.reduce_motion_check = QCheckBox("Reduce motion")
+        self.reduce_motion_check.setChecked(self._svc.get_setting("ui_reduce_motion", "0") == "1")
+        motion_hint = "Pause animated backgrounds and decorative feedback. Timer clocks keep updating."
+        self.reduce_motion_check.setToolTip(motion_hint)
+        self.reduce_motion_check.setAccessibleDescription(motion_hint)
+        layout.addWidget(self.reduce_motion_check)
 
         self._refresh_buttons()
         QTimer.singleShot(0, self._refresh_buttons)
@@ -127,8 +156,16 @@ class SettingsDialog(InlineDialog):
         self.day_start_combo.setCursor(Qt.PointingHandCursor)
         for h in range(24):
             self.day_start_combo.addItem(f"{h:02d}:00", h)
-        self.day_start_combo.setCurrentIndex(parse_day_start(self._day_start).hour)
+        configured_start = parse_day_start(self._day_start)
+        if configured_start.minute:
+            value = configured_start.strftime("%H:%M")
+            self.day_start_combo.insertItem(configured_start.hour + 1, value, value)
+            self.day_start_combo.setCurrentIndex(configured_start.hour + 1)
+        else:
+            self.day_start_combo.setCurrentIndex(configured_start.hour)
         self.day_start_combo.setMinimumHeight(32)
+        self.day_start_combo.setAccessibleName("Tracking day start")
+        day_lbl.setBuddy(self.day_start_combo)
         day_row.addWidget(self.day_start_combo)
         day_hint = QLabel("late-night work counts on the day it started")
         day_hint.setStyleSheet("font-size: 11px; opacity: 0.7;")
@@ -177,11 +214,14 @@ class SettingsDialog(InlineDialog):
         self.sync_url_input = QLineEdit(sync_settings.server_url(self._svc))
         self.sync_url_input.setPlaceholderText("https://your-server:8443")
         self.sync_url_input.setMinimumHeight(32)
+        self.sync_url_input.setAccessibleName("Sync server address")
         layout.addWidget(self.sync_url_input)
 
         self.sync_token_input = QLineEdit()
         self.sync_token_input.setEchoMode(QLineEdit.Password)
         self.sync_token_input.setMinimumHeight(32)
+        self.sync_token_input.setAccessibleName("Sync access token")
+        self.sync_token_input.setAccessibleDescription("Leave blank to keep the existing token. The stored token is never displayed.")
         # Never render the stored token back into the field. Show that one
         # exists, and let an empty field mean "leave it alone".
         self.sync_token_input.setPlaceholderText(
@@ -241,6 +281,21 @@ class SettingsDialog(InlineDialog):
             b.setDefault(False)
         save_btn.setAutoDefault(True)
         save_btn.setDefault(True)
+
+    def _fit_owner_height(self) -> None:
+        available = self._settings_host.height() - 110 if self._settings_host is not None else 780
+        self.setFixedHeight(max(240, min(780, available)))
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if watched is self._settings_host and event.type() == QEvent.Resize:
+            self._fit_owner_height()
+            QTimer.singleShot(0, self, self._keep_focus_visible)
+        return super().eventFilter(watched, event)
+
+    def _keep_focus_visible(self, _previous=None, current=None) -> None:
+        current = current or QApplication.focusWidget()
+        if self.isVisible() and current is not None and self.scroll_area.isAncestorOf(current):
+            self.scroll_area.ensureWidgetVisible(current, 0, 12)
 
     # ── Selection ────────────────────────────────────────────────────────
     def _select_fx(self, name: str) -> None:
@@ -314,7 +369,22 @@ class SettingsDialog(InlineDialog):
         self._refresh_buttons()
 
     def _cancel(self) -> None:
-        """Revert preview to original theme."""
+        self.reject()
+
+    def done(self, result: int) -> None:
+        if self._jt_finished:
+            return
+        if result == QDialog.Rejected:
+            self._restore_preview()
+        self._sync_status_timer.stop()
+        if self._settings_app is not None:
+            self._settings_app.focusChanged.disconnect(self._keep_focus_visible)
+        if self._settings_host is not None:
+            self._settings_host.removeEventFilter(self)
+        super().done(result)
+
+    def _restore_preview(self) -> None:
+        """Cancel, Escape and the panel close button share one rollback."""
         if self._fx != self._original_fx or self._palette != self._original_palette:
             from ..styles import build_stylesheet
 
@@ -330,7 +400,8 @@ class SettingsDialog(InlineDialog):
                 main._graph_view.set_tokens(tokens)
             if main and hasattr(main, "_agenda_view"):
                 main._agenda_view.set_tokens(tokens)
-        self.reject()
+        self._fx = self._original_fx
+        self._palette = self._original_palette
 
     def _resolve_main_window(self) -> Optional[object]:
         current = self.parent()
@@ -415,6 +486,10 @@ class SettingsDialog(InlineDialog):
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
             self._svc.import_data(data)
+            # Imported preferences are the new baseline, so closing Settings
+            # cannot restore an earlier unsaved preview over the import.
+            self._original_fx = self._fx = self._svc.get_setting("theme_fx", self._fx)
+            self._original_palette = self._palette = self._svc.get_setting("theme_palette", self._palette)
             main = self._resolve_main_window()
             if main is not None and hasattr(main, "_reload"):
                 # Apply restored preferences immediately. Close this settings
@@ -488,5 +563,6 @@ class SettingsDialog(InlineDialog):
         return {
             "theme_fx": self._fx,
             "theme_palette": self._palette,
-            "day_start_time": f"{int(hour):02d}:00",
+            "day_start_time": hour if isinstance(hour, str) else f"{int(hour):02d}:00",
+            "ui_reduce_motion": self.reduce_motion_check.isChecked(),
         }

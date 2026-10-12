@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <!-- viewport-fit=cover + the safe-area padding in the CSS keeps the bottom bar
      clear of the iPhone home indicator once this is on the home screen. -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="JobTracker">
@@ -33,19 +33,23 @@
   <input id="setup-token" type="password" autocomplete="off" autocapitalize="off"
          autocorrect="off" spellcheck="false" placeholder="paste the iphone token">
   <button id="setup-save" class="primary">Connect</button>
-  <p id="setup-error" class="error"></p>
+  <p id="setup-error" class="error" role="status" aria-live="polite"></p>
 </section>
 
 <main id="app" class="hidden">
   <header class="topbar">
-    <h1 id="view-title">Weight</h1>
+    <div class="topbar-heading">
+      <h1 id="view-title">Weight</h1>
+      <button id="sync-status" class="sync-status" type="button" aria-describedby="sync-status-hint">Checking sync</button>
+      <span id="sync-status-hint" class="sr-only">Opens sync details and waiting changes.</span>
+    </div>
     <div class="topbar-actions">
       <button id="refresh" class="icon-btn" aria-label="Refresh">&#8635;</button>
       <button id="open-settings" class="icon-btn" aria-label="Settings">&#9881;</button>
     </div>
   </header>
 
-  <div id="banner" class="banner hidden"></div>
+  <div id="banner" class="banner hidden" aria-live="off"></div>
 
   <!-- Today: the running timer and one-tap start. -->
   <div id="views">
@@ -124,7 +128,7 @@
     </div>
     <div id="graph-total" class="muted day-total"></div>
     <button id="graph-options" class="ghost wide hidden">Agenda hours</button>
-    <div id="graph-body"></div>
+    <div id="graph-body" aria-label="Tracking graphs"></div>
     <div id="graph-legend" class="legend"></div>
   </section>
 
@@ -135,24 +139,26 @@
   </div>
 
   <nav class="tabbar five" aria-label="App sections">
-    <button class="tab" data-view="goals"><span>&#9873;</span>Goals</button>
-    <button class="tab" data-view="today"><span>&#9201;</span>Subjects</button>
-    <button class="tab" data-view="sessions"><span>&#128197;</span>Sessions</button>
-    <button class="tab" data-view="graphs"><span>&#128202;</span>Graphs</button>
-    <button class="tab on" data-view="weight"><span>&#9878;</span>Weight</button>
+    <button class="tab" data-view="goals"><span aria-hidden="true">&#9873;</span>Goals</button>
+    <button class="tab" data-view="today"><span aria-hidden="true">&#9201;</span>Subjects</button>
+    <button class="tab" data-view="sessions"><span aria-hidden="true">&#128197;</span>Sessions</button>
+    <button class="tab" data-view="graphs"><span aria-hidden="true">&#128202;</span>Graphs</button>
+    <button class="tab on" data-view="weight"><span aria-hidden="true">&#9878;</span>Weight</button>
   </nav>
 </main>
 
 <!-- A single reusable sheet, filled in by whichever action opened it. -->
 <div id="sheet" class="sheet-wrap hidden">
-  <div class="sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1">
     <div class="sheet-head">
-      <h2 id="sheet-title">—</h2>
+      <h2 id="sheet-title" tabindex="-1">—</h2>
       <button id="sheet-close" class="icon-btn" aria-label="Close">&#10005;</button>
     </div>
     <div id="sheet-body"></div>
   </div>
 </div>
+
+<div id="announcements" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script type="module" src="/app.js"></script>
 </body>

@@ -2,24 +2,49 @@
 const DAY = 86400000;
 
 export function parseWeight(value) {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 && value <= 1000 ? value : null;
+  if (typeof value !== "string") return null;
   const text = String(value ?? "").trim().replace(",", ".");
   if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
   const number = Number(text);
   return Number.isFinite(number) && number > 0 && number <= 1000 ? number : null;
 }
 
+/** A naive calendar coordinate, using UTC fields solely to avoid DST coercion. */
+export function weightTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?)?$/.exec(value);
+  if (!parts) return null;
+  const [, year, month, day, hour = "0", minute = "0", second = "0", fraction = ""] = parts;
+  if (Number(year) < 1 || Number(month) < 1 || Number(month) > 12 || Number(day) < 1 ||
+      Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return null;
+  const date = new Date(0);
+  date.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
+  date.setUTCHours(Number(hour), Number(minute), Number(second), 0);
+  if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() + 1 !== Number(month) ||
+      date.getUTCDate() !== Number(day)) return null;
+  return date.getTime() + (fraction ? Number(`0.${fraction}`) * 1000 : 0);
+}
+
+export function weightDayOffset(day, offset) {
+  const timestamp = weightTimestamp(day);
+  if (timestamp === null || !Number.isInteger(offset)) return "";
+  const date = new Date(timestamp + offset * DAY), year = date.getUTCFullYear();
+  return year >= 1 && year <= 9999 ? date.toISOString().slice(0, 10) : "";
+}
+
 export function selectMeasurements(rows, { start = "", end = "", historic = false } = {}) {
   return (Array.isArray(rows) ? rows : []).filter((row) => {
-    if (!row || typeof row.measured_at !== "string" || !Number.isFinite(new Date(row.measured_at).getTime())) return false;
+    if (!row || weightTimestamp(row.measured_at) === null || parseWeight(row.weight_kg) === null) return false;
     const day = row.measured_at.slice(0, 10);
     return (historic || row.source !== "historic") && (!start || day >= start) &&
-      (!end || day <= end) && Number.isFinite(Number(row.weight_kg)) && Number(row.weight_kg) > 0;
+      (!end || day <= end);
   }).sort((a, b) => a.measured_at.localeCompare(b.measured_at));
 }
 
 export function pointsFor(rows) {
   return (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row.measured_at === "string")
-    .map((row) => ({ x: new Date(row.measured_at).getTime(), y: Number(row.weight_kg), row }))
+    .map((row) => ({ x: weightTimestamp(row.measured_at), y: parseWeight(row.weight_kg), row }))
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
     .sort((a, b) => a.x - b.x);
 }
@@ -34,7 +59,7 @@ function uniquePoints(points) {
     if (previous?.x === point.x) {
       previous.count++;
       previous.y += (point.y - previous.y) / previous.count;
-    } else result.push({ x: point.x, y: point.y, count: 1 });
+    } else result.push({ x: point.x, y: point.y, count: 1, row: point.row });
   }
   return result;
 }
@@ -75,15 +100,17 @@ export function rollingMean(points, days = 7) {
   const values = uniquePoints(points);
   const numericDays = Number(days);
   const calendarDays = Number.isFinite(numericDays) ? Math.max(1, Math.floor(numericDays)) : 7;
-  const civilDay = (timestamp) => {
-    const date = new Date(timestamp);
+  const civilDay = (point) => {
+    const naiveTimestamp = weightTimestamp(point.row?.measured_at);
+    if (naiveTimestamp !== null) return Math.floor(naiveTimestamp / DAY);
+    const date = new Date(point.x);
     return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY;
   };
   let left = 0, sum = 0;
   return values.map((point, right) => {
     sum += point.y;
-    const cutoff = civilDay(point.x) - calendarDays + 1;
-    while (left < right && civilDay(values[left].x) < cutoff) sum -= values[left++].y;
+    const cutoff = civilDay(point) - calendarDays + 1;
+    while (left < right && civilDay(values[left]) < cutoff) sum -= values[left++].y;
     return { x: point.x, y: sum / (right - left + 1) };
   });
 }

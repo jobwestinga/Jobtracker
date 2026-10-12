@@ -1,5 +1,8 @@
 """Offscreen native sessions regressions on isolated databases."""
 from datetime import (date, datetime, timedelta)
+import time
+
+import pytest
 from PySide6.QtCore import (QEvent, Qt)
 from PySide6.QtGui import (QKeyEvent)
 from PySide6.QtTest import (QTest)
@@ -266,18 +269,18 @@ def test_session_dialog_has_no_notes_and_move_buttons_shift_both_ends(service):
     dialog.close()
 
 
-def test_move_row_exposes_four_steps():
+def test_move_row_exposes_duration_and_day_steps():
     from jobtracker.ui.widgets.session_list import MOVE_STEPS, build_move_row
 
     _application()
-    assert [seconds for _label, seconds in MOVE_STEPS] == [-3600, -900, 900, 3600]
+    assert [seconds for _label, seconds in MOVE_STEPS] == [-86400, -3600, -900, 900, 3600, 86400]
     seen: list[int] = []
     row = build_move_row(seen.append)
     buttons = [row.itemAt(i).widget() for i in range(row.count())]
-    assert [b.text() for b in buttons] == ["−1h", "−15m", "+15m", "+1h"]
+    assert [b.text() for b in buttons] == ["−1 day", "−1h", "−15m", "+15m", "+1h", "+1 day"]
     for button in buttons:
         button.click()
-    assert seen == [-3600, -900, 900, 3600]
+    assert seen == [-86400, -3600, -900, 900, 3600, 86400]
 
 
 def test_duration_dialog_caps_minutes_and_rejects_zero(service, monkeypatch):
@@ -308,6 +311,429 @@ def test_duration_dialog_caps_minutes_and_rejects_zero(service, monkeypatch):
     dialog.close()
 
 
+def test_duration_chunks_toggle_once_and_show_live_total():
+    from jobtracker.ui.widgets.session_dialog import DurationDialog
+
+    _application()
+    dialog = DurationDialog()
+    assert not dialog.confirm_btn.isEnabled()
+    assert [button.text() for button in dialog.chunk_buttons.values()] == [
+        "4h", "2h", "1h", "30m", "15m", "10m", "5m",
+    ]
+    for minutes, expected in ((120, 120), (30, 150), (15, 165), (5, 170)):
+        dialog.chunk_buttons[minutes].click()
+        assert dialog.total_minutes() == expected
+        assert f"({expected} minutes)" in dialog.total_label.text()
+    assert (dialog.hours_input.value(), dialog.minutes_input.value()) == (2, 50)
+    assert dialog.confirm_btn.isEnabled()
+
+    dialog.chunk_buttons[120].click()
+    assert dialog.total_minutes() == 50
+    dialog.chunk_buttons[120].click()
+    assert dialog.total_minutes() == 170  # each chunk is used at most once
+    for minutes in (120, 30, 15, 5):
+        dialog.chunk_buttons[minutes].click()
+    assert dialog.total_minutes() == 0
+    assert not dialog.confirm_btn.isEnabled()
+    dialog.close()
+
+
+def test_duration_exact_entry_and_chunks_remain_synchronized():
+    from jobtracker.ui.widgets.session_dialog import DurationDialog
+
+    _application()
+    dialog = DurationDialog()
+    dialog.chunk_buttons[120].click()
+    dialog.chunk_buttons[30].click()
+    dialog.hours_input.setValue(1)
+    assert dialog.total_minutes() == 90
+    assert {m for m, b in dialog.chunk_buttons.items() if b.isChecked()} == {60, 30}
+
+    dialog.minutes_input.setValue(17)
+    assert dialog.total_minutes() == 77
+    assert not any(b.isChecked() for b in dialog.chunk_buttons.values())
+    assert "Exact duration entered" in dialog.duration_hint.text()
+    assert "77 minutes" in dialog.total_label.text()
+    dialog.chunk_buttons[5].click()
+    assert dialog.total_minutes() == 5  # starts a new sum, no stale 90-minute sum
+
+    dialog.hours_input.setValue(12)
+    dialog.minutes_input.setValue(7)
+    assert dialog.total_minutes() == 727
+    assert not any(b.isChecked() for b in dialog.chunk_buttons.values())
+    dialog._validate_and_accept()
+    assert dialog.result() == dialog.Accepted
+    assert dialog.total_minutes() == 727
+    dialog.close()
+
+
+def test_duration_all_chunk_combinations_keep_their_own_selection():
+    from jobtracker.ui.widgets.session_dialog import DurationDialog
+
+    _application()
+    dialog = DurationDialog()
+    minutes = tuple(dialog.chunk_buttons)
+    for mask in range(1 << len(minutes)):
+        selected = {m for index, m in enumerate(minutes) if mask & (1 << index)}
+        for m, button in dialog.chunk_buttons.items():
+            if button.isChecked() != (m in selected):
+                button.click()
+        assert dialog.total_minutes() == sum(selected)
+        assert {m for m, b in dialog.chunk_buttons.items() if b.isChecked()} == selected
+    assert dialog.total_minutes() == 480
+    assert (dialog.hours_input.value(), dialog.minutes_input.value()) == (8, 0)
+    dialog.close()
+
+
+def test_custom_duration_saves_170_minutes_only_after_add(service, monkeypatch):
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.session_dialog import DurationDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    end = datetime(2026, 6, 21, 0, 30)
+    original_add = manager._quick_add
+    monkeypatch.setattr(manager, "_quick_add", lambda m: original_add(m, end=end))
+    manager._custom_duration()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    dialog = manager.findChild(DurationDialog)
+    assert dialog is not None
+    for minutes in (120, 30, 15, 5):
+        dialog.chunk_buttons[minutes].click()
+    assert service.get_sessions_for_subject(subject.id) == []
+    dialog.confirm_btn.click()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    sessions = service.get_sessions_for_subject(subject.id)
+    assert len(sessions) == 1
+    assert sessions[0].duration_seconds == 170 * 60
+    assert sessions[0].start_time == "2026-06-20T21:40:00"
+    assert sessions[0].end_time == end.isoformat()
+    manager.close()
+
+
+def test_quick_add_90_minute_button_dispatches_exact_duration(service, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    end = datetime(2026, 6, 21, 0, 30)
+    original_add = manager._quick_add
+    monkeypatch.setattr(manager, "_quick_add", lambda m: original_add(m, end=end))
+    button = next(b for b in manager.findChildren(QPushButton) if b.text() == "1h 30m")
+    button.click()
+    qt_app.processEvents()
+    session = service.get_sessions_for_subject(subject.id)[0]
+    assert session.duration_seconds == 90 * 60
+    assert session.start_time == "2026-06-20T23:00:00"
+    manager.close()
+
+
+@pytest.mark.parametrize("start,end,seconds", [
+    (datetime(2026, 3, 28, 1, 30), datetime(2026, 3, 28, 3), 86400),
+    (datetime(2026, 3, 28, 2, 30), datetime(2026, 3, 28, 4), 86400),
+    (datetime(2026, 3, 30, 1, 30), datetime(2026, 3, 30, 3), -86400),
+    (datetime(2026, 10, 24, 2, 30), datetime(2026, 10, 24, 4), 86400),
+    (datetime(2026, 10, 26, 2, 30), datetime(2026, 10, 26, 4), -86400),
+])
+def test_session_editor_day_moves_preserve_wall_clock_at_dst(
+    service, monkeypatch, start, end, seconds,
+):
+    from PySide6.QtWidgets import QPushButton
+    from jobtracker.ui.widgets.session_dialog import SessionDialog, apply_session_edits
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(subject.id, start, end)
+    with monkeypatch.context() as clock:
+        clock.setenv("TZ", "Europe/Amsterdam")
+        time.tzset()
+        try:
+            dialog = SessionDialog(
+                None, session, service=service, current_subject_id=subject.id
+            )
+            label = "+1 day" if seconds > 0 else "−1 day"
+            next(b for b in dialog.findChildren(QPushButton) if b.text() == label).click()
+            data = dialog.get_data()
+            assert data["start_time"] == start + timedelta(seconds=seconds)
+            assert data["end_time"] == end + timedelta(seconds=seconds)
+            assert data["start_time"].tzinfo is None
+            moved = apply_session_edits(service, session, data)
+            assert moved.id == session.id and moved.uid == session.uid
+            assert moved.duration_seconds == session.duration_seconds
+            dialog.close()
+        finally:
+            clock.undo()
+            time.tzset()
+
+
+def test_day_buttons_dispatch_exact_selected_session_and_leave_original_day(service, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+    from jobtracker.core import timeutils
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 6, 21, 1, 30)
+    session = service.add_session(subject.id, start, start + timedelta(minutes=90))
+    other = service.add_session(subject.id, start.replace(hour=0), start.replace(hour=1))
+    seen = []
+    original_shift = service.shift_session
+
+    def capture(session_id, seconds):
+        seen.append((session_id, seconds))
+        return original_shift(session_id, seconds)
+
+    monkeypatch.setattr(service, "shift_session", capture)
+    manager = ManageSessionsDialog(subject.id, service, select_session_id=session.id)
+    manager.show()
+    qt_app.processEvents()
+    next(b for b in manager.findChildren(QPushButton) if b.text() == "+1 day").click()
+    moved = service.get_session(session.id)
+    assert seen == [(session.id, 86400)]
+    assert moved.start_time == (start + timedelta(days=1)).isoformat()
+    assert moved.duration_seconds == session.duration_seconds and moved.uid == session.uid
+    assert manager._list.selected_session()["session_id"] == session.id
+    assert service.get_session(other.id).start_time == other.start_time
+    manager.close()
+
+    day = timeutils.logical_day(start + timedelta(days=1))
+    dialog = DaySessionsDialog(service, day, select_session_id=session.id)
+    dialog.show()
+    qt_app.processEvents()
+    next(b for b in dialog.findChildren(QPushButton) if b.text() == "−1 day").click()
+    assert seen == [(session.id, 86400), (session.id, -86400)]
+    assert dialog._list.count() == 0  # row moves out of this logical-day list
+    assert service.get_session(session.id).start_time == session.start_time
+    dialog.close()
+
+
+def test_editor_day_moves_preserve_fractional_endpoints_until_edited(service):
+    from jobtracker.ui.widgets.session_dialog import SessionDialog, apply_session_edits
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 3, 28, 9, 0, 0, 900123)
+    end = datetime(2026, 3, 28, 10, 30, 0, 100456)
+    session = service.add_session(subject.id, start, end)
+    dialog = SessionDialog(None, session, service=service, current_subject_id=subject.id)
+    assert dialog.get_data()["start_time"] == start
+    assert dialog.get_data()["end_time"] == end
+    dialog._shift(86400)
+    dialog._shift(-900)
+    data = dialog.get_data()
+    assert data["start_time"] == start + timedelta(days=1, minutes=-15)
+    assert data["end_time"] == end + timedelta(days=1, minutes=-15)
+    moved = apply_session_edits(service, session, data)
+    assert moved.duration_seconds == session.duration_seconds == 5399
+    assert moved.id == session.id and moved.uid == session.uid
+
+    # Deliberately changing a datetime uses that field's edited value; it must
+    # never resurrect the original fractional endpoint after an edit.
+    dialog.start_edit.setDateTime(dialog.start_edit.dateTime().addSecs(60))
+    edited = dialog.get_data()
+    assert edited["start_time"] == dialog.start_edit.dateTime().toPython()
+    assert edited["start_time"] != data["start_time"]
+    assert edited["end_time"] == data["end_time"]
+    dialog.close()
+
+
+def test_day_move_does_not_select_another_session_when_target_leaves(service, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+    from jobtracker.ui.widgets import session_list
+    from jobtracker.ui.widgets.day_sessions_dialog import DaySessionsDialog
+
+    qt_app = _application()
+    day, _a, _b, first, second = _day_with_two_sessions(service)
+    notices = []
+    monkeypatch.setattr(session_list, "information", lambda *_args: notices.append(_args[1]))
+    dialog = DaySessionsDialog(service, day, select_session_id=first.id)
+    dialog.show()
+    qt_app.processEvents()
+    button = next(b for b in dialog.findChildren(QPushButton) if b.text() == "+1 day")
+    button.click()
+    qt_app.processEvents()
+    assert dialog._list.count() == 1
+    assert dialog._list.selected_session() is None
+    moved_start = service.get_session(first.id).start_time
+    button.click()
+    qt_app.processEvents()
+    assert notices == ["No Selection"]
+    assert service.get_session(first.id).start_time == moved_start
+    assert service.get_session(second.id).start_time == second.start_time
+    dialog.close()
+
+
+@pytest.mark.parametrize("start,seconds", [
+    (datetime(100, 1, 1, 9), -86400),
+    (datetime(9999, 12, 31, 9), 86400),
+])
+def test_editor_out_of_range_day_move_keeps_both_fields(service, monkeypatch, start, seconds):
+    from jobtracker.ui.widgets import session_dialog
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(subject.id, start, start + timedelta(minutes=90))
+    dialog = session_dialog.SessionDialog(None, session)
+    original = dialog.get_data()
+    assert original["start_time"] == start
+    warnings = []
+    monkeypatch.setattr(session_dialog, "warning", lambda *_args: warnings.append(_args[1]))
+    dialog._shift(seconds)
+    assert warnings == ["Could Not Move"]
+    assert dialog.get_data() == original
+    assert service.get_session(session.id).start_time == session.start_time
+    dialog.close()
+
+
+@pytest.mark.parametrize("start,seconds", [
+    (datetime(1, 1, 1, 9), -86400),
+    (datetime(9999, 12, 31, 9), 86400),
+])
+def test_list_move_outside_datetime_range_leaves_session_intact(service, start, seconds):
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(subject.id, start, start + timedelta(minutes=90))
+    assert service.shift_session(session.id, seconds) is None
+    persisted = service.get_session(session.id)
+    assert persisted.start_time == session.start_time
+    assert persisted.end_time == session.end_time
+    assert persisted.duration_seconds == session.duration_seconds and persisted.uid == session.uid
+
+
+def test_editor_calendar_and_clock_edits_replace_only_changed_endpoint(service, monkeypatch):
+    from PySide6.QtCore import QDate, QTime
+    from jobtracker.ui.widgets import session_dialog
+
+    _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 3, 28, 1, 30, 0, 900123)
+    end = datetime(2026, 3, 28, 3, 0, 0, 100456)
+    session = service.add_session(subject.id, start, end)
+    dialog = session_dialog.SessionDialog(None, session)
+    assert dialog.start_edit.calendarPopup() and dialog.end_edit.calendarPopup()
+    dialog.start_edit.setDate(QDate(2026, 3, 29))
+    edited = dialog.get_data()
+    assert edited["start_time"].date() == date(2026, 3, 29)
+    assert edited["end_time"] == end
+    warnings = []
+    monkeypatch.setattr(session_dialog, "warning", lambda *_args: warnings.append(_args[1]))
+    dialog._validate_and_accept()
+    assert warnings == ["Invalid Times"]
+    assert dialog.result() == dialog.Rejected
+
+    dialog.end_edit.setDate(QDate(2026, 3, 29))
+    dialog.start_edit.setTime(QTime(2, 30, 0, 900))  # DST-skipped local clock is allowed.
+    data = dialog.get_data()
+    assert data["start_time"] == datetime(2026, 3, 29, 2, 30, 0, 900000)
+    assert data["end_time"] == datetime(2026, 3, 29, 3, 0, 0, 100000)
+    assert data["start_time"].tzinfo is None
+    dialog._shift(86400)
+    shifted = dialog.get_data()
+    assert shifted["start_time"] == data["start_time"] + timedelta(days=1)
+    assert shifted["end_time"] == data["end_time"] + timedelta(days=1)
+    dialog._validate_and_accept()
+    assert dialog.result() == dialog.Accepted
+    moved = session_dialog.apply_session_edits(service, session, shifted)
+    assert moved.id == session.id and moved.uid == session.uid
+    assert moved.duration_seconds == 1799
+    dialog.close()
+
+
+@pytest.mark.parametrize("seconds", [20, 29, 30])
+def test_editor_short_duration_guard_keeps_existing_session(service, monkeypatch, seconds):
+    from jobtracker.ui.widgets import session_dialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    start = datetime(2026, 6, 20, 9)
+    session = service.add_session(subject.id, start, start + timedelta(minutes=90))
+    manager = ManageSessionsDialog(subject.id, service, select_session_id=session.id)
+    manager.show()
+    manager._edit()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    editor = manager.findChild(session_dialog.SessionDialog)
+    editor.end_edit.setDateTime(editor.start_edit.dateTime().addSecs(seconds))
+    warnings = []
+    monkeypatch.setattr(session_dialog, "warning", lambda *_args: warnings.append(_args[1]))
+    editor._validate_and_accept()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    persisted = service.get_session(session.id)
+    assert persisted is not None and persisted.uid == session.uid
+    if seconds < 30:
+        assert warnings == ["Duration Too Short"]
+        assert persisted.duration_seconds == session.duration_seconds
+        assert editor.isVisible()
+        editor.reject()
+        QTest.qWait(30)
+        qt_app.processEvents()
+    else:
+        assert warnings == []
+        assert persisted.duration_seconds == 30
+    manager.close()
+
+
+def test_shared_editor_reports_refused_save(service, monkeypatch):
+    from jobtracker.ui.widgets import session_list
+    from jobtracker.ui.widgets.session_dialog import SessionDialog
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    session = service.add_session(subject.id, datetime(2026, 6, 20, 9), datetime(2026, 6, 20, 10))
+    manager = ManageSessionsDialog(subject.id, service)
+    manager.show()
+    attempts, warnings = [], []
+    monkeypatch.setattr(service, "update_session", lambda *args: attempts.append(args))
+    monkeypatch.setattr(session_list, "warning", lambda *_args: warnings.append(_args[1]))
+    manager._edit()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    manager.findChild(SessionDialog)._validate_and_accept()
+    QTest.qWait(30)
+    qt_app.processEvents()
+    assert len(attempts) == 1 and attempts[0][0] == session.id
+    assert warnings == ["Could Not Save"]
+    assert service.get_session(session.id).start_time == session.start_time
+    assert manager._list.selected_session()["session_id"] == session.id
+    manager.close()
+
+
+def test_all_manager_creation_paths_report_refused_save(service, monkeypatch):
+    from types import SimpleNamespace
+    from jobtracker.ui.widgets import manage_sessions_dialog
+
+    qt_app = _application()
+    subject = service.add_subject("Physics", "#3B82F6", "")
+    manager = manage_sessions_dialog.ManageSessionsDialog(subject.id, service)
+    manager.show()
+    attempts, warnings = [], []
+    monkeypatch.setattr(service, "add_session", lambda *args: attempts.append(args))
+    monkeypatch.setattr(manage_sessions_dialog, "warning", lambda *_args: warnings.append(_args[1]))
+    manager._quick_add(90, end=datetime(2026, 6, 21, 0, 30))
+    manager._quick_add_slot(9, 11)
+    start = datetime(2026, 6, 20, 9)
+    dialog = SimpleNamespace(get_data=lambda: {
+        "start_time": start, "end_time": start + timedelta(minutes=170),
+    })
+    manager._finish_add(manager.Accepted, dialog)
+    qt_app.processEvents()
+    assert warnings == ["Could Not Add Session"] * 3
+    assert [int((end - start).total_seconds()) for _subject, start, end in attempts] == [5400, 7200, 10200]
+    assert manager._list.count() == 0
+    assert service.get_sessions_for_subject(subject.id) == []
+    manager.close()
+
+
 def test_quick_add_row_has_trimmed_durations_and_custom(service):
     from PySide6.QtWidgets import QPushButton
 
@@ -318,15 +744,16 @@ def test_quick_add_row_has_trimmed_durations_and_custom(service):
 
     qt_app = _application()
     assert [label for label, _m in QUICK_DURATIONS] == [
-        "15m", "30m", "1h", "1h 15m", "2h",
+        "15m", "30m", "1h", "1h 15m", "1h 30m", "2h",
     ]
     subject = service.add_subject("Physics", "#3B82F6", "")
     manager = ManageSessionsDialog(subject.id, service)
     manager.show()
     qt_app.processEvents()
     labels = {b.text() for b in manager.findChildren(QPushButton)}
-    for gone in ("45m", "1h 30m", "2h 30m"):
+    for gone in ("45m", "2h 30m"):
         assert gone not in labels
+    assert "1h 30m" in labels
     assert "Custom…" in labels
 
     # The custom duration flows into a real session ending now.

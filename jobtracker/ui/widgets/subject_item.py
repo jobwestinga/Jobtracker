@@ -100,6 +100,9 @@ class SubjectItemWidget(QFrame):
         self._is_archived = is_archived
         self._shortcut_number = shortcut_number
         self._t = tokens
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(f"Subject: {subject.name}")
+        self.setAccessibleDescription("Use Enter or Space to start or switch tracking. Tab reaches the subject actions." if not is_archived else "Archived subject. Tab reaches Unarchive, Sessions and Delete.")
         self._press_pos = QPoint()
         self._suppress_click_once = False
         self._base_size_hint: QSize | None = None
@@ -210,7 +213,8 @@ class SubjectItemWidget(QFrame):
         t = self._t
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setFocusPolicy(Qt.NoFocus)
+        btn.setFocusPolicy(Qt.StrongFocus)
+        btn.setAccessibleName(f"{text} subject {self.subject.name}")
         btn.setMinimumHeight(30)
         # Don't let the reorderable list treat a button press as a drag handle.
         btn.setProperty("no_drag", True)
@@ -233,6 +237,7 @@ class SubjectItemWidget(QFrame):
             QPushButton:pressed {{
                 background-color: {_hex_to_rgba(accent, 110)};
             }}
+            QPushButton:focus {{ border: 2px solid {t.get('BORDER_FOCUS', accent)}; }}
             """
         )
         if self.subject.id is not None:
@@ -253,6 +258,7 @@ class SubjectItemWidget(QFrame):
                 border-left: 5px solid {self.subject.color};
                 border-radius: {radius};
             }}
+            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
@@ -268,6 +274,7 @@ class SubjectItemWidget(QFrame):
                 border-left: 5px solid {self.subject.color};
                 border-radius: {radius};
             }}
+            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
@@ -288,6 +295,7 @@ class SubjectItemWidget(QFrame):
                 border-left: 5px solid {self.subject.color};
                 border-radius: {radius};
             }}
+            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
@@ -303,6 +311,7 @@ class SubjectItemWidget(QFrame):
                 border-left: 5px solid {t['TEXT_DIMMED']};
                 border-radius: {radius};
             }}
+            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
@@ -352,6 +361,17 @@ class SubjectItemWidget(QFrame):
     # ── Interaction ──────────────────────────────────────────────────────
     def suppress_next_click(self) -> None:
         self._suppress_click_once = True
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if (
+            self.hasFocus() and not self._is_archived and self.subject.id is not None
+            and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space)
+        ):
+            if not event.isAutoRepeat():
+                self.start_requested.emit(self.subject.id)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:

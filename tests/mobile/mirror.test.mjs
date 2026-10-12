@@ -5,7 +5,7 @@ const { createMirror } = await importWebModule('data/mirror.js');
 
 const canonical = () => ({ head: 10, subjects: [{ uid: 's', name: 'Work' }], goals: [], milestones: [], sessions: [], templates: [], settings: { day_start_time: '03:00' } });
 function setup(api = {}, pending = [], days = {}) {
-  const values = new Map();
+  const values = new Map([['jobtracker.token', 'mirror-test-account']]);
   globalThis.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   const mirror = createMirror({ api, pendingOperations: () => pending, getDayCache: () => days });
   mirror.store.baseSnapshot = canonical(); mirror.store.head = 10;
@@ -72,4 +72,28 @@ test('cache write failure leaves durable operations and the visible projected da
   assert.doesNotThrow(mirror.save);
   assert.equal(queue.length, 1);
   assert.equal(mirror.store.snapshot.goals[0].name, 'Finish');
+});
+
+test('account-tagged mirrors cannot expose another account or an unverified legacy cache', () => {
+  const pending = [{ op: 'add_goal', params: { uid: 'saved', name: 'Queued work' } }];
+  const { mirror, values } = setup({}, pending, { '2026-10-10': [{ uid: 'private-history' }] });
+  mirror.save();
+  const raw = values.get('jobtracker.mirror');
+  assert.ok(JSON.parse(raw).owner);
+  assert.equal(raw.includes('mirror-test-account'), false, 'cache does not duplicate the credential');
+  mirror.reset();
+  values.set('jobtracker.token', 'another-account');
+  assert.equal(mirror.restore(), null);
+  assert.equal(mirror.store.baseSnapshot, null);
+  assert.equal(pending.length, 1, 'cache rejection never deletes queued changes');
+  assert.equal(values.get('jobtracker.mirror'), raw, 'a failed cleanup can leave the cache safely tagged');
+  values.set('jobtracker.token', 'mirror-test-account');
+  assert.ok(mirror.restore(), 'the original account still has its offline history');
+  mirror.reset();
+  const legacy = JSON.parse(raw); delete legacy.owner;
+  values.set('jobtracker.mirror', JSON.stringify(legacy));
+  assert.equal(mirror.restore(), null);
+  values.delete('jobtracker.token');
+  values.set('jobtracker.mirror', raw);
+  assert.equal(mirror.restore(), null);
 });

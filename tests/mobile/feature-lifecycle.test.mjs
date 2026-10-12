@@ -39,3 +39,33 @@ test('graphs ignore older responses and reset-owned requests; an active timer by
   feature.reset(); requests[2].resolve({ buckets: [{ total_seconds: 30 }] }); await live;
   assert.equal(feature.data, null, 'reset must prevent old graph data from appearing');
 });
+
+test('Weight owns one resumable calendar lifecycle and releases it on destroy', async () => {
+  const { createWeightFeature } = await importWebModule('features/weight/index.js');
+  const listeners = () => {
+    const callbacks = new Map();
+    return { callbacks, hidden: false,
+      addEventListener: (name, callback) => { if (!callbacks.has(name)) callbacks.set(name, new Set()); callbacks.get(name).add(callback); },
+      removeEventListener: (name, callback) => callbacks.get(name)?.delete(callback),
+    };
+  };
+  const previous = { document: globalThis.document, window: globalThis.window, setInterval, clearInterval, localStorage };
+  const intervals = new Set();
+  try {
+    globalThis.document = listeners(); globalThis.window = listeners();
+    globalThis.localStorage = { getItem: () => null, removeItem: () => {} };
+    globalThis.setInterval = (callback) => { intervals.add(callback); return callback; };
+    globalThis.clearInterval = (callback) => intervals.delete(callback);
+    const feature = createWeightFeature({ getToken: () => 'account', pendingOperations: () => [] });
+    assert.equal(intervals.size, 0, 'construction must not start hidden work');
+    feature.mount(); feature.mount();
+    assert.equal(intervals.size, 1); assert.equal(document.callbacks.get('visibilitychange').size, 1);
+    assert.equal(window.callbacks.get('pageshow').size, 1);
+    feature.reset(); assert.equal(intervals.size, 1, 'credential reset retains mounted lifecycle');
+    feature.destroy(); feature.destroy();
+    assert.equal(intervals.size, 0); assert.equal(document.callbacks.get('visibilitychange').size, 0);
+    assert.equal(window.callbacks.get('pageshow').size, 0);
+    feature.mount(); assert.equal(intervals.size, 1, 'the feature can mount again');
+    feature.destroy();
+  } finally { Object.assign(globalThis, previous); }
+});

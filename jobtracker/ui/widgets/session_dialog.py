@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
     QComboBox, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QDateTimeEdit, QSpinBox,
 )
-from PySide6.QtCore import QDateTime, QTime, Qt
+from PySide6.QtCore import QDateTime, QTime, QTimeZone, Qt
+
+from ...core import timeutils
 
 from .dialog_utils import (
     InlineDialog,
@@ -21,7 +23,7 @@ from .dialog_utils import (
     question,
     warning,
 )
-from .session_list import build_move_row
+from .session_list import build_move_row, resolve_tokens
 
 
 def apply_session_edits(service, session, data: dict):
@@ -40,47 +42,92 @@ def apply_session_edits(service, session, data: dict):
 
 
 class DurationDialog(InlineDialog):
-    """Ask for an arbitrary duration (hours + minutes) for a quick-add."""
+    """Combine duration chunks, with an exact hours/minutes fallback."""
 
     MAX_HOURS = 99
+    DURATION_CHUNKS = (
+        ("4h", 240), ("2h", 120), ("1h", 60),
+        ("30m", 30), ("15m", 15), ("10m", 10), ("5m", 5),
+    )
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         configure_window_modal(self)
         self.setWindowTitle("Custom Duration")
-        self.setFixedSize(320, 210)
+        self.setMinimumSize(380, 360)
+        self.resize(400, 380)
+        self._syncing_duration = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 18)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         title = QLabel("How long was the session?")
         title.setStyleSheet("font-weight: 600;")
         layout.addWidget(title)
 
+        tokens = resolve_tokens(self)
+        self.chunk_buttons: dict[int, QPushButton] = {}
+        for chunks in (self.DURATION_CHUNKS[:3], self.DURATION_CHUNKS[3:]):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            for label, minutes in chunks:
+                button = QPushButton(label, self)
+                button.setCheckable(True)
+                button.setMinimumHeight(40)
+                button.setCursor(Qt.PointingHandCursor)
+                button.setProperty("no_drag", True)
+                button.setToolTip(f"Toggle {minutes} minutes in the total")
+                button.setAccessibleName(f"Include {minutes} minutes in the session")
+                button.setStyleSheet(
+                    "QPushButton:checked {"
+                    f" background: {tokens['BG_TERTIARY']};"
+                    f" border: 2px solid {tokens['ACCENT']}; font-weight: 700; }}"
+                )
+                button.toggled.connect(self._chunks_changed)
+                self.chunk_buttons[minutes] = button
+                row.addWidget(button, 1)
+            layout.addLayout(row)
+
+        self.total_label = QLabel(self)
+        self.total_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        layout.addWidget(self.total_label)
+
         fields = QHBoxLayout()
-        fields.setSpacing(10)
+        fields.setSpacing(8)
+        fields.addWidget(QLabel("Exact duration", self))
 
         self.hours_input = QSpinBox(self)
         self.hours_input.setRange(0, self.MAX_HOURS)
         self.hours_input.setSuffix(" h")
-        self.hours_input.setMinimumHeight(36)
+        self.hours_input.setAccessibleName("Exact session duration hours")
+        self.hours_input.setMinimumHeight(32)
         self.hours_input.setAlignment(Qt.AlignCenter)
         fields.addWidget(self.hours_input)
 
         self.minutes_input = QSpinBox(self)
         self.minutes_input.setRange(0, 59)  # minutes never reach a full hour
         self.minutes_input.setSuffix(" m")
-        self.minutes_input.setMinimumHeight(36)
+        self.minutes_input.setAccessibleName("Exact session duration minutes")
+        self.minutes_input.setMinimumHeight(32)
         self.minutes_input.setAlignment(Qt.AlignCenter)
         fields.addWidget(self.minutes_input)
+        self.hours_input.valueChanged.connect(self._exact_duration_changed)
+        self.minutes_input.valueChanged.connect(self._exact_duration_changed)
+        for field in (self.hours_input, self.minutes_input):
+            field.setStyleSheet(
+                "QSpinBox {"
+                f" background: {tokens['BG_PRIMARY']}; color: {tokens['TEXT_PRIMARY']};"
+                f" border: 1px solid {tokens['BORDER_COLOR']}; border-radius: 6px; padding: 4px 6px; }}"
+                "QSpinBox QLineEdit { background: transparent; border: none; padding: 0; }"
+            )
 
         layout.addLayout(fields)
 
-        hint = QLabel("The session ends now and starts that long ago.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("font-size: 11px; opacity: 0.8;")
-        layout.addWidget(hint)
+        self.duration_hint = QLabel(self)
+        self.duration_hint.setWordWrap(True)
+        self.duration_hint.setStyleSheet("font-size: 11px; opacity: 0.8;")
+        layout.addWidget(self.duration_hint)
 
         layout.addStretch()
 
@@ -92,7 +139,7 @@ class DurationDialog(InlineDialog):
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
 
-        confirm = QPushButton("Add Session")
+        confirm = self.confirm_btn = QPushButton("Add Session")
         confirm.setObjectName("primaryBtn")
         confirm.setMinimumHeight(34)
         confirm.setCursor(Qt.PointingHandCursor)
@@ -105,11 +152,62 @@ class DurationDialog(InlineDialog):
             button.setDefault(False)
         confirm.setAutoDefault(True)
         confirm.setDefault(True)
+        self._update_total(exact=False)
 
     def total_minutes(self) -> int:
         return self.hours_input.value() * 60 + self.minutes_input.value()
 
+    def _chunks_changed(self, _checked: bool) -> None:
+        if self._syncing_duration:
+            return
+        total = sum(
+            minutes for minutes, button in self.chunk_buttons.items()
+            if button.isChecked()
+        )
+        self._syncing_duration = True
+        try:
+            hours, minutes = divmod(total, 60)
+            self.hours_input.setValue(hours)
+            self.minutes_input.setValue(minutes)
+        finally:
+            self._syncing_duration = False
+        self._update_total(exact=False)
+
+    def _exact_duration_changed(self, _value: int) -> None:
+        if self._syncing_duration:
+            return
+        remaining = self.total_minutes()
+        selected: set[int] = set()
+        for minutes in self.chunk_buttons:
+            if remaining >= minutes:
+                selected.add(minutes)
+                remaining -= minutes
+        # An exact value outside the chunk combinations stays authoritative.
+        # The next chunk selection starts a new sum, never an old hidden sum.
+        if remaining:
+            selected.clear()
+        self._syncing_duration = True
+        try:
+            for minutes, button in self.chunk_buttons.items():
+                button.setChecked(minutes in selected)
+        finally:
+            self._syncing_duration = False
+        self._update_total(exact=bool(remaining))
+
+    def _update_total(self, *, exact: bool) -> None:
+        total = self.total_minutes()
+        hours, minutes = divmod(total, 60)
+        duration = f"{hours}h {minutes}m" if hours else f"{minutes}m"
+        self.total_label.setText(f"Total: {duration} ({total} minutes)")
+        self.confirm_btn.setEnabled(total > 0)
+        self.duration_hint.setText(
+            "Exact duration entered. Selecting a chunk starts a new total."
+            if exact else "Toggle chunks on or off. The session ends now."
+        )
+
     def _validate_and_accept(self) -> None:
+        self.hours_input.interpretText()
+        self.minutes_input.interpretText()
         # Under a minute would be silently dropped by the 30-second rule.
         if self.total_minutes() < 1:
             warning(
@@ -139,12 +237,13 @@ class SessionDialog(InlineDialog):
         self.session = session
         self._service = service
         self._current_subject_id = current_subject_id
+        self._exact_datetimes = {}
         self.subject_combo: QComboBox | None = None
         self.setWindowTitle("Edit Session" if session else "Add Session")
         show_subject_picker = session is not None and service is not None
         # Sized with ~30px of headroom over the layout's needs, so a larger
         # system font can grow a little without clipping the buttons.
-        self.setFixedSize(380, 400 if show_subject_picker else 330)
+        self.setFixedSize(480, 400 if show_subject_picker else 330)
         self._build_ui(show_subject_picker)
 
     def _build_ui(self, show_subject_picker: bool) -> None:
@@ -159,6 +258,8 @@ class SessionDialog(InlineDialog):
             layout.addWidget(lbl_subject)
 
             self.subject_combo = QComboBox(self)
+            self.subject_combo.setAccessibleName("Session subject")
+            lbl_subject.setBuddy(self.subject_combo)
             self.subject_combo.setMinimumHeight(34)
             self.subject_combo.setCursor(Qt.PointingHandCursor)
             subjects = list(self._service.get_all_subjects())
@@ -192,20 +293,23 @@ class SessionDialog(InlineDialog):
         layout.addWidget(lbl_s)
 
         self.start_edit = QDateTimeEdit(self)
+        self.start_edit.setAccessibleName("Session start date and time")
+        lbl_s.setBuddy(self.start_edit)
         self.start_edit.setDisplayFormat("yyyy-MM-dd  HH:mm:ss")
         self.start_edit.setCalendarPopup(True)
         self.start_edit.setMinimumHeight(34)
         if self.session and self.session.start_time:
-            self.start_edit.setDateTime(
-                QDateTime.fromString(self.session.start_time[:19], "yyyy-MM-ddTHH:mm:ss")
-            )
+            self._set_wall_clock_datetime(self.start_edit, self.session.start_time)
         else:
             # Default start = 1h ago, but never roll back to the previous day.
             now = QDateTime.currentDateTime()
+            now = QDateTime(now.date(), now.time(), QTimeZone(b"UTC"))
             start_default = now.addSecs(-3600)
             if start_default.date() != now.date():
-                start_default = QDateTime(now.date(), QTime(0, 0, 0))
-            self.start_edit.setDateTime(start_default)
+                start_default = QDateTime(now.date(), QTime(0, 0, 0), QTimeZone(b"UTC"))
+            self._set_wall_clock_datetime(
+                self.start_edit, timeutils.to_iso(start_default.toPython())
+            )
         layout.addWidget(self.start_edit)
 
         # ── End ──────────────────────────────────────────────────────────
@@ -214,15 +318,17 @@ class SessionDialog(InlineDialog):
         layout.addWidget(lbl_e)
 
         self.end_edit = QDateTimeEdit(self)
+        self.end_edit.setAccessibleName("Session end date and time")
+        lbl_e.setBuddy(self.end_edit)
         self.end_edit.setDisplayFormat("yyyy-MM-dd  HH:mm:ss")
         self.end_edit.setCalendarPopup(True)
         self.end_edit.setMinimumHeight(34)
         if self.session and self.session.end_time:
-            self.end_edit.setDateTime(
-                QDateTime.fromString(self.session.end_time[:19], "yyyy-MM-ddTHH:mm:ss")
-            )
+            self._set_wall_clock_datetime(self.end_edit, self.session.end_time)
         else:
-            self.end_edit.setDateTime(QDateTime.currentDateTime())
+            self._set_wall_clock_datetime(
+                self.end_edit, timeutils.to_iso(QDateTime.currentDateTime().toPython())
+            )
         layout.addWidget(self.end_edit)
 
         # ── Move ─────────────────────────────────────────────────────────
@@ -289,17 +395,56 @@ class SessionDialog(InlineDialog):
 
     def _shift(self, seconds: int) -> None:
         """Move both ends by the same amount (duration is preserved)."""
-        self.start_edit.setDateTime(self.start_edit.dateTime().addSecs(seconds))
-        self.end_edit.setDateTime(self.end_edit.dateTime().addSecs(seconds))
+        try:
+            start, end = timeutils.shift_session_by_seconds(
+                self._wall_clock_value(self.start_edit),
+                self._wall_clock_value(self.end_edit),
+                seconds,
+            )
+        except OverflowError:
+            start = end = None
+        if start is None or any(
+            not edit.minimumDateTime() <= QDateTime.fromString(timeutils.to_iso(value) + "Z", Qt.ISODate)
+            <= edit.maximumDateTime()
+            for edit, value in ((self.start_edit, start), (self.end_edit, end))
+        ):
+            warning(self, "Could Not Move", "That move is outside the supported calendar range.")
+            return
+        self._set_wall_clock_datetime(self.start_edit, timeutils.to_iso(start))
+        self._set_wall_clock_datetime(self.end_edit, timeutils.to_iso(end))
+
+    def _set_wall_clock_datetime(self, edit: QDateTimeEdit, value: str) -> None:
+        # These fields represent naive wall clocks, including a DST-skipped
+        # local hour. Fixed-offset Qt metadata prevents normalization; no UTC
+        # conversion or timezone information enters the stored Python value.
+        if hasattr(edit, "setTimeZone"):
+            edit.setTimeZone(QTimeZone(b"UTC"))
+        else:  # PySide6 6.6 compatibility.
+            edit.setTimeSpec(Qt.UTC)
+        edit.setDateTimeRange(
+            QDateTime.fromString("0100-01-01T00:00:00Z", Qt.ISODate),
+            QDateTime.fromString("9999-12-31T23:59:59.999Z", Qt.ISODate),
+        )
+        edit.setDateTime(QDateTime.fromString(value + "Z", Qt.ISODate))
+        self._exact_datetimes[edit] = (timeutils.parse_iso(value), edit.dateTime().toPython())
+
+    def _wall_clock_value(self, edit: QDateTimeEdit):
+        value = edit.dateTime().toPython()
+        exact, displayed = self._exact_datetimes.get(edit, (None, None))
+        # Qt stores milliseconds; untouched data may have finer precision.
+        return exact if exact is not None and value == displayed else value
 
     def _validate_and_accept(self) -> None:
-        start = self.start_edit.dateTime()
-        end = self.end_edit.dateTime()
+        start = self._wall_clock_value(self.start_edit)
+        end = self._wall_clock_value(self.end_edit)
         if start >= end:
             warning(
                 self, "Invalid Times",
                 "Start time must be before end time.",
             )
+            return
+        if timeutils.duration_seconds(start, end) < 30:
+            warning(self, "Duration Too Short", "A session must last at least 30 seconds.")
             return
         self.accept()
 
@@ -309,6 +454,6 @@ class SessionDialog(InlineDialog):
             subject_id = self.subject_combo.currentData()
         return {
             "subject_id": subject_id,
-            "start_time": self.start_edit.dateTime().toPython(),
-            "end_time": self.end_edit.dateTime().toPython(),
+            "start_time": self._wall_clock_value(self.start_edit),
+            "end_time": self._wall_clock_value(self.end_edit),
         }

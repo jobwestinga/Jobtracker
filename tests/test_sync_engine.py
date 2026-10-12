@@ -28,12 +28,6 @@ from server import auth  # noqa: E402
 TestClient = fastapi_testclient.TestClient
 
 
-
-
-
-
-
-
 def mirror_names(w, table="tasks"):
     cur = w.mirror.connection.cursor()
     column = "title" if table == "goal_templates" else "name"

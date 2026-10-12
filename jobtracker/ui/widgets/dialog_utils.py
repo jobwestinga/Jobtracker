@@ -198,6 +198,8 @@ class _InlineDialogLayer(QWidget):
         close.setObjectName("jtInlineDialogClose")
         close.setFixedSize(32, 30)
         close.setCursor(Qt.PointingHandCursor)
+        close.setAccessibleName(f"Close {dialog.windowTitle() or 'dialog'}")
+        close.setToolTip(f"Close {dialog.windowTitle() or 'dialog'}")
         close.clicked.connect(dialog.reject)
         header.addWidget(close)
         panel_layout.addLayout(header)

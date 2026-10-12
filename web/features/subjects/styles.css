@@ -14,6 +14,10 @@
 
 .subject-start { border: 0; background: none; color: var(--accent); min-width: 44px; min-height: 44px; padding: 0; }
 
+.subject-card { display: grid; grid-template-columns: 10px minmax(0, 1fr) 44px 44px; }
+.subject-card.archived { grid-template-columns: 10px minmax(0, 1fr) 44px; }
+.subject-quick-add { grid-column: 2 / -1; min-height: 44px; }
+
 .swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
 
 .swatch.used { opacity: 0.35; }

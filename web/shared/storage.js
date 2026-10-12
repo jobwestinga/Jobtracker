@@ -1,6 +1,7 @@
 export const STORAGE_KEYS = Object.freeze({
-  token: "jobtracker.token", outbox: "jobtracker.outbox", mirror: "jobtracker.mirror",
+  token: "jobtracker.token", outbox: "jobtracker.outbox", outboxOwner: "jobtracker.outbox-owner", mirror: "jobtracker.mirror",
   graphs: "jobtracker.graphs", weightCache: "jobtracker.weight-cache",
+  syncStatus: "jobtracker.sync-status",
   weightPreferences: "jobtracker.weight-preferences",
 });
 export function accountTag(token) {

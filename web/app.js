@@ -1,9 +1,11 @@
 // Startup, navigation and shared refresh coordination. Features own their UI state.
 import { api } from "./data/api.js";
-import { send, flush, pendingCount, pendingOperations } from "./data/outbox.js";
+import { send, flush, pendingCount, pendingForProjection as pendingOperations, pendingTokenMatches, subscribeOutbox } from "./data/outbox.js";
 import { getToken, setToken, clearToken } from "./data/credentials.js";
 import { ApiError } from "./data/errors.js";
+import { createActionRunner } from "./data/actions.js";
 import { createMirror } from "./data/mirror.js";
+import { createSyncStatus } from "./data/sync-status.js";
 import { $ } from "./shared/dom.js";
 import { banner, hideBanner } from "./shared/banner.js";
 import { bindSheet, closeSheet } from "./shared/sheet.js";
@@ -12,24 +14,31 @@ import { closeFullscreen } from "./shared/fullscreen.js";
 import { STORAGE_KEYS } from "./shared/storage.js";
 import { createSubjectsFeature } from "./features/subjects/index.js";
 import { createGoalsFeature } from "./features/goals/index.js";
-import { createTemplatesFeature } from "./features/templates/index.js";
+import { createTemplatesFeature } from "./features/templates.js";
 import { createSessionsFeature } from "./features/sessions/index.js";
 import { createGraphsFeature } from "./features/graphs/index.js";
 import { createSettingsFeature } from "./features/settings/index.js";
 import { weightFeature } from "./weight.js";
 
 const state = { view: "weight", painted: false };
+const syncStatus = createSyncStatus({ getToken, pendingCount, onChange: (value) => {
+  const node = $("sync-status");
+  if (node.textContent !== value.label) node.textContent = value.label;
+  node.dataset.phase = value.phase;
+  node.title = value.detail;
+} });
+subscribeOutbox(syncStatus.outbox);
 let sessions;
 const mirror = createMirror({ api, pendingOperations, getDayCache: () => sessions.cache });
 const { store } = mirror;
 const getView = () => state.view;
 const reorderButtons = createOrderControls({ act, closeSheet });
 sessions = createSessionsFeature({ store, api, act, banner, saveMirror: mirror.save, navigateDay });
-const subjects = createSubjectsFeature({ store, act, banner, reorderButtons, editSession: sessions.edit });
+const subjects = createSubjectsFeature({ store, act, banner, reorderButtons, editSession: sessions.edit, quickAdd: sessions.quickAdd });
 const goals = createGoalsFeature({ store, act, banner, render, getView, reorderButtons });
-const templates = createTemplatesFeature({ store, act, send });
+const templates = createTemplatesFeature({ store, act, send, banner });
 const graphs = createGraphsFeature({ store, api, banner, getView, navigateDay, editSession: sessions.edit });
-const settings = createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken });
+const settings = createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken, getSyncStatus: syncStatus.snapshot });
 const features = { today: subjects, goals, sessions, graphs, weight: { render: () => weightFeature.render($("weight-body")) } };
 const VIEW_TITLES = { goals: "Goals", today: "Subjects", sessions: "Sessions", graphs: "Graphs", weight: "Weight" };
 
@@ -62,6 +71,7 @@ function refresh(options = {}) {
 }
 
 async function refreshOnce({ quiet = false, force = false } = {}) {
+  syncStatus.begin({ quiet });
   const revision = mutationRevision;
   if (!quiet) $("refresh").textContent = "…";
   let changedThisPass = !state.painted;
@@ -90,9 +100,12 @@ async function refreshOnce({ quiet = false, force = false } = {}) {
     if (state.view === "sessions" && (changed || sessions.status !== "ready")) await sessions.load();
     if (state.view === "graphs" && (changed || store.active || !graphs.data)) await graphs.load();
     if (changed) mirror.save();
-    if (!outgoing.ok) banner(`Changes waiting: ${outgoing.error}`, "error", 0);
-    else hideBanner();
+    if (!outgoing.ok) {
+      syncStatus.failure(outgoing);
+      banner(`Changes waiting: ${outgoing.error}`, "error", 0);
+    } else { syncStatus.success(); hideBanner(); }
   } catch (err) {
+    syncStatus.failure(err);
     if (err instanceof ApiError && err.status === 401) return showSetup("That token was rejected.");
     let waiting = 0;
     try { waiting = pendingCount(); mirror.project(); } catch (storageError) { err = storageError; }
@@ -110,35 +123,12 @@ async function refreshOnce({ quiet = false, force = false } = {}) {
   }
 }
 
-async function act(op, params, options = {}) {
-  mutationRevision++;
-  const { optimistic, uid } = options;
-  if (optimistic) {
-    try { optimistic(); render(); } catch { /* never let a guess break the UI */ }
-  }
-  try {
-    const outcome = await send(op, params, uid ? { uid } : {});
-    if (outcome.queued) {
-      mirror.project();
-      render();
-      banner(outcome.offline ? "Saved on this phone — waiting for connection" :
-        `Saved on this phone — ${outcome.error || "waiting to sync"}`, outcome.offline ? "ok" : "error", 0);
-      return outcome;
-    }
-    if (options.afterAcknowledged) await options.afterAcknowledged();
-    await refresh({ quiet: true });
-    if (outcome.result?.reason) banner(outcome.result.reason, "error", 0);
-    return outcome;
-  } catch (err) {
-    // A storage failure must roll back the optimistic display; there is no
-    // durable operation to promise the user in that case.
-    try { mirror.project(); render(); } catch { /* preserve the visible last state */ }
-    banner(err.message || "That did not work", "error", 0);
-    return { ok: false };
-  }
-}
+const runAction = createActionRunner({ send, project: mirror.project, render, refresh, banner,
+  onMutation: () => mutationRevision++ });
+function act(op, params, options = {}) { return runAction(op, params, options); }
 
 function render() {
+  syncStatus.paint();
   $("view-title").textContent = VIEW_TITLES[state.view];
   for (const view of Object.keys(VIEW_TITLES)) {
     $(`view-${view}`).classList.toggle("hidden", view !== state.view);
@@ -158,6 +148,7 @@ function render() {
 }
 
 function showSetup(message) {
+  syncStatus.paint();
   closeFullscreen();
   subjects.deactivate();
   $("app").classList.add("hidden");
@@ -170,17 +161,22 @@ async function trySetup() {
   if (!token) return;
   try {
     const previous = getToken();
+    if (pendingCount() && !pendingTokenMatches(token)) {
+      throw new ApiError("Send the waiting changes using the original token before connecting with another token.", 409);
+    }
     setToken(token);
     await api.context();
     if (previous !== token) {
       closeFullscreen();
       state.view = "weight";
       goals.reset();
-      localStorage.removeItem(STORAGE_KEYS.mirror);
-      localStorage.removeItem(STORAGE_KEYS.weightCache);
       mirror.reset(); sessions.reset(); graphs.reset();
       viewScroll.clear();
       weightFeature.invalidate();
+      try {
+        localStorage.removeItem(STORAGE_KEYS.mirror);
+        localStorage.removeItem(STORAGE_KEYS.weightCache);
+      } catch { /* account-tagged caches cannot be reused by another token */ }
     }
     $("setup-token").value = "";
     $("setup").classList.add("hidden");
@@ -225,6 +221,7 @@ bindSheet();
 document.querySelectorAll(".tab").forEach((tab) => { tab.onclick = () => navigateView(tab.dataset.view); });
 $("refresh").onclick = () => refresh({ force: true });
 $("open-settings").onclick = settings.open;
+$("sync-status").onclick = settings.open;
 $("setup-save").onclick = trySetup;
 $("setup-token").onkeydown = (event) => { if (event.key === "Enter") trySetup(); };
 // Coming back to the app is when stale data is most obvious, and the most
@@ -251,6 +248,22 @@ setInterval(() => {
   if (!document.hidden && getToken() && !sheetOpen) refresh({ quiet: true });
 }, 60000);
 window.addEventListener("online", () => refresh({ quiet: true }));
+window.addEventListener("offline", () => syncStatus.failure({ offline: true, message: "Waiting for connection." }));
+window.addEventListener("storage", (event) => {
+  if (event.key === STORAGE_KEYS.outbox || event.key === STORAGE_KEYS.syncStatus) syncStatus.paint();
+  if (event.key !== STORAGE_KEYS.token && event.key !== null) return;
+  closeSheet(); closeFullscreen();
+  goals.reset(); mirror.reset(); sessions.reset(); graphs.reset();
+  viewScroll.clear(); weightFeature.invalidate();
+  state.view = "weight"; state.painted = false;
+  const token = getToken();
+  try {
+    if (!token) return showSetup();
+    if (!pendingTokenMatches(token)) return showSetup("Saved changes belong to another connection. Reconnect the original token to send them.");
+    $("setup").classList.add("hidden"); $("app").classList.remove("hidden");
+    restoreMirror(); render(); refresh({ quiet: true });
+  } catch (error) { showSetup(error.message); }
+});
 
 // Register the service worker so the app opens with no signal. Failing to
 // register is not worth surfacing: it only costs offline support.
@@ -260,11 +273,13 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-if (getToken()) {
-  $("app").classList.remove("hidden");
-  restoreMirror();
-  if (!state.painted) render();
-  refresh();
-} else {
-  showSetup();
-}
+try {
+  if (getToken() && pendingTokenMatches(getToken())) {
+    $("app").classList.remove("hidden");
+    restoreMirror();
+    if (!state.painted) render();
+    refresh();
+  } else {
+    showSetup(getToken() ? "Saved changes belong to another connection. Reconnect the original token to send them." : "");
+  }
+} catch (error) { showSetup(error.message); }

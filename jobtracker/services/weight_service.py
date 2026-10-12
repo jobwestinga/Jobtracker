@@ -17,6 +17,10 @@ class WeightService:
         rows = self._repository.list_rows()
         return [sync_policy.to_wire(self.db, "weight_measurements", dict(row)) for row in rows]
 
+    def list_aliases(self) -> list[dict]:
+        """Expose daily canonical identities with the authenticated history."""
+        return [dict(row) for row in self._repository.list_aliases()]
+
     def _resolve(self, uid):
         return self._repository.resolve(uid)
 

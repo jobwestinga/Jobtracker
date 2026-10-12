@@ -1,7 +1,8 @@
 venv/
 build/
 dist/
-data/
+# Private repository data only; web/data contains public client source modules.
+/data/
 .git/
 __pycache__/
 *.pyc

@@ -1,4 +1,4 @@
-import { $, el, safeColor } from "../../shared/dom.js";
+import { $, el, safeColor, captureFocus, restoreFocus } from "../../shared/dom.js";
 import { addDays, localIso } from "../../shared/time.js";
 import { hm, prettyDayShort, shortLabel } from "../../shared/format.js";
 import { openSheet, closeSheet, field } from "../../shared/sheet.js";
@@ -21,8 +21,15 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     if (typeof prefs.autofit === "boolean") state.graphAutofit = prefs.autofit;
   } catch { /* preferences are optional */ }
   const graphCache = new Map();
-  let graphRequest = 0, graphPaintKey = null, graphFullscreen = null, agendaLayout = null, graphResizeFrame = null, observer = null;
+  let graphRequest = 0, graphPaintKey = null, graphFullscreen = null, agendaLayout = null, graphResizeFrame = null, observer = null, mounted = false;
   const agendaScroll = new Map();
+  const fullDay = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  function keyboardActivate(element) {
+    element.setAttribute("role", "button"); element.tabIndex = 0;
+    element.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); element.click(); }
+    };
+  }
 
   function automaticGrouping(range) {
     if (range >= 365) return "monthly";
@@ -76,12 +83,12 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     if (document.activeElement !== $("graph-start")) $("graph-start").value = state.graphStart;
     if (document.activeElement !== $("graph-end")) $("graph-end").value = state.graphEnd;
     $("graph-options").classList.toggle("hidden", state.graphMode !== "agenda");
-    document.querySelectorAll("#view-graphs [data-mode]").forEach((b) =>
-      b.classList.toggle("on", b.dataset.mode === state.graphMode));
-    document.querySelectorAll("#view-graphs [data-range]").forEach((b) =>
-      b.classList.toggle("on", b.dataset.range === state.graphRange));
-    document.querySelectorAll("#view-graphs [data-group]").forEach((b) =>
-      b.classList.toggle("on", b.dataset.group === state.graphGroup));
+    for (const [key, value] of [["mode", state.graphMode], ["range", state.graphRange], ["group", state.graphGroup]]) {
+      document.querySelectorAll(`#view-graphs [data-${key}]`).forEach((button) => {
+        const selected = button.dataset[key] === value;
+        button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+      });
+    }
     // Bucket size means nothing to the agenda, which is always one column per day.
     document.querySelector("#view-graphs .seg-group")
       .classList.toggle("hidden", state.graphMode !== "bars");
@@ -94,6 +101,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       return;
     }
     graphPaintKey = paintKey;
+    const focusKey = captureFocus(host);
     agendaLayout = null;
     host.innerHTML = "";
     $("graph-legend").innerHTML = "";
@@ -101,15 +109,18 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     if (!state.graphs) {
       $("graph-total").textContent = "";
       host.append(el("div", "spinner", "Loading…"));
+      restoreFocus(host, focusKey, $("graph-fullscreen"));
       return;
     }
     if (state.graphs.kind === "error") {
       $("graph-total").textContent = "";
       host.append(el("p", "muted", `Could not load graphs: ${state.graphs.message}`));
+      restoreFocus(host, focusKey, $("graph-fullscreen"));
       return;
     }
-    if (state.graphs.kind === "agenda") return drawAgenda(host, state.graphs.data);
-    return drawBars(host, state.graphs.data);
+    if (state.graphs.kind === "agenda") drawAgenda(host, state.graphs.data);
+    else drawBars(host, state.graphs.data);
+    restoreFocus(host, focusKey, $("graph-fullscreen"));
   }
 
   function drawBars(host, data) {
@@ -127,6 +138,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     const chart = el("div", "bars");
     for (const bucket of buckets) {
       const column = el("div", "bar-col");
+      column.dataset.focusKey = `bar:${data.grouping}:${bucket.date}`;
       const stack = el("div", "bar-stack");
       // Sum per SUBJECT first. The API returns one segment per session, and a
       // month can hold fifty of them; with a minimum height per block, every long
@@ -146,6 +158,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         piece.style.height = `${(segment.seconds / peak) * 100}%`;
         piece.style.backgroundColor = safeColor(segment.color);
         piece.title = `${segment.name}: ${hm(segment.seconds)}`;
+        piece.setAttribute("aria-hidden", "true");
         stack.append(piece);
       }
       const value = el("div", "bar-val", bucket.total_seconds ? hm(bucket.total_seconds) : "");
@@ -154,7 +167,10 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       // Tapping a day opens exactly that day, the way the desktop's charts do.
       if (data.grouping === "daily") {
         column.onclick = () => navigateDay(bucket.date);
+        keyboardActivate(column);
       }
+      column.setAttribute("aria-label", `${data.grouping === "daily" ? "Open sessions for " : ""}${fullDay(bucket.date)}, ${hm(bucket.total_seconds)} tracked${segments.length ? `: ${segments.map((segment) => `${segment.name} ${hm(segment.seconds)}`).join(", ")}` : ""}`);
+      if (data.grouping !== "daily") column.setAttribute("role", "img");
       chart.append(column);
     }
     host.append(chart);
@@ -213,6 +229,9 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     wrap.append(gutter);
 
     const scroll = el("div", "agenda-scroll");
+    scroll.tabIndex = 0; scroll.setAttribute("role", "region");
+    scroll.dataset.focusKey = "agenda-scroll";
+    scroll.setAttribute("aria-label", "Session agenda. Scroll horizontally to see more days.");
     const grid = el("div", "agenda-grid");
     const tracks = new Map();
     const byDay = new Map(days.map((d) => [d, []]));
@@ -225,6 +244,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       column.dataset.day = day;
       const track = el("div", "agenda-track");
       track.dataset.day = day;
+      track.setAttribute("role", "group"); track.setAttribute("aria-label", `${fullDay(day)} sessions`);
       track.style.height = `${height}px`;
       tracks.set(day, track);
 
@@ -240,19 +260,27 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         block.style.background = `color-mix(in srgb, ${safeColor(session.color)} 35%, var(--panel-2))`;
         if (blockHeight / 100 * height > 16) block.textContent = session.subject_name;
         block.title = `${session.subject_name} · ${hm(session.duration_seconds)}`;
+        const startClock = session.start_time?.slice(11, 16) || agendaHourLabel(session.start_h);
+        const endClock = session.end_time?.slice(11, 16) || agendaHourLabel(session.end_h);
+        block.setAttribute("aria-label", `${session.subject_name}, ${fullDay(day)}, ${startClock} to ${endClock}, ${hm(session.duration_seconds)}. Open session.`);
+        block.dataset.focusKey = `session:${session.uid}`;
         block.onclick = (event) => {
           event.stopPropagation();
           const persisted = (store.snapshot?.sessions || []).find((row) => row.uid === session.uid);
           if (persisted?.end_time) editSession({ ...persisted, subject_name: session.subject_name });
           else navigateDay(day);
         };
+        keyboardActivate(block);
         track.append(block);
       }
 
       // Tapping a day opens it in Sessions, where it can actually be edited.
       track.onclick = () => navigateDay(day);
 
-      const label = el("div", "agenda-daylbl", prettyDayShort(day));
+      const label = el("button", "agenda-daylbl", prettyDayShort(day));
+      label.type = "button"; label.setAttribute("aria-label", `Open sessions for ${fullDay(day)}`);
+      label.dataset.focusKey = `day:${day}`;
+      label.onclick = () => navigateDay(day);
       column.append(track, label);
       grid.append(column);
     }
@@ -358,6 +386,8 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
   }
 
   function mount() {
+    if (mounted) return;
+    mounted = true;
     document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => {
       button.onclick = () => {
         if (button.dataset.mode) state.graphMode = button.dataset.mode;
@@ -373,7 +403,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     $("graph-start").onchange = () => { state.graphStart = $("graph-start").value; graphChanged(); };
     $("graph-end").onchange = () => { state.graphEnd = $("graph-end").value; graphChanged(); };
     $("graph-options").onclick = graphOptionsSheet;
-    graphFullscreen = createFullscreenController($("view-graphs"), { onChange: (open) => {
+    graphFullscreen = createFullscreenController($("view-graphs"), { label: "Tracking graphs", onChange: (open) => {
       $("graph-fullscreen").textContent = open ? "Close fullscreen" : "Fullscreen";
       $("graph-fullscreen").setAttribute("aria-expanded", String(open));
       queueGraphResize();
@@ -384,6 +414,16 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
   }
   function invalidate() { graphCache.clear(); }
   function reset() { graphRequest++; state.graphs = null; graphCache.clear(); agendaScroll.clear(); graphPaintKey = null; agendaLayout = null; }
-  function destroy() { observer?.disconnect(); window.removeEventListener("resize", queueGraphResize); graphFullscreen?.destroy(); if (graphResizeFrame !== null) cancelAnimationFrame(graphResizeFrame); }
+  function destroy() {
+    reset(); mounted = false;
+    observer?.disconnect(); observer = null;
+    window.removeEventListener("resize", queueGraphResize);
+    graphFullscreen?.destroy(); graphFullscreen = null;
+    if (graphResizeFrame !== null) cancelAnimationFrame(graphResizeFrame);
+    graphResizeFrame = null;
+    document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => { button.onclick = null; });
+    for (const id of ["graph-options", "graph-fullscreen"]) $(id).onclick = null;
+    for (const id of ["graph-start", "graph-end"]) $(id).onchange = null;
+  }
   return { mount, render: renderGraphs, load: loadGraphs, invalidate, reset, destroy, clock: updateAgendaNow, resize: queueGraphResize, get data() { return state.graphs; } };
 }

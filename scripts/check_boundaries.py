@@ -6,9 +6,9 @@ import ast
 from pathlib import Path
 
 try:
-    from .source_index import ROOT, JS_LINK
+    from .source_index import ROOT, js_links
 except ImportError:
-    from source_index import ROOT, JS_LINK
+    from source_index import ROOT, js_links
 
 
 def module_name(path: Path, root: Path) -> str:
@@ -23,35 +23,27 @@ def imports(path: Path, root: Path, modules: dict, *, eager=False) -> set[str]:
     package = module if path.name == "__init__.py" else module.rpartition(".")[0]
     found = set()
 
-    def visit(nodes):
-        for node in nodes:
-            if isinstance(node, ast.If) and (ast.unparse(node.test) in {"TYPE_CHECKING", "typing.TYPE_CHECKING"}):
-                visit(node.orelse)
-                continue
-            if eager and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                continue
-            if isinstance(node, ast.Import):
-                found.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                base = node.module or ""
-                if node.level:
-                    parts = package.split(".")
-                    base = ".".join(parts[:len(parts) - node.level + 1] + ([base] if base else []))
-                candidates = [base + "." + alias.name for alias in node.names]
-                found.update(candidate for candidate in candidates if candidate in modules)
-                if base and (not candidates or any(candidate not in modules for candidate in candidates)):
-                    found.add(base)
-            for child in ast.iter_child_nodes(node):
-                if hasattr(child, "body") and isinstance(child.body, list):
-                    visit(child.body)
-                elif isinstance(child, (ast.Import, ast.ImportFrom)):
-                    visit([child])
-            # A ClassDef/FunctionDef's body is a direct list, not a child node.
-            if hasattr(node, "body") and isinstance(node.body, list):
-                visit(node.body)
-            if hasattr(node, "orelse") and isinstance(node.orelse, list):
-                visit(node.orelse)
-    visit(ast.parse(path.read_text()).body)
+    def visit(node):
+        if isinstance(node, ast.If) and ast.unparse(node.test) in {"TYPE_CHECKING", "typing.TYPE_CHECKING"}:
+            for child in node.orelse:
+                visit(child)
+            return
+        if eager and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            return
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                parts = package.split(".")
+                base = ".".join(parts[:len(parts) - node.level + 1] + ([base] if base else []))
+            candidates = [base + "." + alias.name for alias in node.names]
+            found.update(candidate for candidate in candidates if candidate in modules)
+            if base and (not candidates or any(candidate not in modules for candidate in candidates)):
+                found.add(base)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+    visit(ast.parse(path.read_text()))
     return found
 
 
@@ -94,7 +86,16 @@ def check(root: Path) -> list[str]:
         for dependency in sorted(dependencies):
             if any(dependency == prefix or dependency.startswith(prefix + ".") for prefix in forbidden):
                 errors.append(f"{path.relative_to(root)}: forbidden import {dependency}")
-        graph[name] = imports(path, root, modules, eager=True) & modules.keys()
+        eager_dependencies = imports(path, root, modules, eager=True) & modules.keys()
+        initializers = set()
+        for dependency in eager_dependencies:
+            parts = dependency.split(".")
+            for length in range(1, len(parts)):
+                package = ".".join(parts[:length])
+                if (package in modules and modules[package].name == "__init__.py"
+                        and name != package and not name.startswith(package + ".")):
+                    initializers.add(package)
+        graph[name] = eager_dependencies | initializers
     errors += ["Python eager import cycle: " + cycle for cycle in cycles(graph)]
     web = root / "web"
     js_graph = {}
@@ -103,7 +104,7 @@ def check(root: Path) -> list[str]:
             continue
         name = path.relative_to(root).as_posix()
         edges = set()
-        for dependency in JS_LINK.findall(path.read_text()):
+        for dependency in js_links(path.read_text()):
             if not dependency.startswith("."):
                 errors.append(f"{name}: use explicit relative ES imports: {dependency}")
                 continue
@@ -120,6 +121,8 @@ def check(root: Path) -> list[str]:
     for path in (root / "tests").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("tests.test_"):
+                errors.append(f"{path.relative_to(root)}: import shared helpers from tests.support")
+            elif isinstance(node, ast.Import) and any(alias.name.startswith("tests.test_") for alias in node.names):
                 errors.append(f"{path.relative_to(root)}: import shared helpers from tests.support")
     return sorted(set(errors))
 

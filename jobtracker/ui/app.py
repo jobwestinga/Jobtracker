@@ -50,6 +50,7 @@ from .widgets.recovery_dialog import RecoveryDialog
 from .widgets.dialog_utils import information
 from .widgets.dialog_utils import open_dialog
 from .widgets.settings_dialog import SettingsDialog
+from .widgets.sync_status import SyncStatusWidget
 from .widgets.weight_view import WeightView
 
 logger = logging.getLogger("jobtracker")
@@ -80,6 +81,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
         self._fx = self.service.get_setting("theme_fx", "Glow")
         self._palette = self.service.get_setting("theme_palette", "Ocean")
+        self._reduce_motion = self.service.get_setting("ui_reduce_motion", "0") == "1"
+        self._presentation_active = app_instance.applicationState() == Qt.ApplicationActive
+        self.setProperty("_jt_reduce_motion", self._reduce_motion)
         self._tokens = get_tokens(self._fx, self._palette)
 
         # Graph settings (persisted). Bucket size follows the range unless the
@@ -186,6 +190,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
     def _on_app_state_changed(self, state) -> None:
         active = state == Qt.ApplicationActive
+        self._presentation_active = active
+        self._sync_coordinator.foreground_changed(active)
         if active:
             # Coming back to the window is the moment the user is most likely to
             # care that the phone's changes have landed.
@@ -193,7 +199,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             if hasattr(self, "_weight_view"):
                 self._weight_view.refresh()
         if hasattr(self, "_fx_bg"):
-            self._fx_bg.set_animating(active)
+            self._fx_bg.set_animating(active and not self._reduce_motion)
         if hasattr(self, "_graph_live_timer"):
             if active:
                 if not self._graph_live_timer.isActive():
@@ -204,7 +210,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def changeEvent(self, event) -> None:  # noqa: N802
         if event.type() == QEvent.WindowStateChange and hasattr(self, "_fx_bg"):
             minimized = bool(self.windowState() & Qt.WindowMinimized)
-            self._fx_bg.set_animating(not minimized)
+            self._fx_bg.set_animating(not minimized and self._presentation_active and not self._reduce_motion)
         super().changeEvent(event)
 
     def _install_shortcuts(self) -> None:
@@ -294,6 +300,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         root.setContentsMargins(18, 16, 18, 12)
         root.setSpacing(10)
 
+        self._sync_status = SyncStatusWidget(content)
+        self._sync_status.action_requested.connect(self._sync_coordinator.status_action)
+        root.addWidget(self._sync_status)
+
         self._pages = QStackedWidget()
         root.addWidget(self._pages, 1)
 
@@ -310,6 +320,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._active_session_indicator.setToolTip(
             "Return to Subjects. This does not stop tracking."
         )
+        self._active_session_indicator.setAccessibleName("Return to the active timer")
         self._active_session_indicator.clicked.connect(
             lambda: self._queue_ui_action(self._switch_page, 1)
         )
@@ -335,6 +346,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             btn = QPushButton(label)
             btn.setObjectName("navBtn")
             btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.StrongFocus)
+            btn.setAccessibleName(f"{label} tab")
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(
                 lambda _checked=False, i=idx: self._queue_ui_action(
@@ -410,6 +423,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     #  THEME / RELOAD
     # ═══════════════════════════════════════════════════════════════════
     def _apply_theme(self) -> None:
+        self._reduce_motion = self.service.get_setting("ui_reduce_motion", "0") == "1"
+        self.setProperty("_jt_reduce_motion", self._reduce_motion)
         self._tokens = get_tokens(self._fx, self._palette)
         self.app_instance.setStyleSheet(build_stylesheet(self._tokens))
         self._timer.apply_tokens(self._tokens)
@@ -417,6 +432,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._agenda_view.set_tokens(self._tokens)
         self._weight_view.set_tokens(self._tokens)
         self._fx_bg.apply_theme(self._tokens, self._fx)
+        self._fx_bg.set_animating(self._presentation_active and not self._reduce_motion)
+        self._sync_status.apply_tokens(self._tokens)
         self._sync_active_session_indicator()
 
     def _reload(self) -> None:
@@ -424,6 +441,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._reload_tasks()
         self._reload_graphs()
         self._weight_view.refresh()
+        self._sync_coordinator.refresh_status()
 
     # ═══════════════════════════════════════════════════════════════════
     #  GLOBAL SETTINGS
@@ -441,9 +459,13 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self.service.set_setting("theme_fx", self._fx)
         self.service.set_setting("theme_palette", self._palette)
         self.service.set_day_start(settings["day_start_time"])
+        self._reduce_motion = settings.get("ui_reduce_motion", self._reduce_motion)
+        self.service.set_setting("ui_reduce_motion", "1" if self._reduce_motion else "0")
+        self.setProperty("_jt_reduce_motion", self._reduce_motion)
         self._schedule_recurring_boundary()
         self._apply_theme()
         self._reload()  # day-start affects subject totals + graphs
+        self._sync_coordinator.refresh_status(force=True, configuration=True)
 
     # ═══════════════════════════════════════════════════════════════════
     #  CLOSE
@@ -489,4 +511,5 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             write_auto_backup(self.service.export_data(), BACKUPS_DIR)
         except Exception:
             logger.exception("Auto-backup on quit failed")
+        self._sync_coordinator.close()
         super().closeEvent(event)

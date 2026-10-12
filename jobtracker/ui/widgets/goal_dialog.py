@@ -110,6 +110,7 @@ class GoalDialog(InlineDialog):
 
         layout.addWidget(self._label("Title"))
         self.title_input = QLineEdit()
+        self.title_input.setAccessibleName("Goal title")
         self.title_input.setPlaceholderText("e.g. Become a FIDE master")
         self.title_input.setMinimumHeight(38)
         if self.goal:
@@ -118,6 +119,7 @@ class GoalDialog(InlineDialog):
 
         layout.addWidget(self._label("Description"))
         self.desc_input = QTextEdit()
+        self.desc_input.setAccessibleName("Goal description")
         self.desc_input.setPlaceholderText("Why this matters and what success looks like …")
         self.desc_input.setMaximumHeight(100)
         if self.goal and self.goal.notes:
@@ -131,6 +133,7 @@ class GoalDialog(InlineDialog):
         self.target_check.setCursor(Qt.PointingHandCursor)
         date_row.addWidget(self.target_check)
         self.target_date = QDateEdit()
+        self.target_date.setAccessibleName("Goal target date")
         self.target_date.setCalendarPopup(True)
         self.target_date.setDisplayFormat("yyyy-MM-dd")
         self.target_date.setDate(QDate.currentDate().addMonths(1))
@@ -240,6 +243,7 @@ class GoalDialog(InlineDialog):
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
         title_input = QLineEdit()
+        title_input.setAccessibleName("Milestone title")
         title_input.setPlaceholderText("Milestone title …")
         title_input.setMinimumHeight(32)
         title_input.setText(text)

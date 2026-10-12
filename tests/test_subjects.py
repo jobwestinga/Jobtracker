@@ -1,6 +1,11 @@
 """Subject creation, duplicate guard, archive vs delete, cascade."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import pytest
+
+from jobtracker.sync import state
+from jobtracker.sync.service import SyncedTrackerService
 
 
 def test_add_subject(service):
@@ -19,6 +24,57 @@ def test_duplicate_name_rejected(service):
 
 def test_empty_name_rejected(service):
     assert service.add_subject("   ", "#22C55E", "") is None
+
+
+def test_edit_running_subject_updates_timer_label_without_changing_session(service, subject):
+    start = datetime(2026, 10, 11, 9)
+    service.start_subject(subject.id, start)
+    timer = service.active_session
+    before = dict(service.db.connection.execute("SELECT * FROM sessions WHERE id = ?", (timer.id,)).fetchone())
+
+    updated = service.update_subject(subject.id, " Renamed ", "#123456", " fresh notes ")
+
+    assert service.active_subject == updated
+    assert service.active_subject.name == "Renamed"
+    assert service.active_subject.color == "#123456"
+    assert service.active_subject.notes == "fresh notes"
+    assert service.active_session is timer
+    assert dict(service.db.connection.execute("SELECT * FROM sessions WHERE id = ?", (timer.id,)).fetchone()) == before
+    service.stop_active_subject(start + timedelta(minutes=75))
+    assert service.db.get_session(timer.id).uid == timer.uid
+    assert service.db.get_session(timer.id).duration_seconds == 4500
+
+
+def test_rejected_subject_edit_keeps_running_label(service, subject):
+    other = service.add_subject("Other", "#123456", "")
+    service.start_subject(subject.id, datetime(2026, 10, 11, 9))
+    before = service.active_subject
+    assert service.update_subject(subject.id, other.name, "#654321", "") is None
+    assert service.active_subject is before
+    assert service.update_subject(other.id, "Another", "#654321", "") is not None
+    assert service.active_subject is before
+
+
+def test_failed_synced_subject_edit_restores_label_and_keeps_timer(database, monkeypatch):
+    service = SyncedTrackerService(database, device_id="subject-edit-test", recover=False)
+    subject = service.add_subject("Original", "#123456", "")
+    service.start_subject(subject.id, datetime(2026, 10, 11, 9))
+    timer_uid = service.active_session.uid
+    queued = state.pending_count(database.connection)
+
+    def fail(*args, **kwargs):
+        raise OSError("Synthetic enqueue failure")
+
+    monkeypatch.setattr(state, "enqueue", fail)
+    with pytest.raises(OSError, match="enqueue failure"):
+        service.update_subject(subject.id, "Renamed", "#654321", "new notes")
+
+    assert service.active_subject.name == "Original"
+    assert service.active_subject.color == "#123456"
+    assert database.get_subject(subject.id).name == "Original"
+    assert service.active_session.uid == timer_uid
+    assert database.get_open_session().uid == timer_uid
+    assert state.pending_count(database.connection) == queued
 
 
 def test_archive_hides_from_active_list_but_keeps_data(service):

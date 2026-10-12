@@ -38,7 +38,10 @@ class SubjectService:
         existing = self._tracker.db.get_subject_by_name(normalized_name)
         if existing and existing.id != subject_id:
             return None
-        return self._tracker.db.update_subject(subject_id, normalized_name, normalized_color, normalized_notes)
+        updated = self._tracker.db.update_subject(subject_id, normalized_name, normalized_color, normalized_notes)
+        if updated and self._tracker.active_subject and self._tracker.active_subject.id == subject_id:
+            self._tracker._set_active_subject(updated)
+        return updated
 
     def delete_subject(self, subject_id: int) -> None:
         # Stop the timer before deleting the subject row.

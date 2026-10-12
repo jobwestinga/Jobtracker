@@ -15,6 +15,11 @@ class WeightRepository:
             "SELECT * FROM weight_measurements ORDER BY measured_at, id"
         ).fetchall()
 
+    def list_aliases(self):
+        return self._database.connection.execute(
+            "SELECT alias_uid, weight_uid FROM weight_uid_aliases ORDER BY alias_uid"
+        ).fetchall()
+
     def resolve(self, uid):
         if not isinstance(uid, str) or not uid:
             raise ValueError("Invalid measurement identity")

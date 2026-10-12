@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "contracts": [
+    {
+      "id": "time.logical-day",
+      "document": "docs/architecture/time-model.md#tracking-logical-day"
+    },
+    {
+      "id": "weight.calendar-day",
+      "document": "docs/architecture/time-model.md#weight-calendar-day"
+    },
+    {
+      "id": "sync.ordered-outbox",
+      "document": "docs/architecture/write-path.md#ordered-outbox"
+    },
+    {
+      "id": "auth.principal-receipt",
+      "document": "docs/architecture/write-path.md#receipt-and-principal"
+    },
+    {
+      "id": "operations.compatible-outcomes",
+      "document": "docs/architecture/write-path.md#compatible-outcomes"
+    },
+    {
+      "id": "sync.mirror-repair",
+      "document": "docs/architecture/write-path.md#mirror-repair"
+    },
+    {
+      "id": "timer.session-identity",
+      "document": "docs/architecture/write-path.md#timer-identity"
+    },
+    {
+      "id": "facades.state-ownership",
+      "document": "docs/architecture/boundaries.md#facades-and-state-owners"
+    },
+    {
+      "id": "imports.layer-direction",
+      "document": "docs/architecture/boundaries.md#imports"
+    }
+  ]
+}

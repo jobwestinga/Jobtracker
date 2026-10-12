@@ -36,12 +36,24 @@ function requestNative() {
 
 export function closeFullscreen() { active?.close(); }
 
-export function createFullscreenController(element, { onChange = () => {} } = {}) {
-  let open = false, destroyed = false, previousFocus = null, previousScroll = 0;
+export function createFullscreenController(element, { onChange = () => {}, label = "Plot" } = {}) {
+  let open = false, destroyed = false, previousFocus = null, previousScroll = 0, background = [];
   const scrollFrame = document.querySelector("#views");
   const oldTabindex = element.getAttribute("tabindex");
   const oldRole = element.getAttribute("role");
   const oldModal = element.getAttribute("aria-modal");
+  const oldLabel = element.getAttribute("aria-label");
+
+  function isolateBackground() {
+    let child = element;
+    while (child.parentNode && child.parentNode !== document.documentElement) {
+      for (const sibling of child.parentNode.children || []) {
+        if (sibling === child || sibling === document.querySelector("#sheet") || sibling.id === "announcements") continue;
+        background.push([sibling, Boolean(sibling.inert)]); sibling.inert = true;
+      }
+      child = child.parentNode;
+    }
+  }
 
   function restoreAttribute(name, value) {
     if (value === null) element.removeAttribute(name);
@@ -57,6 +69,9 @@ export function createFullscreenController(element, { onChange = () => {} } = {}
     restoreAttribute("tabindex", oldTabindex);
     restoreAttribute("role", oldRole);
     restoreAttribute("aria-modal", oldModal);
+    restoreAttribute("aria-label", oldLabel);
+    for (const [node, inert] of background) node.inert = inert;
+    background = [];
     if (scrollFrame) scrollFrame.scrollTop = previousScroll;
     onChange(false);
     if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
@@ -78,13 +93,15 @@ export function createFullscreenController(element, { onChange = () => {} } = {}
     element.setAttribute("tabindex", "-1");
     element.setAttribute("role", "dialog");
     element.setAttribute("aria-modal", "true");
+    if (!element.getAttribute("aria-labelledby") && !oldLabel) element.setAttribute("aria-label", label);
+    isolateBackground();
     onChange(true);
     element.focus({ preventScroll: true });
     requestNative();
   }
 
   function onKey(event) {
-    if (!open || active !== controller) return;
+    if (event.defaultPrevented || !open || active !== controller) return;
     // A sheet is above the plot and has its own keyboard handling.
     const sheet = document.querySelector("#sheet");
     if (sheet && !sheet.classList.contains("hidden")) return;
@@ -93,8 +110,8 @@ export function createFullscreenController(element, { onChange = () => {} } = {}
     }
     if (event.key !== "Tab") return;
     const items = [...element.querySelectorAll(
-      'button:not(:disabled), select:not(:disabled), input:not(:disabled), a[href], summary, [tabindex="0"]',
-    )].filter((item) => !item.hidden && (!item.getClientRects || item.getClientRects().length));
+      'button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]',
+    )].filter((item) => item.tabIndex !== -1 && !item.hidden && (!item.getClientRects || item.getClientRects().length));
     const first = items[0], last = items.at(-1);
     if (!first) { event.preventDefault(); element.focus(); return; }
     const focused = document.activeElement;
@@ -102,6 +119,13 @@ export function createFullscreenController(element, { onChange = () => {} } = {}
         (event.shiftKey && focused === first) || (!event.shiftKey && focused === last)) {
       event.preventDefault(); (event.shiftKey ? last : first).focus();
     }
+  }
+
+  function onFocus(event) {
+    if (!open || active !== controller || element.contains(event.target)) return;
+    const sheet = document.querySelector("#sheet");
+    if (sheet && !sheet.classList.contains("hidden")) return;
+    element.focus({ preventScroll: true });
   }
 
   function onNativeChange() {
@@ -120,10 +144,12 @@ export function createFullscreenController(element, { onChange = () => {} } = {}
       if (destroyed) return;
       close(); destroyed = true;
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", onFocus);
       document.removeEventListener("fullscreenchange", onNativeChange);
     },
   };
   document.addEventListener("keydown", onKey);
+  document.addEventListener("focusin", onFocus);
   document.addEventListener("fullscreenchange", onNativeChange);
   return controller;
 }

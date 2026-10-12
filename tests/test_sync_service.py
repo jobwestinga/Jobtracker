@@ -50,14 +50,8 @@ MUTATING_METHODS = [
 ]
 
 
-
-
 def queued_ops(w):
     return [e["op"] for e in state.pending(w.mirror.connection, limit=500)]
-
-
-
-
 
 
 from tests.support.synced import synced, table_counts, uid_fingerprint

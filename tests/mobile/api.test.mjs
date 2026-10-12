@@ -9,11 +9,11 @@ class Storage {
   setItem(key, value) { if (this.fail) throw Error('quota'); this.values.set(key, value); }
   removeItem(key) { this.values.delete(key); }
 }
-async function setup(fetch) {
+async function setup(fetch, module = 'api.js') {
   globalThis.localStorage = new Storage();
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
   globalThis.fetch = fetch;
-  return importWebModule('api.js');
+  return importWebModule(module);
 }
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const accepted = (request) => reply({ applied: JSON.parse(request.body).ops.map((entry) => ({ op_id: entry.op_id, result: { ok: true } })) });
@@ -124,6 +124,32 @@ test('storage full and corrupt queue fail visibly without sending or overwriting
   assert.equal(requests, 0);
 });
 
+test('failed acknowledgement storage reports the durable save and retries its original identity', async () => {
+  const transmissions = [], committed = new Set();
+  let failAcknowledgement = true;
+  const client = await setup((_url, request) => {
+    const entry = JSON.parse(request.body).ops[0];
+    transmissions.push(entry);
+    committed.add(entry.op_id);
+    if (failAcknowledgement) { failAcknowledgement = false; localStorage.fail = true; }
+    return accepted(request);
+  });
+  const outcome = await client.send('add_session', {
+    subject_uid: 's', start_time: '2026-10-10T06:40:00', end_time: '2026-10-10T09:30:00',
+  }, { uid: 'session-once' });
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.queued, true, 'the form must not offer a new save after a durable enqueue');
+  assert.match(outcome.error, /cannot save changes/);
+  assert.equal(client.pendingCount(), 1);
+  assert.deepEqual(client.pendingOperations()[0], transmissions[0]);
+  localStorage.fail = false;
+  assert.equal((await client.flush()).ok, true);
+  assert.equal(client.pendingCount(), 0);
+  assert.equal(committed.size, 1, 'replayed receipt prevents another server mutation');
+  assert.deepEqual(transmissions[1], transmissions[0]);
+  assert.equal(transmissions[1].params.uid, 'session-once');
+});
+
 test('malformed success or missing acknowledgement cannot discard unsent work', async () => {
   let response = new Response('invalid json', { status: 200 });
   const client = await setup(() => response);
@@ -131,6 +157,50 @@ test('malformed success or missing acknowledgement cannot discard unsent work', 
   response = reply({ applied: [] });
   assert.equal((await client.flush()).ok, false);
   assert.equal(client.pendingCount(), 1);
+});
+
+for (const [label, applied] of [
+  ['object instead of list', {}], ['null row', [null]],
+  ['unknown receipt', [{ op_id: 'foreign' }]], ['later receipt only', [{ op_id: 'b' }]],
+  ['reordered receipts', [{ op_id: 'b' }, { op_id: 'a' }]],
+  ['duplicate receipts', [{ op_id: 'a' }, { op_id: 'a' }]],
+  ['extra receipt', [{ op_id: 'a' }, { op_id: 'b' }, { op_id: 'c' }]],
+]) {
+  for (const status of [200, 400]) test(`${label} on HTTP ${status} preserves the entire ordered queue`, async () => {
+    const client = await setup(() => reply({ detail: 'refused', applied }, status));
+    const queue = [{ op_id: 'a', op: 'add_goal', params: { name: 'A' } },
+      { op_id: 'b', op: 'delete_goal', params: { goal_uid: 'a' } }];
+    localStorage.setItem('jobtracker.outbox', JSON.stringify(queue));
+    const outcome = await client.flush();
+    assert.equal(outcome.ok, false);
+    assert.equal(outcome.sent, 0);
+    assert.match(outcome.error, /invalid acknowledgements/);
+    assert.deepEqual(client.pendingOperations(), queue);
+  });
+}
+
+test('failed token removal reports that the phone is still connected', async () => {
+  const client = await setup(() => reply({ head: 1 }));
+  localStorage.removeItem = () => { throw Error('storage blocked'); };
+  assert.throws(() => client.clearToken(), /still connected/);
+  assert.equal(client.getToken(), 'test-token');
+});
+
+test('a stale refusal cannot acknowledge work after credentials change', async () => {
+  let release;
+  const client = await setup((_url, request) => new Promise((resolve) => {
+    const [first] = JSON.parse(request.body).ops;
+    release = () => resolve(reply({ detail: 'refused', applied: [{ op_id: first.op_id }] }, 400));
+  }));
+  const queue = [{ op_id: 'a', op: 'add_goal', params: { name: 'A' } },
+    { op_id: 'b', op: 'delete_goal', params: { goal_uid: 'a' } }];
+  localStorage.setItem('jobtracker.outbox', JSON.stringify(queue));
+  const flushing = client.flush();
+  await until(() => Boolean(release));
+  client.setToken('new-credential');
+  release();
+  assert.equal((await flushing).sent, 0);
+  assert.deepEqual(client.pendingOperations(), queue);
 });
 
 test('authenticated requests never follow redirects or use browser HTTP cache', async () => {
@@ -190,4 +260,114 @@ test('Web Locks allow new taps to persist while a network drain is pending', asy
   release();
   await Promise.all([first, second]);
   assert.equal(client.pendingCount(), 0);
+});
+
+test('another tab changing credentials cannot replay a retained draft under its token', async () => {
+  let release;
+  const requests = [];
+  const client = await setup((_url, request) => {
+    requests.push({ token: request.headers.Authorization, ops: JSON.parse(request.body).ops });
+    if (requests.length === 1) return new Promise((resolve) => { release = () => resolve(accepted(request)); });
+    return accepted(request);
+  });
+  const saving = client.send('add_goal', { name: 'Original private draft' }, { uid: 'original-goal' });
+  await until(() => Boolean(release));
+  const saved = localStorage.getItem('jobtracker.outbox');
+  const owner = localStorage.getItem('jobtracker.outbox-owner');
+  assert.ok(owner); assert.equal(owner.includes('test-token'), false);
+  client.setToken('different-account');
+  assert.deepEqual(client.pendingForProjection(), [], 'foreign pending drafts never enter this account view');
+  assert.equal(client.pendingCount(), 1, 'raw recovery count remains visible');
+  assert.equal(client.pendingTokenMatches('test-token'), true, 'setup permits reconnecting the owner');
+  assert.equal(client.pendingTokenMatches('different-account'), false);
+  release();
+  assert.equal((await saving).queued, true);
+  await assert.rejects(client.flush(), /Reconnect the original token/);
+  await assert.rejects(client.send('add_goal', { name: 'Another account draft' }), /another connection/);
+  assert.equal(requests.length, 1);
+  assert.equal(localStorage.getItem('jobtracker.outbox'), saved);
+  assert.equal(localStorage.getItem('jobtracker.outbox-owner'), owner);
+  client.setToken('test-token');
+  assert.deepEqual(client.pendingForProjection(), JSON.parse(saved));
+  assert.equal((await client.flush()).ok, true);
+  assert.deepEqual(requests[1], requests[0], 'original credential, identity and parameters replay together');
+  assert.equal(client.pendingCount(), 0);
+  client.setToken('different-account');
+  assert.equal((await client.send('add_goal', { name: 'New account after drain' })).ok, true);
+  assert.equal(requests[2].token, 'Bearer different-account');
+  assert.notEqual(localStorage.getItem('jobtracker.outbox-owner'), owner);
+});
+
+test('a credential change while waiting for the queue lock rejects before persistence', async () => {
+  let unlock;
+  let requests = 0;
+  const client = await setup(() => { requests++; throw Error('must not fetch'); });
+  navigator.locks = { request: (_name, callback) => new Promise((resolve) => {
+    unlock = () => { try { resolve(callback()); } catch (error) { resolve(Promise.reject(error)); } };
+  }) };
+  const saving = client.send('add_goal', { name: 'Keep the unsaved form' });
+  client.setToken('different-account');
+  unlock();
+  await assert.rejects(saving, /changed before saving/);
+  assert.equal(client.pendingCount(), 0);
+  assert.equal(localStorage.getItem('jobtracker.outbox-owner'), null);
+  assert.equal(requests, 0);
+});
+
+test('legacy queue ownership is persisted before replay without changing operation JSON', async () => {
+  const queue = [{ op_id: 'legacy', op: 'add_goal', params: { uid: 'legacy-goal', name: 'Saved offline' } }];
+  const client = await setup((_url, request) => {
+    assert.ok(localStorage.getItem('jobtracker.outbox-owner'));
+    assert.deepEqual(JSON.parse(localStorage.getItem('jobtracker.outbox')), queue);
+    assert.deepEqual(JSON.parse(request.body).ops, queue);
+    return accepted(request);
+  });
+  localStorage.setItem('jobtracker.outbox', JSON.stringify(queue));
+  assert.equal((await client.flush()).ok, true);
+  assert.equal(client.pendingCount(), 0);
+});
+
+test('failed ownership persistence keeps a legacy queue and sends nothing', async () => {
+  let requests = 0;
+  const client = await setup(() => { requests++; throw Error('must not fetch'); });
+  const queue = [{ op_id: 'legacy', op: 'add_goal', params: { name: 'Saved offline' } }];
+  const saved = JSON.stringify(queue);
+  localStorage.setItem('jobtracker.outbox', saved);
+  localStorage.fail = true;
+  await assert.rejects(client.flush(), /cannot save changes/);
+  assert.equal(localStorage.getItem('jobtracker.outbox'), saved);
+  assert.equal(requests, 0);
+});
+
+test('a captured POST credential is rejected before fetch if the connection changed', async () => {
+  let requests = 0;
+  const client = await setup(() => { requests++; throw Error('must not fetch'); });
+  client.setToken('different-account');
+  await assert.rejects(client.api.sendOps([{ op_id: 'original', op: 'add_goal', params: {} }], 'test-token'),
+    (error) => error.status === 409);
+  assert.equal(requests, 0);
+});
+
+test('status observers report enqueue, send and acknowledgement without changing persistence', async () => {
+  const client = await setup((_url, request) => accepted(request), 'data/outbox.js');
+  const events = [];
+  client.subscribeOutbox(() => { throw Error('broken view'); });
+  const unsubscribe = client.subscribeOutbox((event) => events.push(event));
+  const result = await client.send('add_goal', { name: 'Saved despite a broken status view' });
+  assert.equal(result.ok, true); assert.equal(client.pendingCount(), 0);
+  assert.deepEqual(events.map((event) => event.type), ['queue', 'sending', 'queue', 'result']);
+  assert.equal(events[0].pending, 1); assert.equal(events[2].pending, 0);
+  assert.equal(events[3].ok, true); assert.equal(events[3].sent, 1);
+  unsubscribe();
+  await client.flush(); assert.equal(events.length, 4);
+});
+
+test('status observers distinguish a failed unsaved draft from a saved queued operation', async () => {
+  const client = await setup(() => { throw Error('must not fetch'); }, 'data/outbox.js');
+  const events = []; client.subscribeOutbox((event) => events.push(event));
+  localStorage.fail = true;
+  await assert.rejects(client.send('add_goal', { name: 'Keep this form' }), /cannot save changes/);
+  assert.equal(client.pendingCount(), 0);
+  assert.equal(events.length, 1); assert.equal(events[0].ok, false);
+  assert.match(events[0].error, /cannot save changes/);
 });

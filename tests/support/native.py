@@ -1,39 +1,8 @@
 """Offscreen native application builders shared by widget integration tests."""
-from datetime import date, datetime, timedelta
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QKeyEvent
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import (
-    QApplication,
-    QAbstractItemView,
-    QCheckBox,
-    QColorDialog,
-    QFileDialog,
-    QFrame,
-    QGraphicsOpacityEffect,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QMessageBox,
-)
+from datetime import datetime, timedelta
+from PySide6.QtWidgets import QApplication
 from jobtracker.services.tracker_service import TrackerService
 from jobtracker.ui import app as app_module
-from jobtracker.ui.widgets import goal_dialog as goal_dialog_module
-from jobtracker.ui.widgets.dialog_utils import information, open_dialog
-from jobtracker.ui.widgets.goal_dialog import (
-    GoalDialog,
-    GoalDetailDialog,
-    apply_goal_edits,
-)
-from jobtracker.ui.widgets.graph_settings_dialog import GraphSettingsDialog
-from jobtracker.ui.widgets.graph_settings_dialog import RANGE_OPTIONS
-from jobtracker.ui.widgets.settings_dialog import SettingsDialog
-from jobtracker.ui.widgets.subject_dialog import SubjectDialog
-from jobtracker.ui.widgets.reorderable_list import ReorderableCardList
-from jobtracker.ui.widgets.template_dialog import TemplateDialog, TemplateManagerDialog
-from jobtracker.ui.widgets.todo_task_item import TodoTaskItemWidget
-from jobtracker.ui.widgets.todo_task_item import _StarBurstOverlay
 
 def _application():
     return QApplication.instance() or QApplication([])

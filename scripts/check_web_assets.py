@@ -6,9 +6,9 @@ import re
 from pathlib import Path
 
 try:
-    from .source_index import ROOT, JS_LINK
+    from .source_index import ROOT, js_links
 except ImportError:
-    from source_index import ROOT, JS_LINK
+    from source_index import ROOT, js_links
 
 
 def check(root: Path) -> list[str]:
@@ -32,8 +32,9 @@ def check(root: Path) -> list[str]:
         text = path.read_text()
         dependencies = []
         if path.suffix == ".js":
-            dependencies += JS_LINK.findall(text)
+            dependencies += js_links(text)
         elif path.suffix == ".css":
+            text = re.sub(r"/\*[\s\S]*?\*/", "", text)
             dependencies += re.findall(r'@import\s+(?:url\()?\s*["\']([^"\']+)', text)
             dependencies += re.findall(r'url\(\s*["\']?([^\)"\']+)', text)
         else:

@@ -8,10 +8,7 @@ fastapi_testclient = pytest.importorskip(
     "fastapi.testclient", reason="server extras not installed"
 )
 
-from jobtracker.core import sync_policy  # noqa: E402
 from jobtracker.core.database import Database  # noqa: E402
-from jobtracker.services.tracker_service import TrackerService  # noqa: E402
-from jobtracker.sync import state  # noqa: E402
 from jobtracker.sync.client import SyncError  # noqa: E402
 from jobtracker.sync.engine import SyncEngine  # noqa: E402
 from server import app as app_module  # noqa: E402

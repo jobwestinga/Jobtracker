@@ -4,8 +4,7 @@ Shared pytest fixtures.
 CRITICAL: this module redirects the database away from real user data BEFORE any
 ``jobtracker`` module is imported. Importing ``jobtracker.core.database`` creates
 a module-level ``Database()`` singleton; without this redirect that singleton
-would open (and run a startup cleanup DELETE against) the developer's real
-``data/jobtracker.db``. Setting JOBTRACKER_DB_PATH here points the singleton at a
+would open the developer's real ``data/jobtracker.db`` and run schema setup. Setting JOBTRACKER_DB_PATH here points the singleton at a
 throwaway temp file instead.
 
 Individual tests still get their own isolated ``Database`` via the ``database``

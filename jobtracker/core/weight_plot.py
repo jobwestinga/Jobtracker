@@ -23,9 +23,11 @@ def points_for(rows, *, start=None, end=None, historic=False):
         if not isinstance(row, dict):
             continue
         moment = timeutils.parse_iso(row.get("measured_at"))
+        if isinstance(row.get("weight_kg"), bool):
+            continue
         try:
             value = float(row.get("weight_kg"))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if moment is None or not math.isfinite(value) or not 0 < value <= 1000:
             continue

@@ -5,10 +5,16 @@
 
 .set-row:last-child { border-bottom: 0; }
 
-.set-row .k { color: var(--dim); font-size: 14px; }
+.set-row .k { color: var(--dim); font-size: 0.875rem; }
 
 .set-row .v { font-variant-numeric: tabular-nums; text-align: right; }
 
 .set-row select { width: auto; min-width: 110px; }
+.set-row input[type="time"] { width: auto; min-width: 125px; }
 
-.set-note { font-size: 12px; color: var(--dim); margin: 6px 0 14px; }
+.set-note { font-size: 0.75rem; color: var(--dim); margin: 6px 0 14px; }
+.set-row .k, .set-row .v { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 24rem) {
+  .set-row { flex-wrap: wrap; }
+  .set-row .v { flex: 1 1 140px; }
+}

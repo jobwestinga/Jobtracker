@@ -22,14 +22,6 @@ from server import auth  # noqa: E402
 TestClient = fastapi_testclient.TestClient
 
 
-
-
-
-
-
-
-
-
 from tests.support.api import api, do, result_of, make_subject
 
 # ── auth ────────────────────────────────────────────────────────────────

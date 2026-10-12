@@ -35,10 +35,12 @@ NAME_WIDTH = 16
 
 # The nudge buttons shared by the editor and the session lists.
 MOVE_STEPS: tuple[tuple[str, int], ...] = (
+    ("−1 day", -86400),
     ("−1h", -3600),
     ("−15m", -900),
     ("+15m", 900),
     ("+1h", 3600),
+    ("+1 day", 86400),
 )
 
 
@@ -163,7 +165,7 @@ class SessionListView(QListWidget):
                 wanted = current.get("session_id")
 
         self.clear()
-        target_row = 0
+        target_row = -1 if select_session_id is not None else 0
         for index, session in enumerate(rows):
             item = QListWidgetItem(
                 format_session_row(
@@ -180,7 +182,10 @@ class SessionListView(QListWidget):
 
         if self.count():
             self.setCurrentRow(target_row)
-            self.scrollToItem(self.item(target_row))
+            if target_row >= 0:
+                self.scrollToItem(self.item(target_row))
+            else:
+                self.clearSelection()
 
     def selected_session(self) -> dict | None:
         item = self.currentItem()
@@ -192,17 +197,18 @@ class SessionListView(QListWidget):
 
 
 def build_move_row(on_shift: Callable[[int], None]) -> QHBoxLayout:
-    """The ±15m / ±1h nudge buttons, identical wherever they appear."""
+    """The ±15m / ±1h / ±1-day buttons, shared by every session editor/list."""
     row = QHBoxLayout()
     row.setSpacing(6)
     for label, seconds in MOVE_STEPS:
         button = QPushButton(label)
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(30)
+        button.setStyleSheet("padding: 6px 8px;")
         button.setProperty("no_drag", True)
         button.setToolTip(
             f"Move this session {'back' if seconds < 0 else 'forward'} "
-            f"{abs(seconds) // 60} minutes"
+            + ("1 day" if abs(seconds) == 86400 else f"{abs(seconds) // 60} minutes")
         )
         button.clicked.connect(lambda _checked=False, s=seconds: on_shift(s))
         row.addWidget(button)
@@ -256,7 +262,8 @@ def edit_session(host: QWidget, service, session_id: int, on_done: Callable) -> 
         if result == SessionDialog.DELETE_RESULT:
             service.delete_session(session_id)
         elif result == QDialog.Accepted:
-            apply_session_edits(service, session, dlg.get_data())
+            if apply_session_edits(service, session, dlg.get_data()) is None:
+                warning(host, "Could Not Save", "The session could not be saved. Reopen it and check its subject and times.")
         on_done()
 
     open_dialog(dialog, finished)

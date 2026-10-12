@@ -48,6 +48,7 @@ class GoalsMixin:
         gear_btn.setMinimumHeight(34)
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.setToolTip("Settings")
+        gear_btn.setAccessibleName("Settings")
         gear_btn.clicked.connect(self._open_settings)
         header.addWidget(gear_btn)
 
@@ -97,6 +98,7 @@ class GoalsMixin:
             self._reload_tasks()
 
     def _reload_tasks(self) -> None:
+        self._sync_coordinator.refresh_status()
         rendered_view = getattr(
             self, "_goals_rendered_view", self._showing_completed_goals
         )
@@ -256,16 +258,13 @@ class GoalsMixin:
         self._reload_tasks()
 
     def _complete_goal(self, goal_id: int) -> None:
-        # The card only emits this when completion is allowed (it shakes the ✓
-        # otherwise), so we just guard quietly and run the fade-out.
-        if not self.service.can_complete_goal(goal_id):
+        goal = self.service.get_goal(goal_id)
+        if goal is None or goal.is_completed:
             return
-
-        def after_anim() -> None:
-            self.service.complete_goal(goal_id)
-            self._reload_tasks()
-
-        self._todo_list.animate_remove(goal_id, on_finished=after_anim)
+        # Save before feedback: a refresh or second click can replace the card
+        # during its fade, but must never cancel or repeat the durable action.
+        if self.service.complete_goal(goal_id):
+            self._todo_list.animate_remove(goal_id, on_finished=self._reload_tasks)
 
     def _toggle_goal_focus(self, goal_id: int) -> None:
         self.service.toggle_goal_focused(goal_id)

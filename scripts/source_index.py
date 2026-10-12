@@ -14,6 +14,64 @@ JS_LINK = re.compile(r"(?:\bimport\s+(?:[^;]*?\s+from\s+)?|\bexport\s+[^;]*?\s+f
 JS_DECL = re.compile(r"\bexport\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)")
 JS_NAMES = re.compile(r"\bexport\s*\{([^}]+)\}(?:\s*from\s*[\"']([^\"']+)[\"'])?")
 JS_STAR = re.compile(r"\bexport\s*\*\s*from\s*[\"']([^\"']+)[\"']")
+JS_DYNAMIC = re.compile(r"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)")
+
+
+def js_code_mask(source: str) -> str:
+    """Preserve offsets while blanking comments and literal contents.
+
+    This supports the repository's explicit ES import/export forms. It is a
+    lexical aid, not a JavaScript parser. Template bodies are treated as literals;
+    dependency imports should use explicit quoted specifiers, not interpolation.
+    """
+    chars = list(source)
+    index = 0
+    while index < len(source):
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end == -1 else end
+            for position in range(index, end):
+                chars[position] = " "
+            index = end
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            end = len(source) if end == -1 else end + 2
+            for position in range(index, end):
+                if chars[position] not in "\r\n":
+                    chars[position] = " "
+            index = end
+        elif source[index] in "\"'`":
+            quote = source[index]
+            index += 1
+            while index < len(source):
+                if source[index] == quote:
+                    index += 1
+                    break
+                if source[index] == "\\":
+                    chars[index] = " "
+                    index += 1
+                    if index < len(source):
+                        chars[index] = " "
+                        index += 1
+                else:
+                    if chars[index] not in "\r\n":
+                        chars[index] = " "
+                    index += 1
+        else:
+            index += 1
+    return "".join(chars)
+
+
+def js_links(source: str) -> list[str]:
+    mask = js_code_mask(source)
+    return [source[match.start(1):match.end(1)] for pattern in (JS_LINK, JS_DYNAMIC) for match in pattern.finditer(mask)]
+
+
+def top_level(mask: str, position: int) -> bool:
+    # Braces in comments/strings are already blanked. Balanced module code is
+    # verified by Node/browser checks; here this limits supported declarations.
+    before = mask[:position]
+    return before.count("{") == before.count("}")
 
 
 def inside(root: Path, relative: str) -> Path:
@@ -46,14 +104,37 @@ def js_exports(path: Path, seen=None) -> set[str]:
         return set()
     seen.add(path)
     source = path.read_text()
-    exports = set(JS_DECL.findall(source))
-    for names, dependency in JS_NAMES.findall(source):
-        available = js_exports((path.parent / dependency).resolve(), seen.copy()) if dependency else None
+    mask = js_code_mask(source)
+    exports = {match.group(1) for match in JS_DECL.finditer(mask) if top_level(mask, match.start())}
+    if any(top_level(mask, match.start()) for match in re.finditer(r"\bexport\s+default\b", mask)):
+        exports.add("default")
+    bindings = {match.group(1) for match in re.finditer(r"\b(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)", mask) if top_level(mask, match.start())}
+    for match in re.finditer(r"\bimport\s+([^;]*?)\s+from\s*[\"']([^\"']+)[\"']", mask):
+        dependency = source[match.start(2):match.end(2)]
+        available = js_exports((path.parent / dependency).resolve(), seen.copy())
+        clause = match.group(1).strip()
+        named = re.search(r"\{([^}]+)\}", clause)
+        if named:
+            for name in named.group(1).split(","):
+                words = name.strip().split()
+                if words and words[0] in available:
+                    bindings.add(words[-1])
+        namespace = re.search(r"\*\s+as\s+(\w+)", clause)
+        if namespace:
+            bindings.add(namespace.group(1))
+        default = re.match(r"(\w+)\s*(?:,|$)", clause)
+        if default and "default" in available:
+            bindings.add(default.group(1))
+    for match in JS_NAMES.finditer(mask):
+        names = match.group(1)
+        dependency = source[match.start(2):match.end(2)] if match.group(2) else None
+        available = js_exports((path.parent / dependency).resolve(), seen.copy()) if dependency else bindings
         for part in names.split(","):
             words = part.strip().split()
-            if words and (available is None or words[0] in available):
+            if words and words[0] in available:
                 exports.add(words[-1])
-    for dependency in JS_STAR.findall(source):
+    for match in JS_STAR.finditer(mask):
+        dependency = source[match.start(1):match.end(1)]
         exports.update(js_exports((path.parent / dependency).resolve(), seen.copy()))
     return exports
 

@@ -53,6 +53,8 @@ class SubjectDialog(InlineDialog):
         layout.addWidget(lbl)
 
         self.name_input = QLineEdit()
+        self.name_input.setAccessibleName("Subject name")
+        lbl.setBuddy(self.name_input)
         self.name_input.setPlaceholderText("e.g. Physics, Marketing, Music Theory …")
         self.name_input.setMinimumHeight(36)
         layout.addWidget(self.name_input)
@@ -71,6 +73,8 @@ class SubjectDialog(InlineDialog):
             btn.setFixedSize(28, 28)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("hex", c)
+            btn.setAccessibleName(f"Subject color {c}")
+            btn.setToolTip(f"Use {c}")
             btn.clicked.connect(lambda checked, color=c: self._select_color(color))
             swatch_row.addWidget(btn)
             self._swatch_btns.append(btn)
@@ -80,6 +84,7 @@ class SubjectDialog(InlineDialog):
         custom_btn.setFixedSize(28, 28)
         custom_btn.setCursor(Qt.PointingHandCursor)
         custom_btn.setToolTip("Choose custom color")
+        custom_btn.setAccessibleName("Choose a custom subject color")
         custom_btn.clicked.connect(self._pick_custom)
         swatch_row.addWidget(custom_btn)
         swatch_row.addStretch()
@@ -110,6 +115,7 @@ class SubjectDialog(InlineDialog):
                 btn.setFixedSize(28, 28)
                 btn.setCursor(Qt.PointingHandCursor)
                 btn.setToolTip(f"Use {c}")
+                btn.setAccessibleName(f"Suggested subject color {c}")
                 btn.setProperty("hex", c)
                 btn.clicked.connect(lambda checked, color=c: self._select_color(color))
                 suggest_row.addWidget(btn)
@@ -125,6 +131,8 @@ class SubjectDialog(InlineDialog):
         layout.addWidget(notes_lbl)
 
         self.notes_input = QTextEdit()
+        self.notes_input.setAccessibleName("Subject notes")
+        notes_lbl.setBuddy(self.notes_input)
         self.notes_input.setPlaceholderText("Optional — add context or details …")
         self.notes_input.setMaximumHeight(80)
         layout.addWidget(self.notes_input)
@@ -182,6 +190,7 @@ class SubjectDialog(InlineDialog):
     def _refresh_swatches(self) -> None:
         for btn in self._swatch_btns + getattr(self, "_suggest_btns", []):
             c = btn.property("hex")
+            btn.setAccessibleDescription("Selected subject color" if c == self.selected_color else "Activate to select this subject color")
             ring = "border: 2px solid white;" if c == self.selected_color else "border: 2px solid transparent;"
             btn.setStyleSheet(
                 f"background-color: {c}; border-radius: 14px; {ring}"

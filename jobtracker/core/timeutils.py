@@ -187,6 +187,18 @@ def shift_session_to_logical_day(
     return new_start, new_start + (end - start)
 
 
+def shift_session_by_seconds(
+    start: datetime, end: datetime, seconds: int,
+) -> Tuple[datetime, datetime]:
+    """Move both naive local endpoints by the same wall-clock interval.
+
+    A day is exactly 86400 recorded seconds, including across DST. Editors and
+    service mutations share this rule rather than Qt's elapsed-time arithmetic.
+    """
+    delta = timedelta(seconds=int(seconds))
+    return start + delta, end + delta
+
+
 def week_start(day: date) -> date:
     """Monday of the week containing ``day`` (weeks are Monday-start)."""
     return day - timedelta(days=day.weekday())

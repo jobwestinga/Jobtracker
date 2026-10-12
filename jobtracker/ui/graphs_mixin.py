@@ -85,6 +85,7 @@ class GraphsMixin:
         gear_btn.setMinimumHeight(34)
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.setToolTip("Settings")
+        gear_btn.setAccessibleName("Settings")
         gear_btn.clicked.connect(self._open_settings)
         header.addWidget(gear_btn)
 

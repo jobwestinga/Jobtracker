@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from ...core.models import TodoTask
 from .labels import ElidedLabel
+from ..accessibility import reduced_motion
 
 # Default celebratory star palette (used when no theme colors are supplied).
 _DEFAULT_STAR_COLORS = ["#FACC15", "#22C55E", "#FDE68A", "#FFFFFF"]
@@ -78,6 +79,9 @@ class _StarBurstOverlay(QWidget):
         self._anim.finished.connect(self.deleteLater)
 
     def start(self) -> None:
+        if reduced_motion(self):
+            self.deleteLater()
+            return
         self.show()
         self.raise_()
         self._anim.start()
@@ -135,6 +139,7 @@ class _CheckButton(QPushButton):
         self.setFixedSize(22, 22)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Complete goal")
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setProperty("no_drag", True)
         self.setFlat(True)
         idle = tokens.get("TEXT_DIMMED", "#6F7D90")
@@ -144,6 +149,7 @@ class _CheckButton(QPushButton):
             f"{idle}; border-radius: 11px; color: {idle}; font-weight: 800;"
             " font-size: 11px; }"
             f"QPushButton:hover {{ border-color: {done}; color: {done}; }}"
+            f"QPushButton:focus {{ border: 2px solid {tokens.get('BORDER_FOCUS', done)}; }}"
         )
         self.setText("✓")
 
@@ -242,6 +248,7 @@ class TodoTaskItemWidget(QFrame):
         self.focus_btn.setFixedSize(22, 22)
         self.focus_btn.setCursor(Qt.PointingHandCursor)
         self.focus_btn.setFlat(True)
+        self.focus_btn.setFocusPolicy(Qt.StrongFocus)
         self.focus_btn.setProperty("no_drag", True)
         self._apply_focus_button_style()
         if self.todo_task.is_completed:
@@ -331,6 +338,11 @@ class TodoTaskItemWidget(QFrame):
 
     def _apply_style(self) -> None:
         t = self._t
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(f"Goal: {self.todo_task.name}")
+        self.setAccessibleDescription("Use Enter or Space to open the goal. Tab reaches completion and weekly focus.")
+        self.check_btn.setAccessibleName(f"Complete goal {self.todo_task.name}")
+        self.check_btn.setAccessibleDescription("Finish all milestones before completing." if not self._can_complete() else "All milestones are finished; this goal can be completed.")
         radius = t.get("TASK_RADIUS", "6px")
         card_bg = t.get("CARD_BG", t["BG_SECONDARY"])
         if self._is_focused():
@@ -345,6 +357,7 @@ class TodoTaskItemWidget(QFrame):
                     border-left: 4px solid {accent};
                     border-radius: {radius};
                 }}
+                QFrame#todoTaskCard:focus {{ border: 2px dashed {t.get('BORDER_FOCUS', accent)}; }}
                 """
             )
             return
@@ -355,6 +368,7 @@ class TodoTaskItemWidget(QFrame):
                 border: 1px solid {t["BORDER_COLOR"]};
                 border-radius: {radius};
             }}
+            QFrame#todoTaskCard:focus {{ border: 2px dashed {t.get('BORDER_FOCUS', t['BORDER_COLOR'])}; }}
             """
         )
 
@@ -372,6 +386,7 @@ class TodoTaskItemWidget(QFrame):
         self.focus_btn.setToolTip(
             "Remove from this week's focus" if focused else "Focus on this goal this week"
         )
+        self.focus_btn.setAccessibleName(f"{'Remove weekly focus from' if focused else 'Focus this week on'} goal {self.todo_task.name}")
         color = accent if focused else t.get("TEXT_DIMMED", "#6F7D90")
         self.focus_btn.setStyleSheet(
             "QPushButton { background-color: transparent; border: none; "
@@ -379,6 +394,7 @@ class TodoTaskItemWidget(QFrame):
             "} QPushButton:hover { "
             f"color: {accent}; "
             "}"
+            f" QPushButton:focus {{ border: 2px solid {t.get('BORDER_FOCUS', accent)}; border-radius: 4px; }}"
         )
 
     def _on_focus_clicked(self) -> None:
@@ -401,6 +417,8 @@ class TodoTaskItemWidget(QFrame):
 
     def _shake_check(self) -> None:
         """Brief horizontal shake on the ✓ to signal 'not yet'."""
+        if reduced_motion(self):
+            return
         start = self.check_btn.pos()
         anim = QPropertyAnimation(self.check_btn, b"pos", self)
         anim.setDuration(300)
@@ -431,15 +449,24 @@ class TodoTaskItemWidget(QFrame):
         self.check_btn.setEnabled(False)
 
         # Themed star burst centered on the button.
-        btn_center = self.check_btn.geometry().center()
-        overlay = _StarBurstOverlay(self, btn_center, count=16, colors=self._star_colors())
-        overlay.start()
+        if not reduced_motion(self):
+            btn_center = self.check_btn.geometry().center()
+            overlay = _StarBurstOverlay(self, btn_center, count=16, colors=self._star_colors())
+            overlay.start()
 
         # Emit so the parent can coordinate list reflow + persistence.
         self.complete_requested.emit(self.todo_task.id)
 
     def suppress_next_click(self) -> None:
         self._suppress_click_once = True
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if self.hasFocus() and self.todo_task.id is not None and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            if not event.isAutoRepeat():
+                self.open_requested.emit(self.todo_task.id)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:

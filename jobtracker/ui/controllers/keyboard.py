@@ -9,6 +9,7 @@ from PySide6.QtCore import QEasingCurve, QEvent, QObject, QTimer, QVariantAnimat
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QAbstractItemView, QApplication,
     QComboBox, QGraphicsOpacityEffect, QLineEdit, QListView, QPlainTextEdit, QTextEdit, QWidget)
+from ..accessibility import reduced_motion
 
 class _LatestArrowDirectionFilter(QObject):
     """Prevent stale key-repeat events from delaying Up/Down reversal.
@@ -252,10 +253,15 @@ class KeyboardController:
             window._goal_shortcut_timer.stop()
         window._goal_shortcut_timer = QTimer(window)
         window._goal_shortcut_timer.setSingleShot(True)
-        window._goal_shortcut_timer.timeout.connect(
-            lambda selected=goal_id: window._open_goal(selected)
-        )
-        window._goal_shortcut_timer.start(140)
+        def open_if_current() -> None:
+            if (
+                window.isVisible() and window._pages.currentIndex() == 0
+                and window._shortcut_focus_allows_navigation()
+            ):
+                window._open_goal(goal_id)
+
+        window._goal_shortcut_timer.timeout.connect(open_if_current)
+        window._goal_shortcut_timer.start(0 if reduced_motion(window) else 140)
 
     def _handle_escape_shortcut(self) -> None:
         window = self.window
@@ -282,6 +288,8 @@ class KeyboardController:
 
     def _pulse_widget(self, widget: QWidget, duration_ms: int = 180) -> None:
         window = self.window
+        if reduced_motion(widget):
+            return
         if widget.graphicsEffect() is not None:
             return
         effect = QGraphicsOpacityEffect(widget)
@@ -316,17 +324,17 @@ class KeyboardController:
         anim.start()
 
     def _register_undo(self, callback) -> None:
-        window = self.window
         """Keep one intentionally small, in-memory reversible action."""
+        window = self.window
         window._undo_callback = callback
 
     def _queue_ui_action(self, callback, *args) -> None:
-        window = self.window
         """Let the originating input event finish before changing main views."""
+        window = self.window
         def run() -> None:
             callback(*args)
 
-        QTimer.singleShot(0, run)
+        QTimer.singleShot(0, window, run)
 
     def _perform_undo(self, force: bool = False) -> None:
         window = self.window

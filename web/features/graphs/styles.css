@@ -23,28 +23,24 @@
 
 .bar-seg { width: 100%; flex-shrink: 0; }
 
-.bar-val { font-size: 10px; color: var(--dim); text-align: center; height: 12px; }
+.bar-val { font-size: 0.625rem; color: var(--dim); text-align: center; min-height: 1.2em; overflow-wrap: anywhere; }
 
-.bar-lbl { font-size: 10px; color: var(--dim); text-align: center; }
+.bar-lbl { font-size: 0.625rem; color: var(--dim); text-align: center; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 
 .legend-item {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--dim);
+  font-size: 0.75rem; color: var(--dim);
 }
 
 .legend-item .dot { width: 8px; height: 8px; }
-
-.heat-wrap { overflow-x: auto; margin-top: 16px; padding-bottom: 6px; }
-
-.heat { display: block; }
 
 .seg-range, .seg-group { margin-top: 8px; }
 
 .seg-range { gap: 4px; }
 
-.seg-range .seg-btn { padding: 9px 5px; font-size: 12px; }
+.seg-range .seg-btn { padding: 9px 5px; font-size: 0.75rem; }
 
 #graph-custom { margin-top: 10px; }
 
@@ -52,7 +48,7 @@
 
 .agenda-hours {
   flex: 0 0 56px; position: relative;
-  font-size: 11px; color: var(--dim);
+  font-size: 0.6875rem; color: var(--dim);
 }
 
 .agenda-hours span { position: absolute; right: 4px; transform: translateY(-50%); }
@@ -72,11 +68,11 @@
   position: absolute; left: 2px; right: 2px;
   border-radius: 3px; overflow: hidden; min-height: 3px;
   border-left: 3px solid;
-  font-size: 9px; line-height: 1.1; color: var(--text);
+  font-size: 0.5625rem; line-height: 1.1; color: var(--text);
   padding: 2px 3px;
 }
 
-.agenda-daylbl { font-size: 10px; color: var(--dim); text-align: center; margin-top: 4px; }
+.agenda-daylbl { font-size: 0.625rem; color: var(--dim); text-align: center; margin-top: 4px; }
 
 .agenda-daylbl.today { color: var(--accent); font-weight: 700; }
 
@@ -84,4 +80,12 @@
 
 .agenda-now::before { content: ""; position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--red); left: -3px; top: -4px; }
 
-.agenda-now-label { position: absolute; right: 0; bottom: 3px; padding: 1px 2px; font-size: 10px; line-height: 1.2; color: var(--text); background: var(--bg); border-radius: 2px; }
+.agenda-now-label { position: absolute; right: 0; bottom: 3px; padding: 1px 2px; font-size: 0.625rem; line-height: 1.2; color: var(--text); background: var(--bg); border-radius: 2px; }
+
+button.agenda-daylbl { display: block; width: 100%; min-height: 44px; border: 0; background: none; padding: 4px 0; font: inherit; font-size: .75rem; }
+.agenda-block[role="button"] { cursor: pointer; }
+.agenda-block:focus-visible { z-index: 3; outline-offset: 1px; }
+.bar-col[role="button"] { cursor: pointer; border-radius: 4px; }
+.graph-toolbar { flex-wrap: wrap; }
+.legend-item { min-width: 0; overflow-wrap: anywhere; }
+.seg-range .seg-btn, .seg-group .seg-btn { overflow-wrap: anywhere; }

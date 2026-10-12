@@ -39,6 +39,13 @@ QPushButton:hover {{
 QPushButton:pressed {{
     background-color: {t['BG_PRIMARY']};
 }}
+QPushButton:focus, QPushButton#primaryBtn:focus, QPushButton#navBtn:focus,
+QPushButton#gearBtn:focus, QPushButton#stopBtn:focus {{
+    border: 2px solid {t['BORDER_FOCUS']};
+}}
+QPushButton#primaryBtn:focus {{
+    border-color: {_contrast_text(t['ACCENT'])};
+}}
 QPushButton#primaryBtn {{
     background-color: {t['ACCENT']};
     color: {_contrast_text(t['ACCENT'])};
@@ -153,6 +160,11 @@ QLabel#tasksLabel {{
 }}
 
 /* ── Inputs ────────────────────────────────────────────────────── */
+QScrollArea#settingsScroll, QWidget#settingsScrollContents,
+QScrollArea#settingsScroll QWidget#qt_scrollarea_viewport {{
+    background-color: {t['BG_SECONDARY']};
+    border: none;
+}}
 QLineEdit, QTextEdit {{
     background-color: {t['BG_PRIMARY']};
     border: 1px solid {t['BORDER_COLOR']};
@@ -163,6 +175,9 @@ QLineEdit, QTextEdit {{
 }}
 QLineEdit:focus, QTextEdit:focus {{
     border: 1.5px solid {t['BORDER_FOCUS']};
+}}
+QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QPlainTextEdit:focus {{
+    border: 2px solid {t['BORDER_FOCUS']};
 }}
 QDateTimeEdit {{
     background-color: {t['BG_PRIMARY']};

@@ -1,9 +1,11 @@
 import { $, el, safeColor } from "../../shared/dom.js";
 import { addDays, localIso } from "../../shared/time.js";
 import { hm, clockOf, prettyDay as formatDay } from "../../shared/format.js";
-import { openSheet, closeSheet, field } from "../../shared/sheet.js";
+import { openSheet, createSheetAction, field } from "../../shared/sheet.js";
 import { uuid } from "../../shared/ids.js";
 import { logicalAgendaNow, dayStartHour } from "../graphs/agenda-time.js";
+import { QUICK_DURATIONS, endingNowRange, manualDurationSeconds } from "./duration.js";
+import { createDurationPicker } from "./duration-picker.js";
 
 export function createSessionsFeature({ store, api, act, banner, saveMirror, navigateDay }) {
   const prettyDay = (iso) => formatDay(iso, store.context?.today);
@@ -81,7 +83,7 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
     }
   }
 
-  function validSessionInputs(start, end, subject) {
+  function validSessionInputs(start, end, subject, range) {
     for (const input of [start, end, subject]) {
       if (!input.checkValidity()) { input.reportValidity(); return false; }
     }
@@ -90,12 +92,73 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
       banner("End must be at or after start. Include the next date for overnight sessions.");
       return false;
     }
+    return hasMinimumDuration(range);
+  }
+
+  function hasMinimumDuration(range) {
+    const seconds = manualDurationSeconds(range.start_time, range.end_time);
+    if (!Number.isFinite(seconds) || seconds < 30) {
+      banner("A session must last at least 30 seconds.");
+      return false;
+    }
     return true;
+  }
+
+  // Name the saved range and, when the start falls before the day boundary,
+  // the earlier tracking day it counts towards, so the row is never "missing".
+  function quickAddReceipt(subject_uid, range) {
+    const subject = (store.snapshot?.subjects || []).find((row) => row.uid === subject_uid);
+    const boundary = dayStartHour({}, store.context?.day_start);
+    const day = logicalAgendaNow(new Date(range.start_time), boundary)?.day;
+    const today = logicalAgendaNow(new Date(), boundary)?.day;
+    const seconds = manualDurationSeconds(range.start_time, range.end_time);
+    const counted = day && today && day !== today ? ` · tracking day: ${formatDay(day, today)}` : "";
+    return `Added ${hm(seconds)}${subject ? ` to ${subject.name}` : ""} · ${clockOf(range.start_time)}–${clockOf(range.end_time)}${counted}`;
+  }
+
+  function quickAddControls(content, subjectUid, submit) {
+    const add = async (minutes) => {
+      if (!submit.canSubmit()) return;
+      const subject_uid = subjectUid();
+      if (!subject_uid) return banner("Choose a subject first.");
+      const range = endingNowRange(minutes);
+      const outcome = await submit("add_session", { subject_uid, ...range }, { uid: uuid() });
+      // Queued and refused outcomes already have their own banner.
+      if (outcome?.ok && !outcome.result?.reason) banner(quickAddReceipt(subject_uid, range), "ok");
+      return outcome;
+    };
+    const quick = el("div", "session-quick-presets");
+    quick.setAttribute("role", "group");
+    quick.setAttribute("aria-label", "Quick add, ending now");
+    for (const [label, minutes] of QUICK_DURATIONS) {
+      const chip = el("button", "chip", label);
+      chip.type = "button";
+      chip.dataset.minutes = minutes;
+      chip.setAttribute("aria-label", `Add ${minutes} minutes, ending now`);
+      chip.onclick = () => add(minutes);
+      quick.append(chip);
+    }
+    content.append(el("p", "session-caption", "Quick add, ending now"), quick);
+    content.append(createDurationPicker({ onConfirm: add }));
+  }
+
+  function quickAdd(subject) {
+    const selected = (store.snapshot?.subjects || []).find((row) => row.uid === subject?.uid && !row.is_archived);
+    if (!selected) return banner("Choose an active subject first.");
+    openSheet(`Add time · ${selected.name}`, (body) => {
+      const content = el("div", "session-form");
+      body.append(content);
+      const submit = createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") });
+      quickAddControls(content, () => selected.uid, submit);
+    });
   }
 
   function sessionSheet(session) {
     if (!session.end_time) return banner("Stop this running session before editing it.");
     openSheet("Edit session", (body) => {
+      const content = el("div", "session-form");
+      body.append(content);
+      const submit = createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") });
       const subjects = (store.snapshot?.subjects || []).filter((s) => !s.is_archived || s.uid === session.subject_uid);
       const select = document.createElement("select");
       for (const subject of subjects) {
@@ -104,64 +167,75 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
         if (subject.uid === session.subject_uid) option.selected = true;
         select.append(option);
       }
-      field(body, "Subject", select);
+      field(content, "Subject", select);
 
-      const row = el("div", "row");
+      const row = el("div", "session-times");
+      const originalStart = session.start_time, originalEnd = session.end_time;
       const start = Object.assign(document.createElement("input"),
-        { type: "datetime-local", step: "1", required: true, value: session.start_time.slice(0, 19) });
+        { type: "datetime-local", step: "1", required: true, value: originalStart.slice(0, 19) });
       const end = Object.assign(document.createElement("input"),
-        { type: "datetime-local", step: "1", required: true, value: session.end_time.slice(0, 19) });
-      const startWrap = el("div", "field"); startWrap.append(el("label", null, "Start"), start);
-      const endWrap = el("div", "field"); endWrap.append(el("label", null, "End"), end);
-      row.append(startWrap, endWrap);
-      body.append(row);
+        { type: "datetime-local", step: "1", required: true, value: originalEnd.slice(0, 19) });
+      const displayedStart = start.value, displayedEnd = end.value;
+      field(row, "Start", start);
+      field(row, "End", end);
+      content.append(row);
 
-      const nudges = el("div", "chips");
-      for (const [label, seconds] of [["−1h", -3600], ["−15m", -900], ["+15m", 900], ["+1h", 3600]]) {
+      const nudges = el("div", "session-nudges");
+      nudges.setAttribute("role", "group");
+      nudges.setAttribute("aria-label", "Move the whole session");
+      for (const [label, seconds] of [["−1 day", -86400], ["−1h", -3600], ["−15m", -900],
+        ["+15m", 900], ["+1h", 3600], ["+1 day", 86400]]) {
         const chip = el("button", "chip", label);
-        chip.onclick = async () => {
-          closeSheet();
-          await act("shift_session", { session_uid: session.uid, seconds });
+        chip.type = "button";
+        chip.dataset.seconds = seconds;
+        chip.setAttribute("aria-label", `Move session ${Math.abs(seconds) === 86400 ? "1 day" : label.slice(1)} ${seconds < 0 ? "earlier" : "later"}`);
+        chip.onclick = () => {
+          if (!hasMinimumDuration({ start_time: originalStart, end_time: originalEnd })) return;
+          return submit("shift_session", { session_uid: session.uid, seconds });
         };
         nudges.append(chip);
       }
-      body.append(el("label", null, "Nudge"), nudges);
+      content.append(el("p", "session-caption", "Move both start and end"), nudges);
 
       const save = el("button", "primary wide", "Save");
       save.onclick = async () => {
-        if (!validSessionInputs(start, end, select)) return;
-        closeSheet();
-        await act("update_session", {
+        const params = {
           session_uid: session.uid,
           subject_uid: select.value,
-          start_time: start.value.length === 16 ? `${start.value}:00` : start.value,
-          end_time: end.value.length === 16 ? `${end.value}:00` : end.value,
-        });
+          // A subject-only save must preserve imported fractional timestamps.
+          start_time: start.value === displayedStart ? originalStart : start.value.length === 16 ? `${start.value}:00` : start.value,
+          end_time: end.value === displayedEnd ? originalEnd : end.value.length === 16 ? `${end.value}:00` : end.value,
+        };
+        if (!validSessionInputs(start, end, select, params)) return;
+        await submit("update_session", params);
       };
-      body.append(save);
+      content.append(save);
 
       const dup = el("button", "secondary wide", "Duplicate to today");
       dup.onclick = async () => {
-        closeSheet();
-        await act("duplicate_session", { session_uid: session.uid, to: "today" }, { uid: uuid() });
+        if (!hasMinimumDuration({ start_time: originalStart, end_time: originalEnd })) return;
+        await submit("duplicate_session", { session_uid: session.uid, to: "today" }, { uid: uuid() });
       };
-      body.append(dup);
+      content.append(dup);
 
       const del = el("button", "danger wide", "Delete session");
       del.onclick = async () => {
+        if (!content.isConnected || $("sheet").classList.contains("hidden")) return;
         if (!confirm("Delete this session?")) return;
-        closeSheet();
-        await act("delete_session", { session_uid: session.uid });
+        await submit("delete_session", { session_uid: session.uid });
       };
-      body.append(del);
+      content.append(del);
     });
   }
 
   function addSessionSheet() {
     openSheet("Add session", (body) => {
+      const content = el("div", "session-form");
+      body.append(content);
+      const submit = createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") });
       const subjects = (store.snapshot?.subjects || []).filter((s) => !s.is_archived);
       if (!subjects.length) {
-        body.append(el("p", "muted", "Add a subject in the Subjects tab first."));
+        content.append(el("p", "muted", "Add a subject in the Subjects tab first."));
         return;
       }
       const select = document.createElement("select");
@@ -170,52 +244,33 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
         option.value = subject.uid;
         select.append(option);
       }
-      field(body, "Subject", select);
+      field(content, "Subject", select);
 
       const now = new Date();
-      const from = new Date(now.getTime() - 3600000);
+      const from = endingNowRange(60, now).start_time;
       const today = state.day === store.context?.today;
-      const row = el("div", "row");
+      const row = el("div", "session-times");
       const start = Object.assign(document.createElement("input"),
-        { type: "datetime-local", required: true, value: today ? localIso(from).slice(0, 16) : `${state.day}T09:00` });
+        { type: "datetime-local", step: "1", required: true, value: today ? from.slice(0, 16) : `${state.day}T09:00` });
       const end = Object.assign(document.createElement("input"),
-        { type: "datetime-local", required: true, value: today ? localIso(now).slice(0, 16) : `${state.day}T10:00` });
-      const startWrap = el("div", "field"); startWrap.append(el("label", null, "Start"), start);
-      const endWrap = el("div", "field"); endWrap.append(el("label", null, "End"), end);
-      row.append(startWrap, endWrap);
-      body.append(row);
+        { type: "datetime-local", step: "1", required: true, value: today ? localIso(now).slice(0, 16) : `${state.day}T10:00` });
+      field(row, "Start", start);
+      field(row, "End", end);
 
-      // The desktop has "Quick Add (ending now)"; the same idea earns its place
-      // even more on a phone, where typing two times is the slow part.
-      const quick = el("div", "chips");
-      for (const [label, minutes] of [["15m", 15], ["30m", 30], ["45m", 45],
-                                      ["1h", 60], ["1h30", 90], ["2h", 120]]) {
-        const chip = el("button", "chip", label);
-        chip.onclick = async () => {
-          const now = new Date();
-          const from = new Date(now.getTime() - minutes * 60000);
-          closeSheet();
-          await act("add_session", {
-            subject_uid: select.value,
-            start_time: localIso(from),
-            end_time: localIso(now),
-          }, { uid: uuid() });
-        };
-        quick.append(chip);
-      }
-      if (today) body.append(el("label", null, "Quick add, ending now"), quick);
+      if (today) quickAddControls(content, () => select.value, submit);
+      content.append(el("p", "session-caption", "Exact times"), row);
 
       const save = el("button", "primary wide", "Add with these times");
       save.onclick = async () => {
-        if (!validSessionInputs(start, end, select)) return;
-        closeSheet();
-        await act("add_session", {
+        const params = {
           subject_uid: select.value,
-          start_time: `${start.value}:00`,
-          end_time: `${end.value}:00`,
-        }, { uid: uuid() });
+          start_time: start.value.length === 16 ? `${start.value}:00` : start.value,
+          end_time: end.value.length === 16 ? `${end.value}:00` : end.value,
+        };
+        if (!validSessionInputs(start, end, select, params)) return;
+        await submit("add_session", params, { uid: uuid() });
       };
-      body.append(save);
+      content.append(save);
     });
   }
 
@@ -238,7 +293,7 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
     $("day-today").onclick = () => navigateDay(logicalAgendaNow(new Date(), dayStartHour({}, store.context?.day_start))?.day || store.context?.today);
     $("add-session").onclick = addSessionSheet;
   }
-  return { mount, render: renderSessions, load: loadDay, prepare, reset, invalidate, edit: sessionSheet,
+  return { mount, render: renderSessions, load: loadDay, prepare, reset, invalidate, edit: sessionSheet, quickAdd,
     get day() { return state.day; }, set day(value) { state.day = value; },
     get cache() { return state.dayCache; }, get status() { return state.dayStatus; } };
 }

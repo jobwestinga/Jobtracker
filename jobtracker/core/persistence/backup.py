@@ -17,6 +17,21 @@ class BackupCodec:
         self._database = database
 
     def export_data(self) -> dict:
+        # Separate sync connections may commit between table reads. A read
+        # savepoint keeps related rows in one snapshot without blocking WAL
+        # writers or committing a transaction already owned by the caller.
+        connection = self._database.connection
+        connection.execute("SAVEPOINT jobtracker_export")
+        try:
+            exported = self._export_rows()
+            connection.execute("RELEASE SAVEPOINT jobtracker_export")
+            return exported
+        except BaseException:
+            connection.execute("ROLLBACK TO SAVEPOINT jobtracker_export")
+            connection.execute("RELEASE SAVEPOINT jobtracker_export")
+            raise
+
+    def _export_rows(self) -> dict:
         cur = self._database.connection.cursor()
         cur.execute("SELECT * FROM tasks")
         subjects = [dict(row) for row in cur.fetchall()]

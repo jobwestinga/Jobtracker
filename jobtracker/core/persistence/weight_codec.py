@@ -25,7 +25,20 @@ def validate_measurement(measured_at, weight_kg, source="manual") -> tuple[str, 
         raise ValueError("Weight must be greater than 0 and at most 1000 kg")
     if source not in ("manual", "scale", "historic"):
         raise ValueError("Unknown weight source")
-    return parsed.isoformat(timespec="seconds"), value, source
+    return parsed.isoformat(), value, source
+
+
+def import_identity(timestamp: str, source: str) -> str:
+    """Keep the original import seed while preserving timestamp precision.
+
+    Existing exports used whole seconds to derive an implicit UUID. Changing
+    that seed when retaining fractions would turn a reimport into a new row.
+    Explicit measurement UUIDs still distinguish readings within one second.
+    """
+    legacy_timestamp = timestamp.split(".", 1)[0]
+    return str(uuid.uuid5(
+        uuid.NAMESPACE_URL, f"jobtracker:weight:{source}:{legacy_timestamp}"
+    ))
 
 
 def prepare_measurements(rows: list[dict]) -> list[tuple]:
@@ -41,9 +54,7 @@ def prepare_measurements(rows: list[dict]) -> list[tuple]:
         )
         identity = row.get("uid")
         if identity is None:
-            identity = str(uuid.uuid5(
-                uuid.NAMESPACE_URL, f"jobtracker:weight:{source}:{timestamp}"
-            ))
+            identity = import_identity(timestamp, source)
         try:
             uuid.UUID(identity)
         except (ValueError, TypeError, AttributeError):

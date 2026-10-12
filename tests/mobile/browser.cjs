@@ -35,6 +35,24 @@ function apply(entry) {
     active = { uid: p.uid, session_uid: p.uid, subject_uid: p.subject_uid, start_time: p.start_time, elapsed_seconds: 0 };
     result = { started: true, session: active };
   } else if (entry.op === 'stop_active_subject') { active = null; result = { stopped: true }; }
+  else if (entry.op === 'add_session') {
+    const row = { uid: p.uid, subject_uid: p.subject_uid, start_time: p.start_time, end_time: p.end_time,
+      duration_seconds: (Date.parse(`${p.end_time}Z`) - Date.parse(`${p.start_time}Z`)) / 1000 };
+    sessions.push(row); result = { session: row };
+    change = { table: 'sessions', op: 'upsert', uid: row.uid, row: { ...row } };
+  } else if (entry.op === 'shift_session') {
+    const row = sessions.find((session) => session.uid === p.session_uid);
+    const shift = (value) => new Date(Date.parse(`${value}Z`) + p.seconds * 1000).toISOString().slice(0, 19);
+    row.start_time = shift(row.start_time); row.end_time = shift(row.end_time);
+    result = { session: row };
+    change = { table: 'sessions', op: 'upsert', uid: row.uid, row: { ...row } };
+  } else if (entry.op === 'update_session') {
+    const row = sessions.find((session) => session.uid === p.session_uid);
+    Object.assign(row, { subject_uid: p.subject_uid, start_time: p.start_time, end_time: p.end_time,
+      duration_seconds: Math.floor((Date.parse(`${p.end_time}Z`) - Date.parse(`${p.start_time}Z`)) / 1000) });
+    result = { session: row };
+    change = { table: 'sessions', op: 'upsert', uid: row.uid, row: { ...row } };
+  }
   else if (entry.op === 'upsert_weight') {
     const existing = weights.find((r) => r.uid === p.weight_uid || r.uid === p.uid) ||
       (!p.weight_uid && weights.find((r) => r.source === 'manual' && r.measured_at.slice(0, 10) === p.measured_at.slice(0, 10)));
@@ -138,8 +156,8 @@ async function pickerRegressions(browser, url) {
   // An older-date backfill centers on the chronologically latest row.
   await weightDate(page, '2026-10-07'); await chooseWeight(page, 90, 2);
   await entryControls(page, false);
-  assert.match(await page.locator('#weight-entry-day').textContent(), /7.*Oct.*2026/);
-  assert.match(await page.locator('#weight-entry-controls summary').getAttribute('aria-label'), /7.*Oct.*2026/);
+  assert.match(await page.locator('#weight-entry-day').textContent(), /(\b7\b.*Oct|Oct.*\b7\b).*2026/);
+  assert.match(await page.locator('#weight-entry-controls summary').getAttribute('aria-label'), /(\b7\b.*Oct|Oct.*\b7\b).*2026/);
   await saveAndWait();
   assert.deepEqual(await integers(), [81, 82, 83, 84, 85, 86, 87]);
   const backfill = weights.find((row) => row.measured_at.startsWith('2026-10-07'));
@@ -339,6 +357,463 @@ async function coldWeightFailure(browser, url) {
   failedContext = false; failedWeight = false;
   await context.close();
 }
+async function offlineShellCheck(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('jobtracker.token', 'offline-shell-contract-account'));
+  await page.goto(url);
+  try { await page.waitForSelector('#weight-history .card', { timeout: 15000 }); }
+  catch (error) { console.error('offline-shell initial state', { errors, requests: hits.slice(-15), body: await page.locator('body').innerText() }); throw error; }
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  const precache = await page.evaluate(async () => {
+    const keys = await caches.keys();
+    const cache = await caches.open(keys.find((name) => name.startsWith('jobtracker-')));
+    const resources = (await cache.keys()).map((request) => new URL(request.url).pathname);
+    return { resources, privateCached: Boolean(await cache.match('/api/weight')) };
+  });
+  assert.ok(precache.resources.includes('/features/weight/index.js'));
+  assert.ok(precache.resources.includes('/data/outbox.js'));
+  assert.ok(precache.resources.includes('/shared/fullscreen.js'));
+  assert.ok(precache.resources.includes('/features/weight/styles.css'));
+  assert.equal(precache.privateCached, false);
+  await context.setOffline(true);
+  await page.reload(); await page.waitForSelector('#weight-history .card');
+  assert.equal(await page.locator('#view-title').textContent(), 'Weight');
+  assert.equal(await page.locator('#weight-whole button').count(), 7);
+  assert.equal(await page.locator('#weight-decimal button').count(), 10);
+  assert.ok(await page.locator('#weight-whole button').first().evaluate((button) => button.getBoundingClientRect().width) > 45,
+    'feature CSS must load from the offline shell');
+  const whole = Number(await page.locator('#weight-whole button').nth(3).getAttribute('data-value'));
+  await chooseWeight(page, whole, 3); await page.locator('#weight-save').click();
+  await page.waitForFunction(() => document.querySelector('#weight-status').textContent.startsWith('Saved on this phone'));
+  assert.equal(await page.locator('.weight-tile[aria-pressed="true"]').count(), 0);
+  const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox')));
+  assert.equal(queued.length, 1); assert.equal(queued[0].op, 'upsert_weight');
+  await page.reload(); await page.waitForSelector('#weight-history .card');
+  assert.match(await page.locator('#weight-history .card').first().textContent(), new RegExp(`${whole}\\.3 kg`));
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))), queued);
+  await page.locator('[data-view="today"]').click(); await page.waitForSelector('#subject-list .card');
+  await page.locator('[data-view="graphs"]').click();
+  await page.waitForFunction(() => document.querySelector('#graph-body').textContent.includes('Could not load graphs'));
+  await page.locator('[data-view="weight"]').click();
+  await context.setOffline(false); await page.locator('#refresh').click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+async function sessionEntryChecks(browser, url) {
+  const fractional = { uid: 'session-fractional', subject_uid: 'subject-b', start_time: '2026-10-09T07:00:00.900000',
+    end_time: '2026-10-09T08:30:00.100000', duration_seconds: 5399 };
+  sessions.push(fractional);
+  const recoveredShort = { uid: 'session-short', subject_uid: 'subject-b', start_time: '2026-10-08T06:00:00.900000',
+    end_time: '2026-10-08T06:00:30.899999', duration_seconds: 29 };
+  sessions.push(recoveredShort);
+  const context = await browser.newContext({ viewport: { width: 320, height: 740 }, isMobile: true, hasTouch: true, timezoneId: 'Europe/Amsterdam' });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript((day) => {
+    localStorage.setItem('jobtracker.token', 'isolated-session-entry-account');
+    const RealDate = Date;
+    let now = new RealDate(`${day}T09:30:00`).getTime();
+    window.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } };
+    window.setSessionClock = (value) => { now = new RealDate(value).getTime(); };
+  }, currentDay);
+  await page.goto(url); await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
+  await page.locator('[data-view="sessions"]').click(); await page.waitForSelector('#session-list .card');
+  const openAdd = async () => { await page.locator('#add-session').click(); await page.waitForSelector('#sheet:not(.hidden)'); };
+  const openCustom = async () => { await openAdd(); await page.locator('.session-custom > summary').click(); };
+  const choose170 = async () => {
+    for (const minutes of [120, 30, 15, 5]) await page.locator(`.session-duration-chunks [data-minutes="${minutes}"]`).click();
+  };
+  const countOps = (name) => ops.filter((op) => op.op === name).length;
+  const emptyQueue = () => page.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  const acknowledged = async (name, previous) => {
+    for (let attempt = 0; countOps(name) === previous && attempt < 300; attempt++) await page.waitForTimeout(10);
+    assert.ok(countOps(name) > previous, `${name} reaches the server`); await emptyQueue();
+  };
+  const minuteDifference = (op) => (Date.parse(`${op.params.end_time}Z`) - Date.parse(`${op.params.start_time}Z`)) / 60000;
+
+  // A closed sheet cannot create another operation through a second queued
+  // click, including a click on a different mutation control in that sheet.
+  await openAdd();
+  const before90 = countOps('add_session');
+  delays['/ops'] = 150;
+  await page.evaluate(() => {
+    const preset = document.querySelector('.session-quick-presets [data-minutes="90"]');
+    preset.click(); preset.click();
+    [...document.querySelectorAll('#sheet button')].find((button) => button.textContent === 'Add with these times').click();
+  });
+  await page.waitForFunction(() => document.querySelector('#sheet').classList.contains('hidden'));
+  await acknowledged('add_session', before90);
+  assert.equal(countOps('add_session'), before90 + 1);
+  assert.equal(minuteDifference(ops.filter((op) => op.op === 'add_session').at(-1)), 90);
+  delays['/ops'] = 0;
+
+  await openCustom();
+  assert.equal(await page.locator('.session-duration-chunks button').count(), 7);
+  assert.equal(await page.getByRole('button', { name: 'Add, ending now', exact: true }).isDisabled(), true);
+  const beforeSelection = ops.length;
+  await choose170();
+  await page.locator('.session-duration-chunks [data-minutes="240"]').focus();
+  await page.locator('.session-duration-chunks [data-minutes="240"]').press('Space');
+  assert.equal(await page.locator('#session-custom-total').textContent(), '6h 50m · 410 min');
+  await page.locator('.session-duration-chunks [data-minutes="240"]').press('Space');
+  assert.equal(await page.locator('#session-custom-total').textContent(), '2h 50m · 170 min');
+  assert.equal(await page.locator('#session-custom-total').textContent(), '2h 50m · 170 min');
+  assert.equal(await page.locator('.session-duration-chunks [aria-pressed="true"]').count(), 4);
+  await page.locator('.session-duration-chunks [data-minutes="120"]').click();
+  assert.equal(await page.locator('#session-custom-total').textContent(), '50m · 50 min');
+  await page.locator('.session-duration-chunks [data-minutes="120"]').click();
+  assert.equal(await page.locator('#session-custom-total').textContent(), '2h 50m · 170 min');
+  assert.equal(ops.length, beforeSelection, 'selection does not persist before confirmation');
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  assert.equal(await page.locator('.session-duration-chunks [aria-pressed="true"]').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Add, ending now', exact: true }).isDisabled(), true);
+  await choose170();
+  assert.equal(await page.locator('.session-duration-chunks button').evaluateAll((buttons) => buttons.every((button) => {
+    const box = button.getBoundingClientRect(); return box.width >= 44 && box.height >= 44 && box.left >= 0 && box.right <= innerWidth;
+  })), true, 'all chunk controls fit320px with usable touch targets');
+  await page.screenshot({ path: path.join(output, 'session-custom-320.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(output, 'session-custom-phone.png'), fullPage: true });
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByLabel('Subject', { exact: true }).selectOption('subject-b');
+  await page.evaluate((day) => setSessionClock(`${day}T09:35:27`), currentDay);
+
+  // Failed local storage keeps the exact draft for retry. A durable queued
+  // save closes the sheet permanently, even though send reports ok:false.
+  await page.evaluate(() => {
+    window.restoreSessionStorageWrite = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'jobtracker.outbox') throw new Error('storage full');
+      return restoreSessionStorageWrite.call(this, key, value);
+    };
+  });
+  await page.getByRole('button', { name: 'Add, ending now', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('#sheet').classList.contains('hidden') && document.querySelector('#banner').textContent.includes('cannot save'));
+  assert.equal(await page.locator('#session-custom-total').textContent(), '2h 50m · 170 min');
+  assert.equal(await page.locator('.session-duration-chunks [aria-pressed="true"]').count(), 4);
+  assert.equal(await page.getByLabel('Subject', { exact: true }).inputValue(), 'subject-b');
+  assert.equal(ops.length, beforeSelection);
+  await page.evaluate(() => { Storage.prototype.setItem = restoreSessionStorageWrite; });
+  offline = true; await context.setOffline(true);
+  await page.evaluate(() => { const button = document.querySelector('.session-custom-actions .primary'); button.click(); button.click(); });
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 1 && document.querySelector('#banner').textContent.startsWith('Saved on this phone'));
+  assert.equal(await page.locator('#sheet').isVisible(), false, 'durable queued save cannot reopen for a retry');
+  const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0]);
+  assert.equal(queued.op, 'add_session'); assert.equal(queued.params.subject_uid, 'subject-b');
+  assert.equal(minuteDifference(queued), 170); assert.equal(queued.params.end_time, `${currentDay}T09:35:27`);
+  assert.ok(queued.params.uid);
+  await page.evaluate(() => document.querySelector('.session-custom-actions .primary').click());
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox')).length), 1);
+  const beforeReconnect = countOps('add_session');
+  offline = false; await context.setOffline(false); await page.locator('#refresh').click();
+  await acknowledged('add_session', beforeReconnect);
+  assert.equal(ops.filter((op) => op.op_id === queued.op_id).length, 1);
+  assert.equal(sessions.find((row) => row.uid === queued.params.uid).duration_seconds, 170 * 60);
+
+  // Other days retain precise datetime entry and omit ending-now controls.
+  await page.locator('#day-date').fill('2026-10-08');
+  await page.waitForFunction(() => document.querySelector('#session-list .name')?.textContent === 'Day 2026-10-08');
+  await openAdd();
+  assert.equal(await page.locator('.session-quick-presets').count(), 0);
+  assert.equal(await page.locator('.session-custom').count(), 0);
+  await page.getByLabel('Start', { exact: true }).fill('2026-10-08T23:40');
+  await page.getByLabel('End', { exact: true }).fill('2026-10-09T02:30');
+  const beforePrecise = countOps('add_session');
+  await page.getByRole('button', { name: 'Add with these times', exact: true }).click();
+  await acknowledged('add_session', beforePrecise);
+  const precise = ops.filter((op) => op.op === 'add_session').at(-1);
+  assert.equal(precise.params.start_time, '2026-10-08T23:40:00');
+  assert.equal(precise.params.end_time, '2026-10-09T02:30:00');
+  await page.locator('#day-today').click();
+
+  // A server commit followed by failed acknowledgement storage retains the
+  // original durable entry. Retrying must not create a fresh session identity.
+  await openCustom(); await choose170();
+  const beforeAck = countOps('add_session'), rowsBeforeAck = sessions.length;
+  await page.evaluate(() => {
+    window.restoreAckStorageWrite = Storage.prototype.setItem;
+    let writes = 0;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'jobtracker.outbox' && ++writes === 2) throw new Error('ack storage full');
+      return restoreAckStorageWrite.call(this, key, value);
+    };
+  });
+  await page.evaluate(() => { const confirm = document.querySelector('.session-custom-actions .primary'); confirm.click(); confirm.click(); });
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 1 && document.querySelector('#banner').textContent.startsWith('Saved on this phone'));
+  assert.equal(countOps('add_session'), beforeAck + 1);
+  assert.equal(await page.locator('#sheet').isVisible(), false);
+  const retainedAck = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0]);
+  await page.evaluate(() => { document.querySelector('.session-custom-actions .primary').click(); Storage.prototype.setItem = restoreAckStorageWrite; });
+  await page.locator('#refresh').click(); await acknowledged('add_session', beforeAck + 1);
+  assert.equal(ops.filter((op) => op.op_id === retainedAck.op_id).length, 2, 'retry transmits the original receipt ID');
+  assert.equal(sessions.length, rowsBeforeAck + 1, 'retry cannot insert a second session');
+
+  const openFractional = async (subject) => {
+    await page.locator('[data-view="today"]').click();
+    await page.getByRole('button', { name: `Edit ${subject}`, exact: true }).click();
+    await page.getByRole('button', { name: 'Session history', exact: true }).click();
+    await page.locator('#sheet-body button').filter({ hasText: '07:00–08:30' }).click();
+  };
+  await openFractional('Reading');
+  const beforeFractional = countOps('update_session');
+  await page.getByLabel('Subject', { exact: true }).selectOption('subject-a');
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await acknowledged('update_session', beforeFractional);
+  const unchanged = ops.filter((op) => op.op === 'update_session').at(-1);
+  assert.equal(unchanged.params.session_uid, fractional.uid);
+  assert.equal(unchanged.params.start_time, '2026-10-09T07:00:00.900000');
+  assert.equal(unchanged.params.end_time, '2026-10-09T08:30:00.100000');
+  assert.equal(fractional.duration_seconds, 5399, 'subject-only edit preserves fractional duration');
+  await openFractional('Work');
+  await page.getByLabel('Start', { exact: true }).fill('2026-10-09T07:05');
+  const beforeEndpoint = countOps('update_session');
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await acknowledged('update_session', beforeEndpoint);
+  const edited = ops.filter((op) => op.op === 'update_session').at(-1);
+  assert.equal(edited.params.start_time, '2026-10-09T07:05:00');
+  assert.equal(edited.params.end_time, '2026-10-09T08:30:00.100000', 'editing one endpoint preserves the other exactly');
+
+  await page.locator('[data-view="today"]').click();
+  await page.getByRole('button', { name: 'Edit Work', exact: true }).click();
+  await page.getByRole('button', { name: 'Session history', exact: true }).click();
+  await page.locator('#sheet-body button').filter({ hasText: '07:05–08:30' }).click();
+  await page.getByLabel('End', { exact: true }).evaluate((input) => { input.value = '2026-10-09T07:05:20'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const beforeTooShort = countOps('update_session');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  assert.equal(await page.locator('#sheet').isVisible(), true);
+  assert.equal(await page.locator('#banner').textContent(), 'A session must last at least 30 seconds.');
+  assert.equal(countOps('update_session'), beforeTooShort);
+  assert.equal(await page.getByLabel('End', { exact: true }).inputValue(), '2026-10-09T07:05:20');
+  await page.getByLabel('End', { exact: true }).evaluate((input) => { input.value = '2026-10-09T07:05:30'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await acknowledged('update_session', beforeTooShort);
+  assert.equal(fractional.uid, 'session-fractional'); assert.equal(fractional.duration_seconds, 30);
+  await page.locator('[data-view="sessions"]').click(); await openAdd();
+  await page.getByLabel('Start', { exact: true }).fill(`${currentDay}T09:00`);
+  await page.getByLabel('End', { exact: true }).fill(`${currentDay}T09:00`);
+  const beforeZero = countOps('add_session');
+  await page.getByRole('button', { name: 'Add with these times', exact: true }).click();
+  assert.equal(await page.locator('#sheet').isVisible(), true);
+  assert.equal(await page.locator('#banner').textContent(), 'A session must last at least 30 seconds.');
+  assert.equal(countOps('add_session'), beforeZero);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length), 0);
+  await page.locator('#sheet-close').click();
+
+  await page.locator('[data-view="today"]').click();
+  await page.getByRole('button', { name: 'Edit Reading', exact: true }).click();
+  await page.getByRole('button', { name: 'Session history', exact: true }).click();
+  await page.locator('#sheet-body button').filter({ hasText: '06:00–06:00' }).click();
+  const beforeShortMove = ops.length;
+  await page.getByRole('button', { name: 'Move session 1 day earlier', exact: true }).click();
+  assert.equal(await page.locator('#banner').textContent(), 'A session must last at least 30 seconds.');
+  await page.getByRole('button', { name: 'Duplicate to today', exact: true }).click();
+  assert.equal(await page.locator('#sheet').isVisible(), true);
+  assert.equal(ops.length, beforeShortMove, 'a short recovered row cannot jam the queue with a refused shift/copy');
+  assert.equal(sessions.find((row) => row.uid === recoveredShort.uid), recoveredShort, 'recovered row remains intact');
+  await page.getByLabel('End', { exact: true }).evaluate((input) => { input.value = '2026-10-08T06:00:31'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const beforeCorrecting = countOps('update_session');
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await acknowledged('update_session', beforeCorrecting);
+  assert.equal(recoveredShort.uid, 'session-short'); assert.equal(recoveredShort.duration_seconds, 30);
+
+  // Subject history, Sessions and agenda all use the same exact-UID editor.
+  const openWorkHistory = async () => {
+    await page.locator('[data-view="today"]').click();
+    await page.getByRole('button', { name: 'Edit Work', exact: true }).click();
+    await page.getByRole('button', { name: 'Session history', exact: true }).click();
+    await page.locator('#sheet-body button').filter({ hasText: '09:00–10:15' }).click();
+  };
+  const original = { ...sessions.find((row) => row.uid === 'session-a') };
+  await openWorkHistory();
+  assert.equal(Date.parse(`${await page.getByLabel('Start', { exact: true }).inputValue()}Z`), Date.parse(`${original.start_time}Z`));
+  assert.equal(await page.locator('.session-nudges button').count(), 6);
+  assert.equal(await page.locator('.session-nudges button').evaluateAll((buttons) => buttons.every((button) => {
+    const box = button.getBoundingClientRect(); return box.width >= 44 && box.height >= 44 && box.left >= 0 && box.right <= innerWidth;
+  })), true);
+  await page.screenshot({ path: path.join(output, 'session-edit-320.png'), fullPage: true });
+  const beforeShift = countOps('shift_session');
+  await page.evaluate(() => { const button = document.querySelector('.session-nudges [data-seconds="-86400"]'); button.click(); button.click(); });
+  await acknowledged('shift_session', beforeShift);
+  const earlier = ops.filter((op) => op.op === 'shift_session').at(-1);
+  assert.equal(countOps('shift_session'), beforeShift + 1);
+  assert.deepEqual(earlier.params, { session_uid: original.uid, seconds: -86400 });
+  const moved = sessions.find((row) => row.uid === original.uid);
+  assert.equal(Date.parse(`${original.start_time}Z`) - Date.parse(`${moved.start_time}Z`), 86400000);
+  assert.equal(Date.parse(`${original.end_time}Z`) - Date.parse(`${moved.end_time}Z`), 86400000);
+  assert.equal(moved.duration_seconds, original.duration_seconds);
+  await openWorkHistory();
+  const beforeLater = countOps('shift_session');
+  await page.getByRole('button', { name: 'Move session 1 day later', exact: true }).click();
+  await acknowledged('shift_session', beforeLater);
+  assert.deepEqual(ops.filter((op) => op.op === 'shift_session').at(-1).params, { session_uid: original.uid, seconds: 86400 });
+  assert.equal(moved.start_time, original.start_time); assert.equal(moved.end_time, original.end_time);
+  assert.equal(moved.duration_seconds, original.duration_seconds);
+  await page.locator('[data-view="sessions"]').click(); await page.locator('#session-list .card').first().click();
+  assert.equal(await page.locator('.session-nudges [data-seconds="86400"]').count(), 1);
+  await page.locator('#sheet-close').click();
+  await page.locator('[data-view="graphs"]').click(); await page.waitForSelector('.bars');
+  await page.locator('[data-mode="agenda"]').click(); await page.waitForSelector('.agenda-block');
+  await page.locator('.agenda-block').click();
+  assert.equal(await page.locator('.session-nudges [data-seconds="-86400"]').count(), 1);
+  await page.locator('#sheet-close').click();
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+async function syncStatusChecks(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript((day) => {
+    localStorage.setItem('jobtracker.token', 'isolated-sync-status-token');
+    const RealDate = Date; let now = new RealDate(`${day}T09:30:00`).getTime();
+    window.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } };
+    window.setSyncClock = (value) => { now = new RealDate(value).getTime(); };
+  }, currentDay);
+  await page.goto(url);
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Synced '));
+  const confirmed = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.sync-status')).lastSuccessAt);
+  const originalActive = JSON.stringify(active);
+  const openQuick = async () => {
+    await page.locator('[data-view="today"]').click();
+    await page.getByRole('button', { name: 'Quick add time to Work', exact: true }).click();
+  };
+
+  offline = true;
+  await page.locator('#refresh').click();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent === 'Offline');
+  await openQuick();
+  await page.locator('.session-quick-presets [data-minutes="15"]').click();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent === 'Offline · 1 waiting');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.focusKey), 'subject:subject-a:quick-add',
+    'a queued save keeps keyboard focus on its subject control after repaint');
+  const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0]);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.sync-status')).lastSuccessAt), confirmed);
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent === 'Offline · 1 waiting');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0].op_id), queued.op_id);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.sync-status')).lastSuccessAt), confirmed);
+  offline = false;
+  await page.evaluate((day) => setSyncClock(`${day}T09:40:00`), currentDay);
+  await page.locator('#refresh').click();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Synced ') &&
+    JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.sync-status')).lastSuccessAt) > confirmed);
+  assert.equal(ops.filter((entry) => entry.op_id === queued.op_id).length, 1);
+  assert.equal(JSON.stringify(active), originalActive, 'manual Quick Add leaves the live timer untouched');
+
+  // A server commit with failed local receipt storage stays saved, visibly
+  // waiting, with the same UID until replay can remove its original operation.
+  await openQuick();
+  await page.evaluate(() => {
+    let writes = 0;
+    window.restoreStatusStorage = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'jobtracker.outbox' && ++writes === 2) throw Error('ack storage full');
+      return restoreStatusStorage.call(this, key, value);
+    };
+  });
+  await page.locator('.session-quick-presets [data-minutes="30"]').click();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent === 'Sync attention · 1 waiting');
+  const retained = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0]);
+  assert.equal(ops.filter((entry) => entry.op_id === retained.op_id).length, 1);
+  // The status line itself opens the details; a title tooltip is unreachable on a phone.
+  await page.locator('#sync-status').click();
+  assert.equal(await page.locator('#sheet-title').textContent(), 'Settings');
+  assert.match(await page.locator('#sheet-body').textContent(), /Last successful sync/);
+  await page.evaluate(() => { Storage.prototype.setItem = restoreStatusStorage; });
+  await page.getByRole('button', { name: 'Send anything waiting', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Synced ') &&
+    JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  assert.equal(ops.filter((entry) => entry.op_id === retained.op_id).length, 2);
+  assert.equal(sessions.filter((row) => row.uid === retained.params.uid).length, 1);
+  assert.equal(JSON.stringify(active), originalActive);
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+
+async function accountControlsChecks(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 320, height: 740 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('account-initialized')) {
+      localStorage.setItem('jobtracker.token', 'account-controls-token');
+      sessionStorage.setItem('account-initialized', 'yes');
+    }
+  });
+  await page.route('**/api/context', (route) => route.fulfill({ json: { today: currentDay, day_start: '03:30', head, active: null } }));
+  await page.goto(url);
+  await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
+  await page.locator('#open-settings').click();
+  assert.equal(await page.getByLabel('Day starts at', { exact: true }).inputValue(), '03:30');
+  const beforeSettings = ops.filter((entry) => entry.op === 'set_setting').length;
+  await page.getByLabel('Day starts at', { exact: true }).fill('04:45');
+  const settingAcknowledged = page.waitForResponse((response) => response.url().endsWith('/ops') &&
+    response.request().method() === 'POST' && JSON.parse(response.request().postData()).ops.some((entry) => entry.op === 'set_setting'));
+  await page.evaluate(() => {
+    const button = document.querySelector('#settings-day-save'); button.click(); button.click();
+  });
+  await settingAcknowledged;
+  await page.waitForFunction(() => document.querySelector('#sheet').classList.contains('hidden') &&
+    JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  assert.equal(ops.filter((entry) => entry.op === 'set_setting').length, beforeSettings + 1);
+  assert.deepEqual(ops.filter((entry) => entry.op === 'set_setting').at(-1).params,
+    { key: 'day_start_time', value: '04:45' });
+
+  await page.locator('#open-settings').click();
+  const cached = await page.evaluate(() => localStorage.getItem('jobtracker.mirror'));
+  await page.evaluate(() => {
+    window.restoreAccountRemove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function(key) {
+      if (key === 'jobtracker.token') throw new Error('storage blocked');
+      return restoreAccountRemove.call(this, key);
+    };
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Disconnect this phone', exact: true }).click();
+  assert.match(await page.locator('#banner').textContent(), /still connected/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('jobtracker.token')), 'account-controls-token');
+  assert.equal(await page.evaluate(() => localStorage.getItem('jobtracker.mirror')), cached);
+  assert.equal(await page.locator('#sheet').isVisible(), true);
+  await page.evaluate(() => { Storage.prototype.removeItem = restoreAccountRemove; });
+
+  // A rejected current token must not route its durable work to a new token.
+  await page.route('**/ops', (route) => route.fulfill({ status: 503, json: { detail: 'offline for this check' } }));
+  await page.route('**/api/context', (route) => route.fulfill({ status: 401, json: { detail: 'token rejected' } }));
+  await page.evaluate(() => localStorage.setItem('jobtracker.outbox', JSON.stringify([
+    { op_id: 'account-pending', op: 'add_goal', params: { uid: 'pending-goal', name: 'Saved here' } },
+  ])));
+  await page.locator('#sheet-close').click();
+  await page.locator('#refresh').click();
+  await page.waitForSelector('#setup:not(.hidden)');
+  const queue = await page.evaluate(() => localStorage.getItem('jobtracker.outbox'));
+  await page.locator('#setup-token').fill('different-account-token');
+  await page.locator('#setup-save').click();
+  await page.waitForFunction(() => document.querySelector('#setup-error').textContent.includes('original token'));
+  assert.equal(await page.evaluate(() => localStorage.getItem('jobtracker.token')), 'account-controls-token');
+  assert.equal(await page.evaluate(() => localStorage.getItem('jobtracker.outbox')), queue);
+  const otherTab = await context.newPage();
+  await otherTab.goto(`${url}/api.js`);
+  await otherTab.evaluate(() => localStorage.setItem('jobtracker.token', 'different-account-token'));
+  await page.waitForFunction(() => document.querySelector('#setup-error').textContent.includes('Reconnect the original token'));
+  assert.equal(await page.locator('#app').isVisible(), false, 'another tab cannot leave the original private view open');
+  assert.equal(await page.evaluate(async () => (await import('/api.js')).pendingForProjection().length), 0);
+  await page.reload();
+  await page.waitForSelector('#setup:not(.hidden)');
+  assert.equal(await page.locator('#app').isVisible(), false, 'cold startup also requires the original queue owner');
+  await page.locator('#setup-token').fill('different-account-token');
+  await page.locator('#setup-save').click();
+  await page.waitForFunction(() => document.querySelector('#setup-error').textContent.includes('original token'));
+  assert.equal(await page.locator('#app').isVisible(), false, 'resubmitting the current wrong token cannot leave recovery');
+  await page.locator('#setup-token').fill('account-controls-token');
+  await page.locator('#setup-save').click();
+  await page.waitForFunction(() => localStorage.getItem('jobtracker.token') === 'account-controls-token');
+  await page.waitForFunction(() => document.querySelector('#setup-error').textContent === 'That token was not accepted.');
+  assert.equal(await page.evaluate(() => localStorage.getItem('jobtracker.outbox')), queue);
+  await otherTab.close();
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost'); hits.push(url.pathname);
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/sync/') || url.pathname === '/ops') {
@@ -381,6 +856,22 @@ const server = http.createServer(async (req, res) => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
+  if (process.env.JOBTRACKER_BROWSER_SCOPE === 'offline-shell') {
+    weights = [{ uid: 'offline-initial', measured_at: '2026-10-10T09:00:00', weight_kg: 85.4, source: 'scale' }];
+    await offlineShellCheck(browser, url);
+    console.log(JSON.stringify({ browserChecks: 'passed', scope: 'offline-shell' }));
+    await browser.close(); server.close(); return;
+  }
+  if (process.env.JOBTRACKER_BROWSER_SCOPE === 'sessions') {
+    await sessionEntryChecks(browser, url);
+    console.log(JSON.stringify({ browserChecks: 'passed', scope: 'sessions', screenshots: output }));
+    await browser.close(); server.close(); return;
+  }
+  if (process.env.JOBTRACKER_BROWSER_SCOPE === 'sync-status') {
+    await syncStatusChecks(browser, url);
+    console.log(JSON.stringify({ browserChecks: 'passed', scope: 'sync-status' }));
+    await browser.close(); server.close(); return;
+  }
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage(); const errors = [];
   const externalRequests = [];
@@ -409,6 +900,9 @@ const server = http.createServer(async (req, res) => {
   await page.screenshot({ path: path.join(output, 'weight-cold-start-phone.png'), fullPage: true });
   await chooseWeight(page, 80, 7);
   holdContext = null; releaseTracking();
+  // If a deliberately held request exceeded the transport deadline on a busy
+  // host, resuming it still needs a normal quiet refresh.
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
   assert.equal(await page.locator('#weight-value').textContent(), '80.7 kg', 'weight input is usable before a slow tracking context finishes');
   await clearWeight(page); await entryControls(page, false);
@@ -505,8 +999,12 @@ const server = http.createServer(async (req, res) => {
   await page.locator('[data-view="today"]').click();
   offline = true;
   await context.setOffline(true);
-  await page.getByRole('button', { name: 'Start Work', exact: true }).click();
+  // A double tap starts once; its second tap must not stop and discard the timer.
+  await page.getByRole('button', { name: 'Start Work', exact: true }).dblclick();
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 1);
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox')).length), 1);
+  assert.equal(await page.locator('#active-card').isVisible(), true);
   const started = await page.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))[0]);
   await page.reload(); await page.waitForSelector('#weight-entry');
   assert.equal(await page.locator('#view-title').textContent(), 'Weight');
@@ -574,7 +1072,7 @@ const server = http.createServer(async (req, res) => {
   await page.locator('#weight-cancel').click();
   await page.evaluate(() => { document.querySelector('#views').scrollTop = 0; });
   await page.screenshot({ path: path.join(output, 'weight-entry-phone.png'), fullPage: true });
-  await page.locator('#weight-range').selectOption('all'); await page.locator('.weight-options summary').click();
+  await page.locator('#weight-range').selectOption('all'); await page.getByText('Plot options', { exact: true }).click();
   await page.locator('#weight-historic').check();
   assert.match(await page.locator('#weight-canvas').getAttribute('aria-label'), /3 weight measurements/);
   await page.screenshot({ path: path.join(output, 'weight-phone.png'), fullPage: true });
@@ -617,8 +1115,12 @@ const server = http.createServer(async (req, res) => {
   assert.equal(await page.locator('#weight-value').textContent(), '—.— kg');
   assert.equal(await page.locator('#weight-history .card').count(), 0);
   assert.deepEqual(errors, []);
+  await sessionEntryChecks(browser, url);
   const pickerPerformance = await pickerRegressions(browser, url);
   await coldWeightFailure(browser, url);
-  console.log(JSON.stringify({ browserChecks: 'passed', viewports: ['390x844', '844x390', '1280x900', '320x740'], tested: ['cold Weight before slow/failed tracking requests', 'viewport-wide whole/decimal tiles', 'durable save resets online/offline', 'storage failure and removed-target retry', 'fullscreen fallback, rotation, draft and account cleanup', 'agenda live clock and day-scroll preservation', 'calendar session navigation and day response race', 'agenda exact session', 'offline timer reload/replay', 'weight load/save race and double submission', 'timestamp and original precision preservation', 'new draft during save and correct receipts', 'weight graphs all/historic/custom', 'offline weight edit/delete/reload', 'account reset', 'latest/backfill anchor', 'manual date collision and same-day coalescing', 'refresh-stable selection and keyboard navigation', 'persistent entry options', 'calendar midnight rollover', '1060-row tap performance'], pickerPerformance, screenshots: output, requests: hits.length }));
+  await offlineShellCheck(browser, url);
+  await accountControlsChecks(browser, url);
+  await syncStatusChecks(browser, url);
+  console.log(JSON.stringify({ browserChecks: 'passed', viewports: ['390x844', '844x390', '1280x900', '320x740'], tested: ['fractional day-start save once, failed disconnect, pending account-change guard', 'session90m preset,170m chunks, offline/ACK-storage durability and duplicate guard', 'shared session ±1day controls, exact UID/duration and fractional timestamps', 'real service-worker offline launch, CSS/modules, queued save and reconnect', 'cold Weight before slow/failed tracking requests', 'viewport-wide whole/decimal tiles', 'durable save resets online/offline', 'storage failure and removed-target retry', 'fullscreen fallback, rotation, draft and account cleanup', 'agenda live clock and day-scroll preservation', 'calendar session navigation and day response race', 'agenda exact session', 'offline timer reload/replay', 'weight load/save race and double submission', 'timestamp and original precision preservation', 'new draft during save and correct receipts', 'weight graphs all/historic/custom', 'offline weight edit/delete/reload', 'account reset', 'latest/backfill anchor', 'manual date collision and same-day coalescing', 'refresh-stable selection and keyboard navigation', 'persistent entry options', 'calendar midnight rollover', '1060-row tap performance'], pickerPerformance, screenshots: output, requests: hits.length }));
   await browser.close(); server.close();
 })().catch((err) => { console.error(err); server.close(); process.exit(1); });

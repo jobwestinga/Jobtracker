@@ -14,6 +14,7 @@ from PySide6.QtCore import QEasingCurve, QTimer, QVariantAnimation, Signal, Qt
 from datetime import datetime
 from ...core.models import Session, Subject
 from ...core import timeutils
+from ..accessibility import reduced_motion
 
 
 IDLE_MESSAGE = "Get to work."
@@ -109,6 +110,8 @@ class ActiveTimerWidget(QFrame):
         self._stop_btn.setMinimumWidth(170)
         self._stop_btn.setMinimumHeight(40)
         self._stop_btn.setCursor(Qt.PointingHandCursor)
+        self._stop_btn.setFocusPolicy(Qt.StrongFocus)
+        self._stop_btn.setAccessibleName("Stop the active tracking session")
         self._stop_btn.clicked.connect(self.stop_requested.emit)
         btn_row.addWidget(self._stop_btn)
         btn_row.addStretch()
@@ -129,6 +132,8 @@ class ActiveTimerWidget(QFrame):
         self.subject = subject
         self.session = session
         self._name.setText(subject.name)
+        self._name.setAccessibleName(f"Tracking subject: {subject.name}")
+        self._clock.setAccessibleName("Elapsed tracking time")
         self._apply_active_style()
         self._update_time()
         self._tick.start(500)
@@ -136,6 +141,7 @@ class ActiveTimerWidget(QFrame):
 
     def clear(self) -> None:
         """Switch to idle. Safe to call even when already idle."""
+        self._clear_stop_pulse()
         if self.subject is None and not self._tick.isActive():
             return
         self._tick.stop()
@@ -147,25 +153,40 @@ class ActiveTimerWidget(QFrame):
         """Draw attention to the only control allowed to end a session."""
         if self.subject is None:
             return
+        if reduced_motion(self):
+            self._stop_btn.setFocus(Qt.OtherFocusReason)
+            return
+        self._clear_stop_pulse()
         effect = QGraphicsOpacityEffect(self._stop_btn)
+        effect.setOpacity(1.0)
         self._stop_btn.setGraphicsEffect(effect)
-        anim = QVariantAnimation(self)
-        anim.setDuration(420)
-        anim.setKeyValueAt(0.0, 1.0)
-        anim.setKeyValueAt(0.25, 0.45)
-        anim.setKeyValueAt(0.5, 1.0)
-        anim.setKeyValueAt(0.75, 0.45)
-        anim.setKeyValueAt(1.0, 1.0)
-        anim.setEasingCurve(QEasingCurve.InOutCubic)
-        anim.valueChanged.connect(lambda value: effect.setOpacity(float(value)))
+        if not hasattr(self, "_stop_pulse_anim"):
+            # Retain one wrapper for this widget's lifetime. Deleting each
+            # animation from its own Python finished closure formed a cycle
+            # that could collide with deferred Qt destruction during GC.
+            animation = QVariantAnimation(self)
+            animation.setDuration(420)
+            animation.setKeyValueAt(0.0, 1.0)
+            animation.setKeyValueAt(0.25, 0.45)
+            animation.setKeyValueAt(0.5, 1.0)
+            animation.setKeyValueAt(0.75, 0.45)
+            animation.setKeyValueAt(1.0, 1.0)
+            animation.setEasingCurve(QEasingCurve.InOutCubic)
+            animation.valueChanged.connect(self._update_stop_pulse)
+            animation.finished.connect(self._clear_stop_pulse)
+            self._stop_pulse_anim = animation
+        self._stop_pulse_anim.start()
 
-        def finish() -> None:
-            if self._stop_btn.graphicsEffect() is effect:
-                self._stop_btn.setGraphicsEffect(None)
+    def _update_stop_pulse(self, value) -> None:
+        effect = self._stop_btn.graphicsEffect()
+        if isinstance(effect, QGraphicsOpacityEffect):
+            effect.setOpacity(float(value))
 
-        anim.finished.connect(finish)
-        self._stop_pulse_anim = anim
-        anim.start()
+    def _clear_stop_pulse(self) -> None:
+        animation = getattr(self, "_stop_pulse_anim", None)
+        if animation is not None:
+            animation.stop()
+            self._stop_btn.setGraphicsEffect(None)
 
     # ── Private ──────────────────────────────────────────────────────────
     def _show_idle(self) -> None:

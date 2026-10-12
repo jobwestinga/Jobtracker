@@ -17,6 +17,7 @@ from .dialog_utils import (
     InlineDialog,
     configure_window_modal,
     open_dialog,
+    warning,
 )
 from .session_dialog import DurationDialog, SessionDialog
 from . import session_list
@@ -28,6 +29,7 @@ QUICK_DURATIONS = [
     ("30m", 30),
     ("1h", 60),
     ("1h 15m", 75),
+    ("1h 30m", 90),
     ("2h", 120),
 ]
 
@@ -226,15 +228,20 @@ class ManageSessionsDialog(InlineDialog):
         """
         end = end or datetime.now()
         start = end - timedelta(minutes=max(1, int(minutes)))
-        created = self.service.add_session(self.subject_id, start, end)
-        self._load(select_session_id=created.id if created else None)
+        self._record_session(start, end)
 
     def _quick_add_slot(self, start_hour: int, end_hour: int) -> None:
         """Create a session for a fixed time slot on today's date."""
         today = datetime.now().date()
         start = datetime.combine(today, time(hour=start_hour))
         end = datetime.combine(today, time(hour=end_hour))
+        self._record_session(start, end)
+
+    def _record_session(self, start: datetime, end: datetime) -> None:
+        """Report a refused creation consistently across the three add paths."""
         created = self.service.add_session(self.subject_id, start, end)
+        if created is None:
+            warning(self, "Could Not Add Session", "The session was not saved. Check that its subject still exists and its duration is at least 30 seconds.")
         self._load(select_session_id=created.id if created else None)
 
     def _custom_duration(self) -> None:
@@ -255,10 +262,7 @@ class ManageSessionsDialog(InlineDialog):
         if result != QDialog.Accepted:
             return
         d = dialog.get_data()
-        created = self.service.add_session(
-            self.subject_id, d["start_time"], d["end_time"]
-        )
-        self._load(select_session_id=created.id if created else None)
+        self._record_session(d["start_time"], d["end_time"])
 
     def _edit(self) -> None:
         selected = self._selected("edit")

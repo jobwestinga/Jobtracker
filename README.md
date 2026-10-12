@@ -1,43 +1,73 @@
 # JobTracker
 
-JobTracker is a native macOS desktop application designed to capture and visualize how you spend your time. It provides a distraction-free, fully local environment to track recurring workflow or study sessions without relying on cloud services or electron constraints. Built with Python and PySide6, the application prioritizes speed, data ownership, and aesthetic polish.
+JobTracker tracks time, goals and daily body weight on a native macOS app and a
+phone web app. The Mac keeps its data in SQLite and works offline. Optional sync
+uses your own authenticated server; app data stays on machines you control.
+
+For development, start at the [documentation index](docs/index.md) and
+[engineering rules](docs/engineering-rules.md). Use
+`python scripts/dev.py context weight.daily-entry` to find the relevant feature
+owners, contracts and tests.
 
 ## Features
 
 - **Daily weight on phone and Mac:** The Weight tab has seven whole-kilogram buttons centered on your latest reading and ten decimal buttons (.0–.9). Tap one in each row, then Save. On the phone, both rows span the available width and a durable save clears the selection. Entry controls adjust dates, tile size and contrast. Entries use calendar days, and saving again on the same day updates the manual entry. Offline saves enter a durable queue; previous readings can be edited or deleted.
-- **Personal weight plots:** Choose 30/90 days, six months, a year, all history, or custom dates. The original LOESS trend uses a 4% span, with smoother options, a seven-day average, measurement visibility, historic readings, and an optional zero-based axis. Sparse historic readings use shape-preserving interpolation. Export the plot as PNG or the measurements as CSV.
+- **Personal weight plots:** Choose 30/90 days, six months, a year, all history, or custom dates. The original LOESS trend uses a 4% span, with smoother options, a seven-day average, measurement visibility, historic readings, and an optional zero-based axis. Sparse historic readings use shape-preserving interpolation. The phone also exports plots as PNG and measurements as CSV.
 
 - **Live Session Tracking:** Create color-tagged subjects and track your progress with a single click. Inline card actions (edit, manage sessions, archive) keep everything one tap away, and the active topic stays prominent while others dim. A live persistent dashboard tracks your active sessions. New subjects suggest colors that stay visually distinct from your existing ones.
 - **Crash-safe recovery:** If the app or laptop dies mid-session, on reopen JobTracker asks how to handle the unfinished session — end it at the last time it was known active, end it now, or set a custom end time/length. It never silently counts hours you weren't working, and never deletes the session for you.
-- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—quick-add a preset or custom duration ending now, drop a session into a fixed time slot, duplicate one to today or the next day, or nudge it ±15m/±1h without retyping any dates. Use stacked bar charts (grouped **daily, weekly, or monthly**) and compact agenda timelines. Pick a preset range (Weeks/Months/Year/All) or a custom date range. Hover a bar or agenda block for details, click a block to edit that exact session, or click a day to inspect everything on it.
+- **Detailed History & Visualizations:** Modify, backfill, or manage past sessions seamlessly—quick-add a preset (including 1h 30m) or combine custom duration buttons ending now, drop a session into a fixed time slot, duplicate one to today or the next day, or nudge it ±15m/±1h/±1 day without retyping any dates. The custom buttons add 4h, 2h, 1h, 30m, 15m, 10m and 5m; tap again to remove a chunk and check the total before saving. Exact time inputs remain available. Use stacked bar charts (grouped **daily, weekly, or monthly**) and compact agenda timelines. Pick a preset range (Weeks/Months/Year/All) or a custom date range. Hover a bar or agenda block for details, click a block to edit that exact session, or click a day to inspect everything on it.
 - **Outcome-focused Goals:** Keep goals separate from timed subjects. Add a description and milestone checklist, track progress, complete a goal only after its milestones are done, and reopen completed goals at any time. Star the handful you're concentrating on with **Focus This Week** so they stand out in the list.
 - **Recurring Goal Templates:** Daily, weekly, or monthly templates generate ordinary goals at the top of the list — on or after their scheduled weekday/day-of-month, so nothing is skipped just because the app stayed closed. Previous unfinished instances remain, and opening the app repeatedly in one logical period never creates duplicates.
 - **Quick Subject Switching:** Clicking another subject (or pressing its number key) while tracking asks to switch — the current session keeps running until you confirm, so a misclick costs nothing.
-- **Keyboard-first navigation:** `←`/`→` move between Goals, Subjects, and Graphs; `1`–`9` open that row's goal or start that subject; `Esc` leaves the Completed/Archived views; `W`/`M`/`Y`/`A` switch graph ranges; `⌘Z` undoes the last archive or reorder.
+- **Keyboard-first navigation:** `←`/`→` move between Goals, Subjects, Graphs, and Weight; `1`–`9` open that row's goal or start that subject; `Esc` leaves the Completed/Archived views; `W`/`M`/`Y`/`A` switch graph ranges; `⌘Z` undoes the last archive or reorder.
 - **Offline & Private Sync:** SQLite keeps your tracking history available offline. When sync is enabled, changes go to your own server and connected devices. Every clean quit also writes a rotating JSON auto-backup (newest 10 kept) to a `backups/` folder beside your database.
+- **Persistent sync feedback:** The phone and Mac headers show pending changes, connection problems and the last confirmed sync. Phone Settings gives the detailed status; the Mac offers Sync/Retry beside the status. A queued save stays saved on its device while waiting to send.
+- **Accessible controls:** Keyboard focus stays visible through refreshes, sheets trap focus and return it on dismissal, and phone layouts support zoom and larger text. Weight plots offer expandable data tables. The phone respects reduced-motion preferences; Mac Settings has a local Reduce motion option.
 - **Customized Aesthetics:** Ships out-of-the-box with custom animated rendering themes—such as dynamic Space Nebulas and minimal Checkerboards—to match your desktop preference.
 
 ## Project Structure
 
-An overview of the codebase to help you navigate:
-
 ```text
 JobTracker/
-├── main.py                   # Main application entry point
-├── build_macos.sh            # Automated PyInstaller build script
-├── JobTracker.spec           # PyInstaller packaging configuration
-├── assets/                   # App icons and related assets
-├── tests/                    # Isolated pytest, offscreen Qt and mobile regressions
-├── server/                   # Authenticated API, operation handlers and imports
-├── web/                      # Plain ES-module phone app and offline shell
-├── deploy/                   # Own-server deployment and backup scripts
-├── MOD/                      # Modularity/reference proposal (PDF and Markdown)
-└── jobtracker/               # Core application package
-    ├── core/                 # SQLite database, models, time/day math, themes
-    ├── services/             # Shared tracking and weight business logic
-    ├── sync/                 # Durable outbox, server transport and local mirror
-    └── ui/                   # PySide6 window, page mixins, widgets, styles
+├── main.py                     # Native entry point
+├── jobtracker/
+│   ├── core/                   # Pure models, time, identity and plot math
+│   │   ├── database.py         # Stable Database facade
+│   │   └── persistence/        # Connection/schema and feature repositories
+│   ├── services/               # TrackerService facade and feature rules
+│   ├── sync/                   # Queued service, transport, orchestration
+│   │   ├── mirror.py           # Feed row application and ordering
+│   │   └── integrity.py        # Hashes, clock and report verification
+│   └── ui/                     # Native window, page mixins and widgets
+│       └── controllers/        # Keyboard and sync coordination
+├── server/
+│   ├── app.py                  # API composition and final static mount
+│   ├── runtime.py              # Shared service state and lock
+│   ├── routes/                 # Read/API routers and operation endpoint
+│   ├── ops.py                  # Registry, atomic apply and retry receipts
+│   └── operations/             # Explicitly registered domain handlers
+├── web/
+│   ├── app.js                  # Startup/navigation/refresh composition
+│   ├── features/               # Subject, goal, session, graph, weight UIs
+│   ├── data/                   # Credentials, API, mirror and ordered outbox
+│   ├── shared/                 # DOM, sheets, fullscreen and formatting
+│   └── styles/                 # Tokens, shell and common controls
+├── tests/                      # Isolated Python, native and mobile checks
+│   ├── support/                # Reusable fixtures and API/sync helpers
+│   ├── ui/                     # Native feature regressions
+│   └── mobile/                 # Node and mock-browser regressions
+├── scripts/                    # Dev commands, static checks, safe packaging
+├── docs/                       # Rules, architecture, generated maps/runbooks
+├── deploy/                     # Own-server update and backup scripts
+├── assets/                     # Icon artwork
+└── JobTracker.spec             # PyInstaller packaging configuration
 ```
+
+[Feature ownership](docs/generated/feature-index.md),
+[operation handlers](docs/generated/operations.md) and
+[facade delegation](docs/generated/interfaces.md) are checked source maps.
+Compatibility imports remain available while implementations have focused owners.
 
 ## Phone App and Weight History
 
@@ -53,6 +83,18 @@ Use the plot's fullscreen button, then rotate the phone for a wider chart;
 close fullscreen to return. Weight plot options and the time graphs remain
 available. The agenda shows a current-time line in the current logical day,
 updated each minute and when the app resumes.
+
+On **Subjects**, tap a subject's **Add time** button to open Quick Add. Choose a
+preset (including 90 minutes), or combine the custom duration buttons and save.
+The session ends at the time you confirm, with no start/end fields to fill in.
+A short confirmation names the saved range, and the earlier tracking day when
+the session began before your day boundary. This also works offline and leaves
+an active timer running. Tap the sync status under the page title for details
+and anything still waiting to send.
+
+On the Mac, local edits are sent to your server a moment after they are saved,
+rather than waiting for the window to regain focus or the regular five-minute
+sync. The status line above the pages shows when they have arrived.
 
 To import an existing `Weight_graph` project, install the optional importer
 dependency on the importing computer and run:
@@ -85,9 +127,7 @@ python3 -m server.import_weights --source ../Weight_graph \
 
 ## Local Setup
 
-**Requirements:**
-- macOS 12+ (Monterey or later)
-- Python 3.12+ 
+**Requirements:** macOS 12+ and Python 3.12+.
 
 Clone the repository and set up your local environment:
 
@@ -96,8 +136,8 @@ git clone https://github.com/jobwestinga/JobTracker.git
 cd JobTracker
 
 # Create and activate a virtual environment
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Install requirements
 pip install -r requirements.txt
@@ -110,23 +150,25 @@ python main.py
 ```
 *(In development mode, your database is safely isolated at `./data/jobtracker.db`)*
 
-## Running the Tests
+## Development and Tests
 
-The core logic (database, time/day calculations, sessions, import/export) is
-covered by an isolated pytest suite that never touches your real database.
-Native widget tests use offscreen Qt; mobile JavaScript regressions use Node
-when available. The separate browser smoke harness lives in `tests/mobile/`.
+Install the test dependencies in the chosen environment, then use the developer
+commands from the repository root:
 
-```bash
-# Install dev dependencies (pytest) on top of the runtime requirements
-pip install -r requirements-dev.txt
-
-# Run the suite
-python -m pytest
+```sh
+python -m pip install -r requirements-dev.txt
+python scripts/dev.py context timer.sessions
+python scripts/dev.py test --python /path/to/python
+python scripts/dev.py check
+python scripts/dev.py mobile
+python scripts/dev.py browser
 ```
 
-Each test uses its own temporary SQLite database, so running the tests is always
-safe and will not modify `data/jobtracker.db`.
+`test` runs isolated pytest tests, including offscreen native widgets. `mobile`
+runs the Node regressions; `browser` runs four Playwright harnesses against
+isolated mock data and storage. The [testing runbook](docs/runbooks/testing.md) explains focused
+feature checks, interpreter selection and existing browser-tool configuration.
+Tests use temporary databases and do not change your tracking history.
 
 ## How Days Are Counted
 
@@ -134,7 +176,7 @@ Tracked time is grouped by a **logical day** that starts at **03:00** by default
 not midnight — for most people a day "ends" when they sleep. So a session from
 23:00 to 02:00 is counted on the day it started.
 
-You can change this under **Settings → Day starts at** (hour selector). The logical day
+You can change this under **Settings → Day starts at** (`HH:MM`). The logical day
 is used everywhere time is grouped: subject "Today" totals, the daily/weekly/
 monthly graphs, the agenda timeline, and the daily-summary CSV. In the agenda
 view, late-night work that belongs to the previous logical day appears at the
@@ -196,18 +238,24 @@ strong confirmation appears showing how many sessions and how much time would be
 lost, recommends archiving instead, and requires you to type the subject name (or
 `DELETE`) to proceed. Subjects with no sessions delete with a simple confirm.
 
-## Building the macOS App
+## Building and Updating the macOS App
 
-You can package JobTracker into a standalone macOS `.app` bundle. This encapsulates the Python environment and creates a clean executable you can move to your `/Applications` folder.
+Build a verified, signed bundle outside iCloud without replacing the installed app:
 
-Run the included build script:
-```bash
-./build_macos.sh
+```sh
+python scripts/dev.py build --python /path/to/python
 ```
 
-By default, the script places the finished application directly into `/Applications/JobTracker.app` and cleans up temporary build artifacts to keep your workspace tidy.
+For an authorized installation, add `--install`. The guarded installer checks all
+required databases for open sessions and pending writes, takes online backups,
+and preserves the previous bundle. Busy installations wait for safe idle;
+application rollback never overwrites your data. See the
+[build/install runbook](docs/runbooks/build-install.md) for staged installation,
+status, required databases and legacy build-script behavior.
 
-> **Note on Gatekeeper:** Because this application is not distributed through the Mac App Store and isn't inherently code-signed, macOS Gatekeeper will block it on the first launch. You can bypass this by right-clicking the app and selecting **Open**, or by clearing the quarantine flag via your terminal: `xattr -cr /Applications/JobTracker.app`
+Server and phone updates use the [deployment runbook](docs/runbooks/deploy.md).
+If something fails, follow the [incident runbook](docs/runbooks/incidents.md)
+before attempting a repair or restore.
 
 ## Data Storage & Backups
 
@@ -217,7 +265,8 @@ If you ever need to migrate data between machines, or between your code environm
 
 ## Customizing the Icon
 
-To inject your own custom branding, simply drop a new PNG image into the `assets/` directory named `icon.png` (overwriting the existing one) and rebuild the application. The build script will automatically bundle it and purge the macOS icon caches for you.
+Place the PNG artwork at `assets/icon.png` and use the safe build command.
+The builder generates and bundles the macOS icon in its staged source copy.
 
 ## Contributing
 

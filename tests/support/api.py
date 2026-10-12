@@ -1,8 +1,6 @@
 """Shared api test adapters and isolated fixtures."""
 
-import json
 import uuid
-from datetime import date, timedelta
 
 import pytest
 
@@ -10,7 +8,6 @@ fastapi_testclient = pytest.importorskip(
     "fastapi.testclient", reason="server extras not installed"
 )
 
-from jobtracker.core import sync_policy  # noqa: E402
 from server import app as app_module  # noqa: E402
 from server import auth  # noqa: E402
 

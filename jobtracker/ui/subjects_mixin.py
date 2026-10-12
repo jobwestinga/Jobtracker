@@ -59,6 +59,7 @@ class SubjectsMixin:
         gear_btn.setMinimumHeight(34)
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.setToolTip("Settings")
+        gear_btn.setAccessibleName("Settings")
         gear_btn.clicked.connect(self._open_settings)
         header.addWidget(gear_btn)
 
@@ -76,6 +77,7 @@ class SubjectsMixin:
 
         self._filter = QComboBox()
         self._filter.addItems(["Total", "Today", "Last 7 days", "Last 30 days"])
+        self._filter.setAccessibleName("Tracked time range")
         self._filter.setCursor(Qt.PointingHandCursor)
         self._filter.currentTextChanged.connect(
             lambda _text: self._queue_ui_action(self._reload_subjects)
@@ -106,6 +108,7 @@ class SubjectsMixin:
         self._pages.addWidget(page)
 
     def _reload_subjects(self) -> None:
+        self._sync_coordinator.refresh_status()
         rendered_view = getattr(
             self, "_subjects_rendered_view", self._showing_archived
         )
@@ -248,7 +251,7 @@ class SubjectsMixin:
         self._reload_graphs()
 
     def _edit_subject(self, subject_id: int) -> None:
-        subject = next((s for s in self.service.get_all_subjects() if s.id == subject_id), None)
+        subject = next((s for s in self.service.get_all_subjects_including_archived() if s.id == subject_id), None)
         if not subject:
             return
 
@@ -392,8 +395,10 @@ class SubjectsMixin:
         self, subject_id: int, shortcut_feedback: bool = False
     ) -> None:
         active = self.service.active_subject
-        if active is None or active.id == subject_id:
+        session = self.service.active_session
+        if active is None or session is None or active.id == subject_id:
             return
+        session_key = session.uid or ("local", session.id)
         target = next(
             (
                 s
@@ -412,7 +417,12 @@ class SubjectsMixin:
             # If that changed while it was open — the timer was stopped, or a
             # second prompt already switched — don't act on the stale premise.
             current = self.service.active_subject
-            if current is None or current.id != active.id:
+            current_session = self.service.active_session
+            if (
+                current is None or current.id != active.id
+                or current_session is None
+                or (current_session.uid or ("local", current_session.id)) != session_key
+            ):
                 return
             if self.service.switch_subject(subject_id):
                 self._pending_tracking_feedback_id = (
@@ -468,6 +478,7 @@ class SubjectsMixin:
         Returns False (caller falls back to a full reload) if the live cards no
         longer match the current subjects.
         """
+        self._sync_coordinator.refresh_status()
         if self._showing_archived:
             return False
         subjects = self.service.get_all_subjects(archived=False)

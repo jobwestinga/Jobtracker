@@ -9,6 +9,9 @@ from ..core.models import Session
 from ..core import timeutils
 
 
+MIN_SESSION_SECONDS = 30
+
+
 class SessionService:
     """Session edits call facade mutations so synced writes stay queued."""
 
@@ -68,13 +71,17 @@ class SessionService:
         ):
             return None
         duration = timeutils.duration_seconds(start_time, end_time)
+        # Invalid edits must preserve history, not reach the repository's
+        # legacy short-duration deletion path or disappear without a queued op.
+        if duration < MIN_SESSION_SECONDS:
+            return None
         return self._tracker.db.update_session(session_id, subject_id, start_time, end_time, duration)
 
     def shift_session(self, session_id: int, seconds: int) -> Optional[Session]:
         """Move a closed session in time by ``seconds`` (negative = earlier).
 
         Start and end move together, so the duration and the subject are
-        untouched. Used by the ±15m / ±1h nudge buttons.
+        untouched. Used by the ±15m / ±1h / ±1-day move buttons.
         """
         session = self._tracker.db.get_session(session_id)
         if session is None or session.id is None or not session.end_time:
@@ -83,9 +90,12 @@ class SessionService:
         end_dt = timeutils.parse_iso(session.end_time)
         if start_dt is None or end_dt is None:
             return None
-        delta = timedelta(seconds=int(seconds))
+        try:
+            new_start, new_end = timeutils.shift_session_by_seconds(start_dt, end_dt, seconds)
+        except OverflowError:
+            return None
         return self._tracker.update_session(
-            session.id, session.subject_id, start_dt + delta, end_dt + delta
+            session.id, session.subject_id, new_start, new_end
         )
 
     def delete_session(self, session_id: int) -> None:

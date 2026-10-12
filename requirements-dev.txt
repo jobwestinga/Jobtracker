@@ -1,4 +1,6 @@
 # Development / test dependencies (not bundled into the macOS .app).
 # Install with:  pip install -r requirements-dev.txt
 -r requirements.txt
+-r requirements-server.txt
 pytest>=8.0
+httpx>=0.27

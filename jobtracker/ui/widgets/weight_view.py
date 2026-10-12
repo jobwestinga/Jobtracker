@@ -22,7 +22,7 @@ logger = logging.getLogger("jobtracker")
 
 
 def _weight_text(value):
-    return f"{value:.3f}".rstrip("0").rstrip(".")
+    return str(value).removesuffix(".0")
 
 
 def _current_date():

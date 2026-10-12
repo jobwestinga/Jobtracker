@@ -8,7 +8,7 @@ export function wholeWeightTiles(anchor = 80) {
 
 export function weightTileAnchor(rows, fallback = 80) {
   const latest = selectMeasurements(rows, { historic: true }).filter((row) => parseWeight(row.weight_kg) !== null).at(-1);
-  return Math.round(latest ? Number(latest.weight_kg) : parseWeight(fallback) ?? 80);
+  return Math.round(latest ? parseWeight(latest.weight_kg) : parseWeight(fallback) ?? 80);
 }
 
 export function splitWeightTiles(value) {

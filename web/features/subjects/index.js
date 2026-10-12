@@ -1,10 +1,15 @@
-import { $, el, safeColor } from "../../shared/dom.js";
+import { $, el, safeColor, captureFocus, restoreFocus } from "../../shared/dom.js";
 import { localIso } from "../../shared/time.js";
 import { hms, clockOf } from "../../shared/format.js";
-import { openSheet, closeSheet, field } from "../../shared/sheet.js";
+import { openSheet, createSheetAction, field } from "../../shared/sheet.js";
 import { uuid } from "../../shared/ids.js";
 
-export function createSubjectsFeature({ store, act, banner, reorderButtons, editSession }) {
+const SUBJECT_PALETTE = Object.freeze([
+  ["#3B82F6", "Blue"], ["#EF4444", "Red"], ["#10B981", "Green"], ["#F59E0B", "Amber"], ["#8B5CF6", "Violet"],
+  ["#EC4899", "Pink"], ["#14B8A6", "Teal"], ["#F97316", "Orange"], ["#6366F1", "Indigo"], ["#84CC16", "Lime"],
+]);
+
+export function createSubjectsFeature({ store, act, banner, reorderButtons, editSession, quickAdd }) {
   const state = { subjectFilter: "active", tick: null };
   const subjectsByUid = () => Object.fromEntries((store.snapshot?.subjects || []).map((subject) => [subject.uid, subject]));
 
@@ -29,6 +34,7 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
     }
 
     const list = $("subject-list");
+    const focusKey = captureFocus(list);
     list.innerHTML = "";
     const active = (store.snapshot?.subjects || [])
       .filter((s) => state.subjectFilter === "archived" ? s.is_archived : !s.is_archived)
@@ -36,7 +42,7 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
 
     for (const subject of active) {
       const running = store.active?.subject_uid === subject.uid;
-      const card = el("div", "card tappable");
+      const card = el("div", `card tappable subject-card${subject.is_archived ? " archived" : ""}`);
       const dot = el("div", "dot");
       dot.style.backgroundColor = safeColor(subject.color);
       const body = el("div", "grow");
@@ -44,20 +50,29 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
       if (running) body.append(el("div", "sub", "running now"));
       card.append(dot, body);
       const more = el("button", "icon-btn", "⋯");
+      more.dataset.focusKey = `subject:${subject.uid}:edit`;
       more.setAttribute("aria-label", `Edit ${subject.name}`);
       more.onclick = (event) => { event.stopPropagation(); subjectSheet(subject); };
       card.append(more);
       if (!subject.is_archived) {
         const toggle = el("button", "subject-start", running ? "●" : "▶");
+        toggle.dataset.focusKey = `subject:${subject.uid}:timer`;
         toggle.setAttribute("aria-label", `${running ? "Stop" : "Start"} ${subject.name}`);
-        toggle.onclick = (event) => { event.stopPropagation(); running ? stopTimer() : startTimer(subject); };
+        toggle.onclick = (event) => { event.stopPropagation(); toggleTimer(subject, running); };
         card.append(toggle);
-        card.onclick = () => (running ? stopTimer() : startTimer(subject));
+        card.onclick = () => toggleTimer(subject, running);
+        const add = el("button", "secondary subject-quick-add", "Add time");
+        add.type = "button";
+        add.dataset.focusKey = `subject:${subject.uid}:quick-add`;
+        add.setAttribute("aria-label", `Quick add time to ${subject.name}`);
+        add.onclick = (event) => { event.stopPropagation(); quickAdd(subject); };
+        card.append(add);
       } else card.onclick = () => subjectSheet(subject);
       list.append(card);
     }
     if (!active.length) list.append(el("p", "muted", state.subjectFilter === "archived" ?
       "No archived subjects." : "Add a subject to start tracking."));
+    restoreFocus(list, focusKey, $("subjects-active"));
   }
 
   function startTicking() {
@@ -74,43 +89,61 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
     state.tick = null;
   }
 
+  // A sheet's own wrapper, so a sheet replaced by another one is never reopened.
+  function sheetAction(body) {
+    const content = el("div");
+    body.append(content);
+    return [content, createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") })];
+  }
+
   function subjectSheet(subject) {
     openSheet(subject.name, (body) => {
-      const name = field(body, "Name", Object.assign(document.createElement("input"),
+      const [content, submit] = sheetAction(body);
+      const name = field(content, "Name", Object.assign(document.createElement("input"),
         { type: "text", value: subject.name, required: true }));
-      const color = field(body, "Colour", Object.assign(document.createElement("input"),
+      const color = field(content, "Colour", Object.assign(document.createElement("input"),
         { type: "color", value: /^#[0-9a-f]{6}$/i.test(subject.color) ? subject.color : "#3B82F6" }));
-      const notes = field(body, "Description", Object.assign(document.createElement("textarea"),
+      const notes = field(content, "Description", Object.assign(document.createElement("textarea"),
         { rows: 3, value: subject.notes || "" }));
       const save = el("button", "primary wide", "Save changes");
       save.onclick = () => {
+        if (!submit.canSubmit()) return;
         if (!name.value.trim()) return name.reportValidity();
         if ((store.snapshot?.subjects || []).some((row) => row.uid !== subject.uid && row.name === name.value.trim())) {
           return banner("That subject name already exists, including archived subjects.");
         }
-        closeSheet();
-        act("update_subject", { subject_uid: subject.uid, name: name.value.trim(), color: color.value, notes: notes.value });
+        return submit("update_subject", { subject_uid: subject.uid, name: name.value.trim(), color: color.value, notes: notes.value });
       };
-      body.append(save);
-      reorderButtons(body, (store.snapshot?.subjects || []).filter((row) => Boolean(row.is_archived) === Boolean(subject.is_archived)),
-        subject.uid, "set_subject_order", { archived: Boolean(subject.is_archived) });
+      content.append(save);
+      if (!subject.is_archived) {
+        const add = el("button", "secondary wide", "Add time, ending now");
+        add.onclick = () => quickAdd(subject);
+        content.append(add);
+      }
+      reorderButtons(content, (store.snapshot?.subjects || []).filter((row) => Boolean(row.is_archived) === Boolean(subject.is_archived)),
+        subject.uid, "set_subject_order", { archived: Boolean(subject.is_archived) }, submit);
       const history = el("button", "secondary wide", "Session history");
       history.onclick = () => subjectHistorySheet(subject);
-      body.append(history);
+      content.append(history);
       const archive = el("button", "secondary wide", subject.is_archived ? "Restore subject" : "Archive subject");
       archive.onclick = () => {
+        if (!submit.canSubmit()) return;
         if (!subject.is_archived && store.active?.subject_uid === subject.uid) {
           return banner("Stop this subject before archiving it.");
         }
-        closeSheet();
-        act(subject.is_archived ? "unarchive_subject" : "archive_subject", { subject_uid: subject.uid });
+        return submit(subject.is_archived ? "unarchive_subject" : "archive_subject", { subject_uid: subject.uid });
       };
-      body.append(archive);
+      content.append(archive);
     });
   }
 
   function subjectHistorySheet(subject) {
     openSheet(`${subject.name} sessions`, (body) => {
+      if (!subject.is_archived) {
+        const add = el("button", "secondary wide", "Add time, ending now");
+        add.onclick = () => quickAdd(subject);
+        body.append(add);
+      }
       const sessions = (store.snapshot?.sessions || []).filter((row) => row.subject_uid === subject.uid)
         .sort((a, b) => b.start_time.localeCompare(a.start_time));
       if (!sessions.length) body.append(el("p", "muted", "No sessions yet."));
@@ -127,45 +160,64 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
 
   function addSubjectSheet() {
     openSheet("New subject", (body) => {
-      const name = field(body, "Name",
+      const [content, submit] = sheetAction(body);
+      const name = field(content, "Name",
         Object.assign(document.createElement("input"),
           { type: "text", placeholder: "e.g. Thesis" }));
 
-      body.append(el("label", null, "Colour"));
+      const colourLabel = el("p", "caption", "Colour");
+      colourLabel.id = "subject-colour-label";
+      content.append(colourLabel);
       // The desktop suggests colours that stay distinct from the existing ones;
       // on the phone a fixed palette is enough, with the already-used ones marked.
       const used = new Set((store.snapshot?.subjects || []).filter((s) => !s.is_archived).map((s) => s.color));
       const chips = el("div", "chips");
+      chips.setAttribute("role", "group");
+      chips.setAttribute("aria-labelledby", colourLabel.id);
       let chosen = null;
-      const palette = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6",
-                       "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
-      for (const colour of palette) {
+      for (const [colour, colourName] of SUBJECT_PALETTE) {
         const chip = el("button", "chip swatch");
+        chip.type = "button";
         chip.style.background = colour;
+        chip.dataset.colour = colour;
+        chip.setAttribute("aria-label", used.has(colour) ? `${colourName}, already used` : colourName);
+        chip.setAttribute("aria-pressed", "false");
         if (used.has(colour)) chip.classList.add("used");
         chip.onclick = () => {
           chosen = colour;
-          chips.querySelectorAll(".swatch").forEach((c) => c.classList.remove("picked"));
-          chip.classList.add("picked");
+          chips.querySelectorAll(".swatch").forEach((c) => {
+            c.classList.toggle("picked", c === chip);
+            c.setAttribute("aria-pressed", String(c === chip));
+          });
         };
         chips.append(chip);
       }
-      body.append(chips);
+      content.append(chips);
 
       const save = el("button", "primary wide", "Add subject");
-      save.onclick = async () => {
+      save.onclick = () => {
+        if (!submit.canSubmit()) return;
         const title = name.value.trim();
-        if (!title) return;
+        if (!title) { name.focus(); return banner("Give the subject a name."); }
         if ((store.snapshot?.subjects || []).some((row) => row.name === title)) {
           return banner("That subject name already exists, including archived subjects.");
         }
-        const colour = chosen || palette.find((c) => !used.has(c)) || palette[0];
-        closeSheet();
-        await act("add_subject", { name: title, color: colour, notes: "" }, { uid: uuid() });
+        const colour = chosen || SUBJECT_PALETTE.map(([value]) => value).find((c) => !used.has(c)) || SUBJECT_PALETTE[0][0];
+        return submit("add_subject", { name: title, color: colour, notes: "" }, { uid: uuid() });
       };
-      body.append(save);
-      setTimeout(() => name.focus(), 50);
+      content.append(save);
     });
+  }
+
+  // A second tap on the same card moments later is a double tap, not a
+  // deliberate stop: acting on it would discard the new session under the
+  // 30-second rule. The Stop button on the active card is never delayed.
+  let lastToggle = { uid: null, at: -Infinity };
+  function toggleTimer(subject, running) {
+    const at = performance.now();
+    if (lastToggle.uid === subject.uid && at - lastToggle.at < 800) return;
+    lastToggle = { uid: subject.uid, at };
+    return running ? stopTimer() : startTimer(subject);
   }
 
   async function startTimer(subject) {
