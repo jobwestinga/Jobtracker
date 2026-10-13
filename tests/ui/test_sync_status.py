@@ -228,7 +228,10 @@ def test_local_edits_push_promptly_with_one_debounced_request(status_window):
     assert worker.requests == before + 1
 
 
-def test_clean_pass_with_remaining_work_retries_only_a_bounded_number_of_times(status_window):
+def test_clean_pass_with_remaining_work_retries_only_a_bounded_number_of_times(status_window, monkeypatch):
+    # Startup, focus and periodic sync call the window adapter. Isolate those
+    # triggers so the request count measures only the coordinator's push timer.
+    monkeypatch.setattr("jobtracker.ui.app.MainWindow.sync_now", lambda _window: False)
     _app, window = status_window()
     coordinator, worker = window._sync_coordinator, window._sync_controller
     coordinator._push_timer.setInterval(5)

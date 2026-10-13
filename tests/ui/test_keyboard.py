@@ -1,5 +1,6 @@
 """Offscreen native keyboard regressions on isolated databases."""
 from datetime import (datetime, timedelta)
+import time
 from PySide6.QtCore import (QSize, Qt)
 from PySide6.QtTest import (QTest)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QLineEdit, QListWidget, QMessageBox)
@@ -140,8 +141,15 @@ def test_number_shortcuts_are_context_sensitive_and_switching_needs_confirm(
         window._reload_tasks()
         opened = []
         window._open_goal = opened.append
+        window.activateWindow()
+        window.setFocus()
+        qt_app.processEvents()
         QTest.keyClick(window, Qt.Key_2)
-        QTest.qWait(160)
+        # Shortcut feedback schedules the open; a busy event loop can deliver
+        # its timer later than the nominal 140 ms animation delay.
+        deadline = time.monotonic() + 2
+        while not opened and time.monotonic() < deadline:
+            QTest.qWait(20)
         assert opened == [second_goal.id]
         assert first_goal.id != second_goal.id
 
