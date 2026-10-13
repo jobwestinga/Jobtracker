@@ -6,12 +6,12 @@ import uuid
 import pytest
 
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
-from fastapi.routing import APIRoute  # noqa: E402
 from starlette.routing import Mount  # noqa: E402
 
 from server import app as composition  # noqa: E402
 from server import auth, dependencies, ops, runtime  # noqa: E402
 from server.operations import register_operations  # noqa: E402
+from tests.support.api import api_routes  # noqa: E402
 
 TestClient = fastapi_testclient.TestClient
 
@@ -50,8 +50,8 @@ def test_domain_routes_keep_names_and_precede_root_static_mount():
     routes = composition.app.routes
     web_index = next(index for index, route in enumerate(routes)
                      if isinstance(route, Mount) and route.name == "web")
-    owned = {route.path: (index, route) for index, route in enumerate(routes)
-             if isinstance(route, APIRoute) and route.path in ROUTE_OWNERS}
+    owned = {route.path: (index, route) for index, route in api_routes(composition.app)
+             if route.path in ROUTE_OWNERS}
     assert set(owned) == set(ROUTE_OWNERS)
     for path, (method, module, name) in ROUTE_OWNERS.items():
         index, route = owned[path]
@@ -67,10 +67,13 @@ def test_composition_aliases_share_runtime_and_authentication_identity():
     assert composition._lock is runtime._lock
     assert composition.svc is runtime.svc
     assert composition.require_device is dependencies.require_device
-    for route in composition.app.routes:
-        if isinstance(route, APIRoute) and route.path in ROUTE_OWNERS:
+    checked = set()
+    for _index, route in api_routes(composition.app):
+        if route.path in ROUTE_OWNERS:
             calls = [dependency.call for dependency in route.dependant.dependencies]
             assert calls == [composition.require_device], route.path
+            checked.add(route.path)
+    assert checked == set(ROUTE_OWNERS)
 
 
 def test_auth_override_applies_to_every_domain(server, monkeypatch):

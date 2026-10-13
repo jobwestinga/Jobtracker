@@ -14,6 +14,7 @@ from jobtracker.core import sync_policy
 from jobtracker.sync import client as client_module
 from jobtracker.sync.client import SyncClient, SyncError
 from server import app as app_module, auth
+from tests.support.api import api_routes
 from tests.support.sync import world
 
 
@@ -115,14 +116,17 @@ def test_nonobject_http_error_body_is_not_an_unhandled_exception(monkeypatch):
 
 def test_all_data_routes_require_authentication(world):
     world.http.headers.pop("Authorization")
-    for route in app_module.app.routes:
-        path = getattr(route, "path", "")
+    checked = []
+    for _index, route in api_routes(app_module.app):
+        path = route.path
         if path.startswith(("/api/", "/sync/")) or path == "/ops/known":
             # Dependency auth runs before route parameter parsing for these
             # valid representative paths, including date/path parameters.
             concrete = path.replace("{day}", "2026-06-01")
             response = world.http.get(concrete)
             assert response.status_code == 401, (concrete, response.text)
+            checked.append(path)
+    assert "/api/context" in checked and "/sync/pull" in checked, checked
     response = world.http.post("/ops", json={"ops": [{"op_id": sync_policy.new_uid(), "op": "add_goal", "params": {"name": "No permission"}}]})
     assert response.status_code == 401
     assert world.server_db.get_all_todo_tasks() == []

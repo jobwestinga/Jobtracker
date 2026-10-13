@@ -8,10 +8,29 @@ fastapi_testclient = pytest.importorskip(
     "fastapi.testclient", reason="server extras not installed"
 )
 
+from fastapi import routing as fastapi_routing  # noqa: E402
+
 from server import app as app_module  # noqa: E402
 from server import auth  # noqa: E402
 
 TestClient = fastapi_testclient.TestClient
+
+
+def api_routes(app):
+    """Yield ``(position, route)`` for every FastAPI endpoint the app serves.
+
+    FastAPI 0.137+ keeps each included router as one node in ``app.routes``
+    instead of copying its routes there; ``iter_route_contexts`` expands those
+    nodes into the served routes, with prefixes and include-level dependencies
+    applied. ``position`` is the top-level index, which decides precedence over
+    later mounts such as the root static app.
+    """
+    expand = getattr(fastapi_routing, "iter_route_contexts", None)
+    for position, node in enumerate(app.routes):
+        for route in expand([node]) if expand else (node,):
+            if isinstance(getattr(route, "original_route", route), fastapi_routing.APIRoute):
+                yield position, route
+
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
