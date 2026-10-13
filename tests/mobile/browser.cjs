@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
 const output = process.env.JOBTRACKER_BROWSER_ARTIFACTS || '/tmp/jobtracker-mobile-check';
 fs.mkdirSync(output, { recursive: true });
-let head = 1, offline = false, active = null, ops = [], weights = [], delays = {}, holdWeight = null,
+let head = 1, offline = false, active = null, ops = [], weights = [], delays = {}, holdWeight = null, holdOps = null,
   holdContext = null, failedContext = false, failedWeight = false;
 let getWeightCount = 0;
 const hits = [];
@@ -843,6 +843,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/ops') {
       let body = ''; for await (const chunk of req) body += chunk;
       const submitted = JSON.parse(body).ops;
+      if (holdOps) await holdOps;
       return json(res, { applied: submitted.map((entry) => ({ op_id: entry.op_id, result: apply(entry) })), seq: head });
     }
     return json(res, { detail: 'unknown mock endpoint' }, 404);
@@ -1060,15 +1061,21 @@ const server = http.createServer(async (req, res) => {
   await savedClear(page);
   assert.equal(weights.find((row)=>row.uid==='scale').measured_at, '2026-10-09T09:00:00');
   // A late save response cannot clear a newer draft selected while it waited.
+  // Hold the response until every draft click completes, regardless of runner speed.
+  delays['/ops'] = 0;
+  let releaseSave;
+  holdOps = new Promise((resolve) => { releaseSave = resolve; });
   await page.locator('#weight-history .card').first().click();
   await chooseWeight(page, 80, 8); await page.locator('#weight-save').click();
   await page.locator('#weight-history .card').filter({ hasText: '81.6 kg' }).click();
   await chooseWeight(page, 82, 1);
+  assert.equal(await page.locator('#weight-save').isDisabled(), true, 'the earlier save is still pending while selecting a new draft');
+  assert.equal(await page.locator('#weight-value').textContent(), '82.1 kg');
+  holdOps = null; releaseSave();
   await page.waitForFunction(() => !document.querySelector('#weight-save').disabled);
   assert.equal(await page.locator('#weight-value').textContent(), '82.1 kg');
   assert.equal(await page.locator('#weight-status').textContent(), 'Previous weighing saved. Current selection is unsaved.');
   assert.equal(await page.locator('#weight-edit-actions').isVisible(), true);
-  delays['/ops'] = 0;
   await page.locator('#weight-cancel').click();
   await page.evaluate(() => { document.querySelector('#views').scrollTop = 0; });
   await page.screenshot({ path: path.join(output, 'weight-entry-phone.png'), fullPage: true });
