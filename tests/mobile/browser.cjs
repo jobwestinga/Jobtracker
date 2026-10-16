@@ -339,11 +339,17 @@ async function pickerRegressions(browser, url) {
   await refreshWeights(); await page.waitForSelector('#weight-history .card');
   await page.locator('#weight-range').selectOption('all');
   await page.waitForFunction(() => document.querySelector('#weight-canvas').getAttribute('aria-label').startsWith('1060 weight measurements'));
-  await page.waitForTimeout(40);
   const performance = await page.evaluate(async () => {
     const canvas = document.querySelector('#weight-canvas'), ctx = canvas.getContext('2d');
     let fills = 0, historyChanges = 0;
     const originalFill = ctx.fillRect; ctx.fillRect = function(...args) { fills++; return originalFill.apply(this, args); };
+    // Let the range change and any resize repaint settle (slow CI runners can
+    // land one late), so the counter measures only the tile taps below.
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    for (let quiet = 0, seen = -1, guard = 0; quiet < 6 && guard < 300; guard++) {
+      await frame(); quiet = fills === seen ? quiet + 1 : 0; seen = fills;
+    }
+    fills = 0;
     const observer = new MutationObserver((records) => { historyChanges += records.length; });
     observer.observe(document.querySelector('#weight-history'), { childList: true, subtree: true });
     const direct = [], frames = [];

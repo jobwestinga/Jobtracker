@@ -215,7 +215,10 @@ def test_late_sync_result_after_closed_window_does_not_query_closed_database(sta
     assert not window._sync_coordinator._status_timer.isActive()
 
 
-def test_local_edits_push_promptly_with_one_debounced_request(status_window):
+def test_local_edits_push_promptly_with_one_debounced_request(status_window, monkeypatch):
+    # Startup, focus and periodic sync call the window adapter and can occupy the
+    # worker first. Isolate them so the count measures only the push timer.
+    monkeypatch.setattr("jobtracker.ui.app.MainWindow.sync_now", lambda _window: False)
     _app, window = status_window()
     coordinator, worker = window._sync_coordinator, window._sync_controller
     coordinator._push_timer.setInterval(20)
@@ -224,7 +227,13 @@ def test_local_edits_push_promptly_with_one_debounced_request(status_window):
         window.service.add_subject(name, "#111111", "")
         coordinator.refresh_status()
     assert worker.requests == before
-    QTest.qWait(100)
+    # A loaded CI runner can fire the 20 ms timer late: wait for the push, then
+    # prove the debounce produced exactly one request.
+    for _ in range(200):
+        if worker.requests > before:
+            break
+        QTest.qWait(10)
+    QTest.qWait(60)
     assert worker.requests == before + 1
 
 
