@@ -55,13 +55,12 @@ allows either orientation. New imports/styles must enter
 
 The phone client is an installable web app, with an offline shell and durable
 outbox. [The phone apps guide](../guides/iphone-apps.md) explains separate Weight
-and JobTracker identities and safe migration. [The icon guide](../guides/iphone-icons.md)
-explains older designs. The gallery and static installation pages live under
-[web/icons](../../web/icons/index.html); Settings opens the gallery separately
-so drafts and queues remain in the current app. Weight keeps the legacy `/`
+and JobTracker identities. Icon artwork lives in [web/icons](../../web/icons/weight.svg);
+Settings opens the [installation guide](../../web/phone/index.html) separately
+so drafts and queues remain in the current app. Weight owns the root `/`
 identity; JobTracker uses `/phone/jobtracker/`. Metadata is owned by
 [profile.js](../../web/shared/profile.js); [the generator](../../scripts/generate_phone_apps.py)
-shares one HTML shell. Preserve legacy standalone redirects and queues.
+shares one HTML shell. Preserve the root standalone redirect and queued writes.
 
 ## Verification
 

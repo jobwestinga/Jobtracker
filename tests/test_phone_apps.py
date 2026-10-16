@@ -52,7 +52,8 @@ def test_two_phone_identities_metadata_and_shared_browser():
         legacy = client.get("/manifest.webmanifest").json()
         assert legacy["id"] == "/"
         assert legacy["start_url"] == "/phone/weight/"
-        assert client.get("/icons/cutout.webmanifest").json()["id"] == "/"
+        for retired in ("/icons/index.html", "/icons/cutout.html", "/icons/pace.png"):
+            assert client.get(retired).status_code == 404
         # This deployment supports the origin root, not a proxy subpath. Do not
         # silently serve a wrong product under an invented prefix.
         assert client.get("/unsupported-prefix/phone/weight/").status_code == 404

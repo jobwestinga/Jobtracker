@@ -74,9 +74,8 @@ Let pending changes finish syncing, then close and reopen the phone app, or
 reload its page while connected to the private network. The network-first shell
 updates assets; API data is never cached by the service worker. A fresh launch
 opens its profile's initial view (Weight entry or JobTracker Subjects); foreground
-resume preserves the active tab and draft. The existing J installation retains
-its connection and becomes Weight. See [the migration guide](../guides/iphone-apps.md)
-before replacing any icon. The complete browser remains at `/`.
+resume preserves the active tab and draft. See [the iPhone apps guide](../guides/iphone-apps.md)
+before removing or re-adding an app. The complete browser remains at `/`.
 
 Confirm a weight value can be selected in both tile rows and saved, the plot
 opens fullscreen in either orientation, and tracking history refreshes. Do not

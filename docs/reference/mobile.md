@@ -65,8 +65,8 @@ them does.
 
 ## Profiles, installation and storage
 
-[The phone guide](../guides/iphone-apps.md) covers installation and safe legacy
-migration. One root-scoped worker caches the complete shell and both explicit
+[The phone guide](../guides/iphone-apps.md) covers installation and clean
+reinstalls. One root-scoped worker caches the complete shell and both explicit
 app shells. Fallbacks match the requested path, including navigation queries;
 they never substitute another product. Updates remove old shell caches only,
 never credentials, mirrors or queued writes. First setup requires connectivity.

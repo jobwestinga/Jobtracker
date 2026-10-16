@@ -801,12 +801,6 @@
           "path": "web/sw.js"
         },
         {
-          "path": "web/icons/index.html"
-        },
-        {
-          "path": "web/icons/install.js"
-        },
-        {
           "path": "web/icons/cutout.svg"
         },
         {

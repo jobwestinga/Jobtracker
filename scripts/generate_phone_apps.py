@@ -49,12 +49,8 @@ def generated(root: Path) -> dict[Path, str]:
         }
         result[web / profile["manifest"].lstrip("/")] = json.dumps(manifest, indent=2) + "\n"
         if key == "weight":
-            # Root was the installed J identity. All historical icon pages keep
-            # that same identity and artwork, but launch the explicit Weight app.
+            # Weight owns the root identity: adding / to the Home Screen installs Weight.
             result[web / "manifest.webmanifest"] = json.dumps(manifest, indent=2) + "\n"
-            for path in sorted((web / "icons").glob("*.webmanifest")):
-                legacy = json.loads(path.read_text())
-                result[path] = json.dumps({**manifest, "icons": legacy["icons"]}, indent=2) + "\n"
     return result
 
 

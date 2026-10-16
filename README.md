@@ -59,11 +59,9 @@ with its device token. Weight opens directly to weighing; JobTracker opens to
 Subjects and has Goals, Sessions and Graphs. Backgrounding keeps each app's
 current tab and unfinished form while iOS retains its page.
 
-**Already have J? Keep it.** It becomes Weight using its existing connection and
-pending queue. iOS may retain the J name/icon; follow the
-[installation and migration guide](docs/guides/iphone-apps.md) before replacing
-anything. JobTracker keeps the selected Cutout J, with a matching W for Weight.
-The [legacy icon guide](docs/guides/iphone-icons.md) explains older choices.
+JobTracker uses the Cutout J icon, and Weight a matching cut-out W. The
+[iPhone apps guide](docs/guides/iphone-apps.md) covers installation, tokens,
+reinstalling and recovery.
 The complete browser app remains at `/`, and the Mac app keeps every area.
 
 The server is a private, single-user API. It shares the Mac's service rules and

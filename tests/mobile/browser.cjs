@@ -767,33 +767,26 @@ async function iconChecks(browser, url) {
   const page = await context.newPage();
   const writes = [];
   page.on('request', (request) => { if (request.method() !== 'GET') writes.push(request.method()); });
-  await page.goto(`${url}/icons/index.html`);
-  assert.equal(await page.locator('article').count(), 6);
-  assert.equal(await page.locator('article').first().getByRole('link', { name: 'Use Cutout' }).count(), 1);
+  await page.goto(`${url}/phone/`);
+  assert.equal(await page.locator('article').count(), 2);
+  assert.deepEqual(await page.locator('article img').evaluateAll((images) => images.map((image) => new URL(image.src).pathname)),
+    ['/icons/weight.png', '/icons/cutout.png']);
   assert.equal(await page.locator('article img').evaluateAll((images) => images.every((image) => image.complete && image.naturalWidth === 512)), true);
-  await page.screenshot({ path: path.join(output, 'icon-options.png'), fullPage: true });
+  await page.screenshot({ path: path.join(output, 'install-guide.png'), fullPage: true });
   await page.setViewportSize({ width: 320, height: 740 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  for (const name of ['cutout', 'pace', 'trace', 'dial', 'ledger', 'marker']) {
-    await page.goto(`${url}/icons/${name}.html`);
-    assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), `/icons/${name}-touch.png`);
+  for (const [route, icon] of [['/phone/weight/', 'weight'], ['/phone/jobtracker/', 'cutout']]) {
+    await page.goto(url + route);
+    assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), `/icons/${icon}-touch.png`);
     const manifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
-    assert.equal(manifest.id, '/'); assert.equal(manifest.start_url, '/phone/weight/'); assert.equal(manifest.scope, '/');
-    assert.equal(manifest.icons[0].src, `/icons/${name}.png`);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(manifest.icons[0].src, `/icons/${icon}.png`);
   }
   await page.goto(url);
   assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), '/icons/weight-touch.png');
   const defaultManifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
   assert.equal(defaultManifest.icons[0].src, '/icons/weight.png');
-  assert.deepEqual(writes, [], 'choosing an icon never writes application data');
-  const standalone = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await standalone.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
-  const installed = await standalone.newPage();
-  await installed.goto(`${url}/icons/cutout.html`);
-  await installed.waitForURL(new URL('/phone/weight/', url).href);
-  assert.equal(await installed.locator('#setup').isVisible(), true, 'a new standalone icon opens the normal app');
-  await standalone.close(); await context.close();
+  assert.deepEqual(writes, [], 'reading installation pages never writes application data');
+  await context.close();
 }
 
 async function accountControlsChecks(browser, url) {
@@ -810,8 +803,8 @@ async function accountControlsChecks(browser, url) {
   await page.goto(url);
   await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
   await page.locator('#open-settings').click();
-  const iconLink = page.getByRole('link', { name: 'Choose Home Screen icon' });
-  assert.equal(await iconLink.getAttribute('href'), '/icons/index.html');
+  const iconLink = page.getByRole('link', { name: 'Home Screen installation guide' });
+  assert.equal(await iconLink.getAttribute('href'), '/phone/');
   assert.equal(await iconLink.getAttribute('target'), '_blank');
   assert.equal(await page.getByLabel('Day starts at', { exact: true }).inputValue(), '03:30');
   const beforeSettings = ops.filter((entry) => entry.op === 'set_setting').length;
@@ -1039,12 +1032,12 @@ async function phoneProfileChecks(browser, url) {
   assert.equal(await tracker.locator('[data-view="weight"]').count(), 0);
   assert.deepEqual(errors, []);
   await context.close();
-  // Old root and icon launch URLs remain Weight only in installed mode;
+  // A standalone launch of the root opens Weight, which owns the / identity;
   // Safari/desktop / still provides all five sections.
   const installed = await browser.newContext();
   await installed.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
   const legacyPage = await installed.newPage();
-  for (const route of ['/', '/index.html', '/icons/cutout.html']) {
+  for (const route of ['/', '/index.html']) {
     await legacyPage.goto(url + route);
     await legacyPage.waitForURL(url + '/phone/weight/');
     await legacyPage.waitForSelector('#setup:not(.hidden)');

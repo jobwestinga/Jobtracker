@@ -75,8 +75,8 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       };
       body.append(retry);
 
-      const icons = el("a", "secondary wide settings-icons", profile === "full" ? "Choose Home Screen icon" : "Home Screen installation guide");
-      icons.href = profile === "full" ? "/icons/index.html" : "/phone/";
+      const icons = el("a", "secondary wide settings-icons", "Home Screen installation guide");
+      icons.href = "/phone/";
       icons.target = "_blank";
       icons.rel = "noopener";
       body.append(icons);
