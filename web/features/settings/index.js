@@ -71,6 +71,13 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       };
       body.append(retry);
 
+      const icons = el("a", "secondary wide settings-icons", "Choose Home Screen icon");
+      icons.href = "/icons/index.html";
+      icons.target = "_blank";
+      icons.rel = "noopener";
+      body.append(icons);
+      body.append(el("p", "set-note", "Open the gallery in Safari to add one of five icons. Let waiting changes sync before replacing an existing Home Screen app."));
+
       const reload = el("button", "secondary wide", "Reload app");
       reload.onclick = () => location.reload();
       body.append(reload);

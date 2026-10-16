@@ -52,11 +52,11 @@ allows either orientation. New imports/styles must enter
 [sw.js](../../web/sw.js)'s shell inventory with a version bump.
 
 The phone client is an installable web app, with an offline shell and durable
-outbox. A native interactive iPhone widget would require an iOS host app with a
-[WidgetKit extension](https://developer.apple.com/documentation/widgetkit/creating-a-widget-extension).
-The existing web app cannot itself supply that extension. A native companion is
-a separate project, not part of this change; it must keep the same own-server
-privacy and durable-write contracts. See [WebKit's home screen web app explanation](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/).
+outbox. [The icon guide](../guides/iphone-icons.md) explains the five Home Screen
+designs. The gallery and static installation pages live under
+[web/icons](../../web/icons/index.html); Settings opens the gallery separately
+so drafts and queues remain in the current app. Keep manifests rooted at `/`
+and preserve the standalone redirect in [install.js](../../web/icons/install.js).
 
 ## Verification
 

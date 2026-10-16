@@ -761,6 +761,35 @@ async function syncStatusChecks(browser, url) {
   await context.close();
 }
 
+async function iconChecks(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 1200, height: 1000 } });
+  const page = await context.newPage();
+  const writes = [];
+  page.on('request', (request) => { if (request.method() !== 'GET') writes.push(request.method()); });
+  await page.goto(`${url}/icons/index.html`);
+  assert.equal(await page.locator('article').count(), 5);
+  assert.equal(await page.locator('article img').evaluateAll((images) => images.every((image) => image.complete && image.naturalWidth === 512)), true);
+  await page.screenshot({ path: path.join(output, 'icon-options.png'), fullPage: true });
+  await page.setViewportSize({ width: 320, height: 740 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  for (const name of ['pace', 'trace', 'dial', 'ledger', 'marker']) {
+    await page.goto(`${url}/icons/${name}.html`);
+    assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), `/icons/${name}-touch.png`);
+    const manifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
+    assert.equal(manifest.id, '/'); assert.equal(manifest.start_url, '/'); assert.equal(manifest.scope, '/');
+    assert.equal(manifest.icons[0].src, `/icons/${name}.png`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  assert.deepEqual(writes, [], 'choosing an icon never writes application data');
+  const standalone = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await standalone.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+  const installed = await standalone.newPage();
+  await installed.goto(`${url}/icons/trace.html`);
+  await installed.waitForURL(new URL('/', url).href);
+  assert.equal(await installed.locator('#setup').isVisible(), true, 'a new standalone icon opens the normal app');
+  await standalone.close(); await context.close();
+}
+
 async function accountControlsChecks(browser, url) {
   const context = await browser.newContext({ viewport: { width: 320, height: 740 }, isMobile: true, hasTouch: true });
   const page = await context.newPage(); const errors = [];
@@ -775,6 +804,9 @@ async function accountControlsChecks(browser, url) {
   await page.goto(url);
   await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
   await page.locator('#open-settings').click();
+  const iconLink = page.getByRole('link', { name: 'Choose Home Screen icon' });
+  assert.equal(await iconLink.getAttribute('href'), '/icons/index.html');
+  assert.equal(await iconLink.getAttribute('target'), '_blank');
   assert.equal(await page.getByLabel('Day starts at', { exact: true }).inputValue(), '03:30');
   const beforeSettings = ops.filter((entry) => entry.op === 'set_setting').length;
   await page.getByLabel('Day starts at', { exact: true }).fill('04:45');
@@ -888,6 +920,11 @@ const server = http.createServer(async (req, res) => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
+  if (process.env.JOBTRACKER_BROWSER_SCOPE === 'icons') {
+    await iconChecks(browser, url);
+    console.log(JSON.stringify({ browserChecks: 'passed', scope: 'icons', screenshots: output }));
+    await browser.close(); server.close(); return;
+  }
   if (process.env.JOBTRACKER_BROWSER_SCOPE === 'offline-shell') {
     weights = [{ uid: 'offline-initial', measured_at: '2026-10-10T09:00:00', weight_kg: 85.4, source: 'scale' }];
     await offlineShellCheck(browser, url);
@@ -1159,6 +1196,7 @@ const server = http.createServer(async (req, res) => {
   await offlineShellCheck(browser, url);
   await accountControlsChecks(browser, url);
   await syncStatusChecks(browser, url);
+  await iconChecks(browser, url);
   console.log(JSON.stringify({ browserChecks: 'passed', viewports: ['390x844', '844x390', '1280x900', '320x740'], tested: ['fractional day-start save once, failed disconnect, pending account-change guard', 'session90m preset,170m chunks, offline/ACK-storage durability and duplicate guard', 'shared session ±1day controls, exact UID/duration and fractional timestamps', 'real service-worker offline launch, CSS/modules, queued save and reconnect', 'cold Weight before slow/failed tracking requests', 'viewport-wide whole/decimal tiles', 'durable save resets online/offline', 'storage failure and removed-target retry', 'fullscreen fallback, rotation, draft and account cleanup', 'agenda live clock and day-scroll preservation', 'calendar session navigation and day response race', 'agenda exact session', 'offline timer reload/replay', 'weight load/save race and double submission', 'timestamp and original precision preservation', 'new draft during save and correct receipts', 'weight graphs all/historic/custom', 'offline weight edit/delete/reload', 'account reset', 'latest/backfill anchor', 'manual date collision and same-day coalescing', 'refresh-stable selection and keyboard navigation', 'persistent entry options', 'calendar midnight rollover', '1060-row tap performance'], pickerPerformance, screenshots: output, requests: hits.length }));
   await browser.close(); server.close();
 })().catch((err) => { console.error(err); server.close(); process.exit(1); });

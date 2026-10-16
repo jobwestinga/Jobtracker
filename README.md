@@ -71,6 +71,10 @@ Compatibility imports remain available while implementations have focused owners
 
 ## Phone App and Weight History
 
+Choose one of five Home Screen designs from **Settings → Choose Home Screen icon**.
+The [iPhone icon guide](docs/guides/iphone-icons.md) explains installation and
+how to keep pending changes safe.
+
 The phone app is served by your own authenticated JobTracker server. Its writes
 use the same operations as the Mac app. A write is stored on the device before
 it is sent, and reconnecting replays it in order using the original timestamps

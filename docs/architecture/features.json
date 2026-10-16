@@ -756,7 +756,8 @@
         "tests/mobile/feature-sheets.cjs",
         "tests/mobile/subject-quick-add.cjs",
         "tests/mobile/sync-status.test.mjs",
-        "tests/mobile/accessibility.cjs"
+        "tests/mobile/accessibility.cjs",
+        "tests/mobile/browser.cjs"
       ],
       "related": [
         "weight.daily-entry",
@@ -769,7 +770,10 @@
         "home screen",
         "widget",
         "pwa",
-        "orientation"
+        "orientation",
+        "icon",
+        "branding",
+        "gallery"
       ],
       "supporting": [
         {
@@ -783,6 +787,12 @@
         },
         {
           "path": "web/sw.js"
+        },
+        {
+          "path": "web/icons/index.html"
+        },
+        {
+          "path": "web/icons/install.js"
         }
       ],
       "guide": "docs/features/weight.md#phone-shell-and-home-screen"

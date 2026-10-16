@@ -1,7 +1,7 @@
 // Fresh shell when reachable, cached shell when offline. Authenticated data is
 // never cached here: the app maintains an explicit mirror and queued edits, so
 // a stale /api/context cannot masquerade as a live timer response.
-const VERSION = "jobtracker-v11";
+const VERSION = "jobtracker-v12";
 const SHELL = [
   "/",
   "/index.html",
@@ -59,6 +59,29 @@ const SHELL = [
   "/weight.js",
   "/manifest.webmanifest",
   "/icon.png",
+  "/icons/dial-touch.png",
+  "/icons/dial.html",
+  "/icons/dial.png",
+  "/icons/dial.webmanifest",
+  "/icons/index.html",
+  "/icons/install.js",
+  "/icons/ledger-touch.png",
+  "/icons/ledger.html",
+  "/icons/ledger.png",
+  "/icons/ledger.webmanifest",
+  "/icons/marker-touch.png",
+  "/icons/marker.html",
+  "/icons/marker.png",
+  "/icons/marker.webmanifest",
+  "/icons/pace-touch.png",
+  "/icons/pace.html",
+  "/icons/pace.png",
+  "/icons/pace.webmanifest",
+  "/icons/styles.css",
+  "/icons/trace-touch.png",
+  "/icons/trace.html",
+  "/icons/trace.png",
+  "/icons/trace.webmanifest",
 ];
 
 self.addEventListener("install", (event) => {
