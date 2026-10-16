@@ -793,6 +793,9 @@
         },
         {
           "path": "web/icons/install.js"
+        },
+        {
+          "path": "web/icons/cutout.svg"
         }
       ],
       "guide": "docs/features/weight.md#phone-shell-and-home-screen"

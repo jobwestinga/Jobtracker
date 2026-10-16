@@ -57,9 +57,10 @@ created. Add the site to your Home Screen as a web app. The phone opens on Weigh
 returning from the background preserves the current tab and unfinished draft.
 
 **Choose an icon:** open **Settings → Choose Home Screen icon**. The gallery
-includes five designs: Pace, Trace, Dial, Ledger and Marker. Each has an install
-page and downloadable PNG. Follow the [iPhone icon guide](docs/guides/iphone-icons.md)
-to apply one without discarding queued changes. Pace is the default phone icon.
+features **Cutout**, a minimal J on a dark background, as the default phone icon.
+Each design has an install page and downloadable PNG. Follow the
+[iPhone icon guide](docs/guides/iphone-icons.md) to apply one without discarding
+queued changes. The Cutout SVG source is included for precise resizing.
 
 The server is a private, single-user API. It shares the Mac's service rules and
 accepts writes through authenticated, retry-safe operations. Device tokens do

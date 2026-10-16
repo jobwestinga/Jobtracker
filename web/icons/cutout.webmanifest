@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "JobTracker",
+  "short_name": "JobTracker",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B1220",
+  "theme_color": "#0B1220",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/cutout.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

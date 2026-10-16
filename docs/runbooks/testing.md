@@ -73,7 +73,7 @@ tooling is a development dependency, not a phone runtime dependency; do not add
 a bundler or package manager to the app to run these checks.
 
 For icon-only work, `JOBTRACKER_BROWSER_SCOPE=icons node tests/mobile/browser.cjs`
-checks the five install pages, manifests, normal-app redirect, reflow and absence
+checks all install pages, manifests, the default icon, normal-app redirect, reflow and absence
 of writes. It creates a gallery preview using only public artwork.
 
 [Feature-sheet checks](../../tests/mobile/feature-sheets.cjs) inject isolated

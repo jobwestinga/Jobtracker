@@ -76,7 +76,7 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       icons.target = "_blank";
       icons.rel = "noopener";
       body.append(icons);
-      body.append(el("p", "set-note", "Open the gallery in Safari to add one of five icons. Let waiting changes sync before replacing an existing Home Screen app."));
+      body.append(el("p", "set-note", "Open the gallery in Safari to add a Home Screen icon. Let waiting changes sync before replacing an existing Home Screen app."));
 
       const reload = el("button", "secondary wide", "Reload app");
       reload.onclick = () => location.reload();

@@ -767,12 +767,13 @@ async function iconChecks(browser, url) {
   const writes = [];
   page.on('request', (request) => { if (request.method() !== 'GET') writes.push(request.method()); });
   await page.goto(`${url}/icons/index.html`);
-  assert.equal(await page.locator('article').count(), 5);
+  assert.equal(await page.locator('article').count(), 6);
+  assert.equal(await page.locator('article').first().getByRole('link', { name: 'Use Cutout' }).count(), 1);
   assert.equal(await page.locator('article img').evaluateAll((images) => images.every((image) => image.complete && image.naturalWidth === 512)), true);
   await page.screenshot({ path: path.join(output, 'icon-options.png'), fullPage: true });
   await page.setViewportSize({ width: 320, height: 740 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  for (const name of ['pace', 'trace', 'dial', 'ledger', 'marker']) {
+  for (const name of ['cutout', 'pace', 'trace', 'dial', 'ledger', 'marker']) {
     await page.goto(`${url}/icons/${name}.html`);
     assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), `/icons/${name}-touch.png`);
     const manifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
@@ -780,11 +781,15 @@ async function iconChecks(browser, url) {
     assert.equal(manifest.icons[0].src, `/icons/${name}.png`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
+  await page.goto(url);
+  assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), '/icons/cutout-touch.png');
+  const defaultManifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
+  assert.equal(defaultManifest.icons[0].src, '/icons/cutout.png');
   assert.deepEqual(writes, [], 'choosing an icon never writes application data');
   const standalone = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await standalone.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
   const installed = await standalone.newPage();
-  await installed.goto(`${url}/icons/trace.html`);
+  await installed.goto(`${url}/icons/cutout.html`);
   await installed.waitForURL(new URL('/', url).href);
   assert.equal(await installed.locator('#setup').isVisible(), true, 'a new standalone icon opens the normal app');
   await standalone.close(); await context.close();
@@ -913,7 +918,7 @@ const server = http.createServer(async (req, res) => {
   }
   const file = path.join(root, 'web', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
   if (!file.startsWith(path.join(root, 'web')) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.html') ? 'text/html' : file.endsWith('.webmanifest') ? 'application/manifest+json' : 'image/png' });
+  res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.html') ? 'text/html' : file.endsWith('.webmanifest') ? 'application/manifest+json' : file.endsWith('.svg') ? 'image/svg+xml' : 'image/png' });
   fs.createReadStream(file).pipe(res);
 });
 (async () => {
