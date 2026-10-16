@@ -59,6 +59,23 @@ changes are waiting. Unsaved forms survive normal background/foreground
 transitions while iOS retains the page; OS termination may discard unsaved fields.
 Press Save to make an entry durable before closing the app.
 
+## Start over with a clean install
+
+Icons added before the opaque-status-bar change can keep the old full-screen
+style, which leaves an empty band at the bottom. A clean install fixes this.
+Removing a Home Screen web app deletes that app's saved token, preferences,
+unfinished forms and **changes still waiting to send**. Server history and a
+running timer are unaffected.
+
+1. Connect Tailscale. Open every installed copy (J, Weight, JobTracker and any
+   icon-gallery copy). Tap **Refresh** and open the sync status: continue only
+   when it says **Synced** with no waiting changes. Otherwise keep that copy
+   open online until the changes send.
+2. Check that your Mac shows the latest weighing and sessions.
+3. Touch and hold each icon, choose **Remove App** or **Delete Bookmark**, and
+   confirm.
+4. Install both apps as described above. Connect each with its own new token.
+
 ## Tokens and connection recovery
 
 Tokens are shown once when issued. The server stores only hashes; it cannot

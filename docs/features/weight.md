@@ -41,7 +41,9 @@ data table and help remain in the DOM and return on exit. Rotation repaints the
 same canvas; unchanged data reuses its fitted trend. January 1 lines use calendar
 coordinates, with years on a separate label row. Dense histories keep every
 year line but thin labels to prevent overlap. Native dots are neutral and the
-theme accent trend is drawn above them.
+theme accent trend is drawn above them. The phone canvas uses the matching dark
+`screen` palette. **Save plot** draws the original light `print` figure
+off-screen at the plot's current size.
 
 ## Phone shell and home screen
 

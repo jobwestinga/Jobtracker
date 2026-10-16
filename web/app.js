@@ -86,7 +86,7 @@ function refresh(options = {}) {
 async function refreshOnce({ quiet = false, force = false } = {}) {
   syncStatus.begin({ quiet });
   const revision = mutationRevision;
-  if (!quiet) $("refresh").textContent = "…";
+  if (!quiet) $("refresh").setAttribute("aria-busy", "true");
   let changedThisPass = !state.painted;
   try {
     const outgoing = await flush();
@@ -139,7 +139,7 @@ async function refreshOnce({ quiet = false, force = false } = {}) {
       : `Problem: ${err.message}`, "error", 0);
     changedThisPass = true;
   } finally {
-    $("refresh").textContent = "↻";
+    $("refresh").removeAttribute("aria-busy");
     if (changedThisPass || !state.painted) {
       state.painted = true;
       render();

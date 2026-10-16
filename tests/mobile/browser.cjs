@@ -1173,7 +1173,7 @@ const server = http.createServer(async (req, res) => {
   await page.locator('#goal-list .name').first().click();
   await page.getByRole('textbox', { name: 'Add milestone to First goal' }).fill('Draft that should survive refresh');
   await page.locator('#refresh').click();
-  await page.waitForFunction(() => document.querySelector('#refresh').textContent === '↻');
+  await page.waitForFunction(() => !document.querySelector('#refresh').hasAttribute('aria-busy'));
   assert.equal(await page.getByRole('textbox', { name: 'Add milestone to First goal' }).inputValue(), 'Draft that should survive refresh');
   await page.evaluate(() => {
     const input = document.querySelector('input[data-milestone-goal]');
@@ -1231,7 +1231,7 @@ const server = http.createServer(async (req, res) => {
   assert.notEqual(await page.locator('.agenda-now').evaluate((marker) => marker.style.top), markerTop);
   assert.equal(await page.evaluate(() => originalAgendaBlock === document.querySelector('.agenda-block')), true, 'no-head resume moves the marker without replacing session blocks');
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100);
-  await page.locator('#refresh').click(); await page.waitForFunction(() => document.querySelector('#refresh').textContent === '↻');
+  await page.locator('#refresh').click(); await page.waitForFunction(() => !document.querySelector('#refresh').hasAttribute('aria-busy'));
   await page.waitForFunction(() => document.querySelector('.agenda-scroll').scrollLeft === 100);
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100, 'actual data redraw restores horizontal day position');
   await page.evaluate(() => { document.documentElement.requestFullscreen = () => Promise.reject(new Error('native fullscreen unavailable')); });

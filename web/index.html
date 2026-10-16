@@ -3,10 +3,12 @@
 <head>
 <meta charset="utf-8">
 <!-- viewport-fit=cover + the safe-area padding in the CSS keeps the bottom bar
-     clear of the iPhone home indicator once this is on the home screen. -->
+     clear of the iPhone home indicator once this is on the home screen.
+     An opaque status bar: iOS 26+ standalone apps with black-translucent paint
+     the page one status-bar height short of the bottom and blur the header. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Weight">
 <meta name="theme-color" content="#0B1220">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -46,8 +48,8 @@
       <span id="sync-status-hint" class="sr-only">Opens sync details and waiting changes.</span>
     </div>
     <div class="topbar-actions">
-      <button id="refresh" class="icon-btn" aria-label="Refresh">&#8635;</button>
-      <button id="open-settings" class="icon-btn" aria-label="Settings">&#9881;</button>
+      <button id="refresh" class="icon-btn" aria-label="Refresh"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66L19.4 8.1M14.9 8.1h4.5V3.6"/></svg></button>
+      <button id="open-settings" class="icon-btn" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></button>
     </div>
   </header>
 
@@ -141,11 +143,11 @@
   </div>
 
   <nav class="tabbar five" aria-label="App sections">
-    <button class="tab" data-view="goals"><span aria-hidden="true">&#9873;</span>Goals</button>
-    <button class="tab" data-view="today"><span aria-hidden="true">&#9201;</span>Subjects</button>
-    <button class="tab" data-view="sessions"><span aria-hidden="true">&#128197;</span>Sessions</button>
-    <button class="tab" data-view="graphs"><span aria-hidden="true">&#128202;</span>Graphs</button>
-    <button class="tab on" data-view="weight"><span aria-hidden="true">&#9878;</span>Weight</button>
+    <button class="tab" data-view="goals"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.5 21V4M5.5 4.5h12l-2.5 4 2.5 4h-12"/></svg>Goals</button>
+    <button class="tab" data-view="today"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 2.2M9.5 2.5h5M12 2.5V6"/></svg>Subjects</button>
+    <button class="tab" data-view="sessions"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Sessions</button>
+    <button class="tab" data-view="graphs"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M7.5 16.5v-5M12 16.5V6.5M16.5 16.5v-8"/></svg>Graphs</button>
+    <button class="tab on" data-view="weight"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M8 11a5.5 5.5 0 0 1 8 0M12 12.5l1.6-2.4"/></svg>Weight</button>
   </nav>
 </main>
 

@@ -2,7 +2,7 @@ import { el as node } from "../../shared/dom.js";
 import { localDate } from "../../shared/time.js";
 import { STORAGE_KEYS, accountTag } from "../../shared/storage.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
-import { drawWeightChart } from "./chart.js";
+import { drawWeightChart, WEIGHT_CHART_PALETTES } from "./chart.js";
 import { projectWeightOperation, findWeightMeasurement, withWeightAliases } from "./projection.js";
 import { parseWeight, selectMeasurements, pointsFor, trendFor, weightTimestamp, weightDayOffset } from "./math.js";
 import { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } from "./picker.js";
@@ -219,7 +219,15 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
         else { drawnVersion = -1; paintChart(); }
       });
     }
-    field("weight-png").onclick = () => field("weight-canvas").toBlob((blob) => { if (blob) download(blob, "weight-plot.png"); });
+    // The screen chart follows the dark app theme; saved plots keep the light figure.
+    field("weight-png").onclick = () => {
+      const screen = field("weight-canvas"), figure = document.createElement("canvas");
+      const { points = [], trend = [] } = chartData || {};
+      drawWeightChart(figure, points, trend, preferences, false, {
+        palette: WEIGHT_CHART_PALETTES.print, width: screen.clientWidth || 640, height: screen.clientHeight || 360, ratio: 2,
+      });
+      figure.toBlob((blob) => { if (blob) download(blob, "weight-plot.png"); });
+    };
     field("weight-csv").onclick = () => {
       const rows = ["measured_at,weight_kg,source", ...model.rows.map((r) => `${r.measured_at},${Number(r.weight_kg)},${r.source}`)];
       download(new Blob([rows.join("\r\n")], { type: "text/csv;charset=utf-8" }), "weight-data.csv");

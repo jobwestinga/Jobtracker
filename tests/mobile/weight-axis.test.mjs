@@ -20,7 +20,7 @@ test('year lines preserve small ISO years and reject invalid/reversed ranges', (
 });
 
 test('canvas keeps each year gridline while thinning crowded year labels', async () => {
-  const { drawWeightChart } = await importWebModule('features/weight/chart.js');
+  const { drawWeightChart, WEIGHT_CHART_PALETTES } = await importWebModule('features/weight/chart.js');
   globalThis.devicePixelRatio = 1;
   const paths = [], labels = [];
   let path;
@@ -34,11 +34,34 @@ test('canvas keeps each year gridline while thinning crowded year labels', async
   const canvas = { clientWidth: 320, clientHeight: 270, getContext: () => context };
   const points = [{ x: weightTimestamp('2000-01-01'), y: 80 }, { x: weightTimestamp('2026-01-01'), y: 82 }];
   const { left, right } = drawWeightChart(canvas, points, [], { zero: false, points: true });
-  const lines = paths.filter((item) => item.color === '#c6c6c6');
+  const lines = paths.filter((item) => item.color === WEIGHT_CHART_PALETTES.screen.yearLine);
   assert.equal(lines.length, 27);
   assert.equal(lines[0].path[0][0], left);
   assert.equal(lines.at(-1).path[0][0], right);
   const years = labels.filter((label) => /^\d{4}$/.test(label.text));
   assert.ok(years.length >= 2 && years.length < 27);
   for (let i = 1; i < years.length; i++) assert.ok(years[i].x - years[i - 1].x >= 38);
+});
+
+test('saved plots keep the light figure at an explicit size while the screen uses the dark theme', async () => {
+  const { drawWeightChart, WEIGHT_CHART_PALETTES } = await importWebModule('features/weight/chart.js');
+  const draw = (options) => {
+    const fills = [], strokes = [];
+    const context = {
+      scale() {}, save() {}, restore() {}, rect() {}, clip() {}, arc() {}, fill() {}, beginPath() {}, moveTo() {}, lineTo() {},
+      fillRect() { fills.push(this.fillStyle); }, stroke() { strokes.push(this.strokeStyle); }, fillText() {},
+      measureText(text) { return { width: String(text).length * 7 }; },
+    };
+    const canvas = { clientWidth: 0, clientHeight: 0, getContext: () => context };
+    const points = [{ x: weightTimestamp('2026-01-01'), y: 80 }, { x: weightTimestamp('2026-02-01'), y: 81 }];
+    drawWeightChart(canvas, points, points, { zero: false, points: true }, false, options);
+    return { canvas, fills, strokes };
+  };
+  const saved = draw({ palette: WEIGHT_CHART_PALETTES.print, width: 320, height: 270, ratio: 2 });
+  assert.deepEqual([saved.canvas.width, saved.canvas.height], [640, 540]);
+  assert.deepEqual(saved.fills, ['#fff', '#ebebeb']);
+  assert.equal(saved.strokes.at(-1), '#111');
+  const screen = draw({ width: 320, height: 270, ratio: 1 });
+  assert.deepEqual(screen.fills, [WEIGHT_CHART_PALETTES.screen.background, WEIGHT_CHART_PALETTES.screen.panel]);
+  assert.equal(screen.strokes.at(-1), WEIGHT_CHART_PALETTES.screen.trend);
 });

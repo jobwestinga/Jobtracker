@@ -35,6 +35,13 @@ them does.
   settles, so the frame came up short and left a strip of page background below
   the tab bar, which then "fixed itself" on rotation. `inset: 0` is always the
   real viewport. Nothing in the layout may depend on page height.
+- **Opaque status bar** (`apple-mobile-web-app-status-bar-style: black`). With
+  `black-translucent`, iOS 26+ standalone apps report a viewport one status-bar
+  height short (797 of 844 px on a 390-wide iPhone) and paint nothing below it,
+  leaving a band at the bottom. Content just under the status bar is also
+  blurred. Neither CSS heights nor measured JS heights can paint into that band.
+  Installed apps may keep the style they were added with, so re-add them after
+  changing it. Header and tab icons are inline `currentColor` SVGs, not emoji.
 - No `backdrop-filter` on the chrome. Nothing scrolls under the bars any more,
   so it was a GPU composite every frame for a blur of a solid colour — and the
   translucency is what made the bottom look two-toned.

@@ -102,7 +102,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 /* Keep options/drafts in their original DOM, but dedicate the viewport to the
    canvas. The toolbar becomes an overlay containing only the exit button. */
-.weight-plot.plot-fullscreen { display: flex; overflow: hidden; }
+.weight-plot.plot-fullscreen { display: flex; overflow: hidden; background: var(--panel); }
 .weight-plot.plot-fullscreen > :not(#weight-canvas):not(.weight-plot-toolbar),
 .weight-plot.plot-fullscreen .weight-plot-toolbar > :not(#weight-fullscreen) { display: none; }
 .weight-plot.plot-fullscreen #weight-canvas { flex: 1; min-width: 0; min-height: 0; height: 100%; }
