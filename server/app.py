@@ -76,7 +76,7 @@ async def private_data_headers(request, call_next):
         if "authorization" not in {value.lower() for value in vary}:
             vary.append("Authorization")
         response.headers["Vary"] = ", ".join(vary)
-    elif request.url.path.endswith((".js", ".css", ".webmanifest")) or request.url.path == "/":
+    elif request.url.path.endswith((".js", ".css", ".html", ".webmanifest", "/")):
         response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"

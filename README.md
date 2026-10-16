@@ -1,7 +1,7 @@
 # JobTracker
 
 A self-hosted tracker for time, goals and body weight, with a native macOS app
-and an installable iPhone web app. It works offline and can synchronize through
+and two installable iPhone web apps, **Weight** and **JobTracker**. It works offline and can synchronize through
 your own authenticated server. Each deployment is intended for one person.
 
 No advertising, analytics, third-party accounts or remote logging. Your history
@@ -52,15 +52,19 @@ writes block app replacement; the installer waits for safe idle.
 ## Use on an iPhone
 
 Deploy to your own server using the [deployment guide](docs/runbooks/deploy.md),
-then open its HTTPS address in Safari and connect with the device token you
-created. Add the site to your Home Screen as a web app. The phone opens on Weight;
-returning from the background preserves the current tab and unfinished draft.
+then open `/phone/` on that HTTPS server in Safari for installation instructions.
+Install **Weight** from `/phone/weight/` and **JobTracker** from
+`/phone/jobtracker/` using **Share → Add to Home Screen**. Sign in to each app
+with its device token. Weight opens directly to weighing; JobTracker opens to
+Subjects and has Goals, Sessions and Graphs. Backgrounding keeps each app's
+current tab and unfinished form while iOS retains its page.
 
-**Choose an icon:** open **Settings → Choose Home Screen icon**. The gallery
-features **Cutout**, a minimal J on a dark background, as the default phone icon.
-Each design has an install page and downloadable PNG. Follow the
-[iPhone icon guide](docs/guides/iphone-icons.md) to apply one without discarding
-queued changes. The Cutout SVG source is included for precise resizing.
+**Already have J? Keep it.** It becomes Weight using its existing connection and
+pending queue. iOS may retain the J name/icon; follow the
+[installation and migration guide](docs/guides/iphone-apps.md) before replacing
+anything. JobTracker keeps the selected Cutout J, with a matching W for Weight.
+The [legacy icon guide](docs/guides/iphone-icons.md) explains older choices.
+The complete browser app remains at `/`, and the Mac app keeps every area.
 
 The server is a private, single-user API. It shares the Mac's service rules and
 accepts writes through authenticated, retry-safe operations. Device tokens do

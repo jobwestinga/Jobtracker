@@ -7,10 +7,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="JobTracker">
+<meta name="apple-mobile-web-app-title" content="Weight">
 <meta name="theme-color" content="#0B1220">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/cutout-touch.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/weight-touch.png">
 <link rel="stylesheet" href="/styles/tokens.css">
 <link rel="stylesheet" href="/styles/shell.css">
 <link rel="stylesheet" href="/styles/controls.css">
@@ -24,6 +24,7 @@
 <title>JobTracker</title>
 </head>
 <body>
+<script src="/legacy.js"></script>
 
 <!-- One-time setup: the token is entered here and kept in localStorage. -->
 <section id="setup" class="screen setup hidden">
@@ -31,9 +32,10 @@
   <p class="muted">Connect this phone to your server.</p>
   <label for="setup-token">Access token</label>
   <input id="setup-token" type="password" autocomplete="off" autocapitalize="off"
-         autocorrect="off" spellcheck="false" placeholder="paste the iphone token">
+         autocorrect="off" spellcheck="false" placeholder="paste this installation's token">
   <button id="setup-save" class="primary">Connect</button>
   <p id="setup-error" class="error" role="status" aria-live="polite"></p>
+  <a href="/phone/" target="_blank" rel="noopener">Install Weight and JobTracker on your iPhone</a>
 </section>
 
 <main id="app" class="hidden">

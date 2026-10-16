@@ -1,10 +1,19 @@
 // Fresh shell when reachable, cached shell when offline. Authenticated data is
 // never cached here: the app maintains an explicit mirror and queued edits, so
 // a stale /api/context cannot masquerade as a live timer response.
-const VERSION = "jobtracker-v13";
+const VERSION = "jobtracker-v14";
 const SHELL = [
   "/",
   "/index.html",
+  "/legacy.js",
+  "/phone/",
+  "/phone/index.html",
+  "/phone/weight/",
+  "/phone/weight/index.html",
+  "/phone/weight/manifest.webmanifest",
+  "/phone/jobtracker/",
+  "/phone/jobtracker/index.html",
+  "/phone/jobtracker/manifest.webmanifest",
   "/agenda-utils.js",
   "/api.js",
   "/app.js",
@@ -49,6 +58,7 @@ const SHELL = [
   "/shared/order-controls.js",
   "/shared/sheet.js",
   "/shared/storage.js",
+  "/shared/profile.js",
   "/shared/time.js",
   "/styles/controls.css",
   "/styles/shell.css",
@@ -64,6 +74,9 @@ const SHELL = [
   "/icons/cutout.png",
   "/icons/cutout.svg",
   "/icons/cutout.webmanifest",
+  "/icons/weight.png",
+  "/icons/weight-touch.png",
+  "/icons/weight.svg",
   "/icons/dial-touch.png",
   "/icons/dial.html",
   "/icons/dial.png",
@@ -106,7 +119,9 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin || !SHELL.includes(url.pathname)) return;
   event.respondWith((async () => {
     const cache = await caches.open(VERSION);
-    const cached = await cache.match(request) || (request.mode === "navigate" ? await cache.match("/index.html") : null);
+    // Resolve navigation with query strings to its exact profile shell. Never
+    // fall back from one app to the complete browser app or the other product.
+    const cached = await cache.match(request) || await cache.match(url.pathname);
     const controller = new AbortController();
     // A saved shell should not wait for an unreachable tailnet connection to
     // time out. Only use a deadline when we have a usable cached copy.

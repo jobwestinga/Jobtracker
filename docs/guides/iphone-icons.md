@@ -1,13 +1,15 @@
 # Choose an iPhone Home Screen icon
 
-JobTracker uses **Cutout**, a minimal J on a near-black background, by default.
+JobTracker uses **Cutout**, a minimal J on near-black; Weight uses a matching W.
+Start with [the two-app installation guide](iphone-apps.md). This page describes
+the legacy gallery, whose installation pages now open **Weight**.
 On your own server, open the
 app address followed by `/icons/index.html` in **Safari**. The gallery has a
 separate installation page and downloadable PNG for each design.
 
 | Design | Preview | Best fit |
 | --- | --- | --- |
-| Cutout · Default | ![Cutout J](../../web/icons/cutout-touch.png) | A clean J with no extra marks; the default phone icon |
+| Cutout · Default | ![Cutout J](../../web/icons/cutout-touch.png) | A clean J with no extra marks; the JobTracker icon; this legacy page installs Weight |
 | 01 · Pace | ![Pace stopwatch](../../web/icons/pace-touch.png) | Time and daily routines |
 | 02 · Trace | ![Trace measurement line](../../web/icons/trace-touch.png) | Weight and measurements over time |
 | 03 · Dial | ![Dial clock](../../web/icons/dial-touch.png) | A bold, warm clock face |
@@ -21,12 +23,12 @@ separate installation page and downloadable PNG for each design.
    The gallery at `/icons/index.html` also includes the other designs.
 3. On the selected design page, tap **Share → Add to Home Screen**. Keep
    **Open as Web App** enabled if your iOS version shows that switch.
-4. Name it **JobTracker** and tap **Add**.
+4. Name it **Weight** and tap **Add**.
 5. Launch the new icon. Enter your existing device token if asked and check
    that your saved history is present. Keep the old icon until this is confirmed.
 
 The selected page provides its own Apple touch icon and manifest, while the
-installed app opens the normal JobTracker screen. Both use the same own-server
+installed legacy app opens the Weight screen. Both use the same own-server
 API; the gallery makes no data requests. The 512px PNGs are also available from
 each **Download PNG** link, and iPhone-specific 180px versions are included.
 
@@ -46,7 +48,7 @@ verify the supplied metadata and layout, not iOS's Home Screen cache.
 Apple's Shortcuts app can also use a downloaded PNG as a Home Screen shortcut
 icon. A shortcut that opens a URL may launch Safari instead of the standalone
 web app, so the design-specific installation pages above are preferred for
-JobTracker. See [Apple's custom shortcut icon guide](https://support.apple.com/guide/shortcuts/apd735880972/ios).
+the two phone apps. See [Apple's custom shortcut icon guide](https://support.apple.com/guide/shortcuts/apd735880972/ios).
 
 ## Artwork
 

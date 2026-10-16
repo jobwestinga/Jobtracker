@@ -150,10 +150,10 @@ def main(argv=None):
             return 0
         if args.command == "check":
             try:
-                from . import check_references, check_boundaries, check_web_assets, check_privacy
+                from . import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps
             except ImportError:
-                import check_references, check_boundaries, check_web_assets, check_privacy
-            results = [check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT), check_privacy.check(ROOT)]
+                import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps
+            results = [generate_phone_apps.check(ROOT, write=args.write), check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT), check_privacy.check(ROOT)]
             errors = [error for result in results for error in result]
             print("\n".join(errors) if errors else "References, layer boundaries, offline assets and privacy guard pass.")
             return int(bool(errors))

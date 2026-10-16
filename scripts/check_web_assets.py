@@ -21,7 +21,7 @@ def check(root: Path) -> list[str]:
     errors = []
     if len(inventory) != len(set(inventory)):
         errors.append("sw.js: duplicate shell entry")
-    shell = {"index.html" if item == "/" else item.lstrip("/") for item in inventory}
+    shell = {(item + "index.html" if item.endswith("/") else item).lstrip("/") for item in inventory}
     needed = {"index.html", "manifest.webmanifest", "icon.png"}
     for name in shell:
         if not (web / name).is_file():
@@ -44,6 +44,8 @@ def check(root: Path) -> list[str]:
             if not dependency or re.match(r"(?:[a-z]+:|//)", dependency):
                 continue
             target = (web / dependency.lstrip("/") if dependency.startswith("/") else path.parent / dependency).resolve()
+            if target.is_dir():
+                target /= "index.html"
             if not target.is_relative_to(web.resolve()):
                 errors.append(f"{path.relative_to(root)}: dependency escapes web: {dependency}")
                 continue

@@ -12,6 +12,7 @@ import { bindSheet, closeSheet } from "./shared/sheet.js";
 import { createOrderControls } from "./shared/order-controls.js";
 import { closeFullscreen } from "./shared/fullscreen.js";
 import { STORAGE_KEYS } from "./shared/storage.js";
+import { PROFILE, PROFILE_ID } from "./shared/profile.js";
 import { createSubjectsFeature } from "./features/subjects/index.js";
 import { createGoalsFeature } from "./features/goals/index.js";
 import { createTemplatesFeature } from "./features/templates.js";
@@ -20,7 +21,16 @@ import { createGraphsFeature } from "./features/graphs/index.js";
 import { createSettingsFeature } from "./features/settings/index.js";
 import { weightFeature } from "./weight.js";
 
-const state = { view: "weight", painted: false };
+const state = { view: PROFILE.defaultView, painted: false };
+document.documentElement.dataset.profile = PROFILE_ID;
+$("setup").querySelector("h1").textContent = PROFILE.name;
+for (const tab of document.querySelectorAll(".tab")) {
+  if (!PROFILE.views.includes(tab.dataset.view)) tab.remove();
+}
+const navigation = document.querySelector(".tabbar");
+navigation.classList.toggle("five", PROFILE.views.length === 5);
+navigation.classList.toggle("four", PROFILE.views.length === 4);
+navigation.classList.toggle("hidden", PROFILE.views.length === 1);
 const syncStatus = createSyncStatus({ getToken, pendingCount, onChange: (value) => {
   const node = $("sync-status");
   if (node.textContent !== value.label) node.textContent = value.label;
@@ -38,11 +48,14 @@ const subjects = createSubjectsFeature({ store, act, banner, reorderButtons, edi
 const goals = createGoalsFeature({ store, act, banner, render, getView, reorderButtons });
 const templates = createTemplatesFeature({ store, act, send, banner });
 const graphs = createGraphsFeature({ store, api, banner, getView, navigateDay, editSession: sessions.edit });
-const settings = createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken, getSyncStatus: syncStatus.snapshot });
+const settings = createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken, getSyncStatus: syncStatus.snapshot, profile: PROFILE_ID });
 const features = { today: subjects, goals, sessions, graphs, weight: { render: () => weightFeature.render($("weight-body")) } };
 const VIEW_TITLES = { goals: "Goals", today: "Subjects", sessions: "Sessions", graphs: "Graphs", weight: "Weight" };
 
 function restoreMirror() {
+  // Weight owns its small credential-scoped cache. Keep the legacy time mirror
+  // untouched for rollback, without loading years of unrelated tracking data.
+  if (PROFILE_ID === "weight") return;
   try {
     const cached = mirror.restore();
     if (cached) {
@@ -79,6 +92,17 @@ async function refreshOnce({ quiet = false, force = false } = {}) {
     const outgoing = await flush();
     if (outgoing.offline) throw new ApiError(outgoing.error);
     const context = await api.context();
+    if (PROFILE_ID === "weight") {
+      changedThisPass = force || context.head !== store.head || !state.painted;
+      store.context = context;
+      store.head = context.head;
+      if (changedThisPass) weightFeature.invalidate();
+      if (!outgoing.ok) {
+        syncStatus.failure(outgoing);
+        banner(`Changes waiting: ${outgoing.error}`, "error", 0);
+      } else { syncStatus.success(); hideBanner(); }
+      return;
+    }
     const followingToday = !sessions.day || sessions.day === store.context?.today;
     const changed = force || !store.baseSnapshot || context.head !== store.head ||
       context.day_start !== store.context?.day_start || context.today !== store.context?.today;
@@ -168,7 +192,7 @@ async function trySetup() {
     await api.context();
     if (previous !== token) {
       closeFullscreen();
-      state.view = "weight";
+      state.view = PROFILE.defaultView;
       goals.reset();
       mirror.reset(); sessions.reset(); graphs.reset();
       viewScroll.clear();
@@ -189,6 +213,7 @@ async function trySetup() {
 }
 
 function switchView(view) {
+  if (!PROFILE.views.includes(view)) return;
   if (state.view !== view) {
     closeFullscreen();
     viewScroll.set(state.view, $("views").scrollTop);
@@ -198,6 +223,7 @@ function switchView(view) {
 }
 
 async function navigateDay(day) {
+  if (!PROFILE.views.includes("sessions")) return;
   sessions.prepare(day);
   switchView("sessions");
   render();
@@ -206,6 +232,7 @@ async function navigateDay(day) {
 }
 
 async function navigateView(view) {
+  if (!PROFILE.views.includes(view)) return;
   switchView(view);
   if (view === "sessions") sessions.prepare();
   render();
@@ -255,7 +282,7 @@ window.addEventListener("storage", (event) => {
   closeSheet(); closeFullscreen();
   goals.reset(); mirror.reset(); sessions.reset(); graphs.reset();
   viewScroll.clear(); weightFeature.invalidate();
-  state.view = "weight"; state.painted = false;
+  state.view = PROFILE.defaultView; state.painted = false;
   const token = getToken();
   try {
     if (!token) return showSetup();

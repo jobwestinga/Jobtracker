@@ -51,6 +51,7 @@ html, body {
 #views { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 .view { padding: 10px 12px 16px; }
+html[data-profile="weight"] #views { padding-bottom: var(--safe-b); }
 
 .tabbar {
   flex: 0 0 auto; z-index: 6;

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "JobTracker",
-  "short_name": "JobTracker",
-  "start_url": "/",
+  "name": "Weight",
+  "short_name": "Weight",
+  "start_url": "/phone/weight/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0B1220",

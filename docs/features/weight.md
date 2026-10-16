@@ -52,11 +52,14 @@ allows either orientation. New imports/styles must enter
 [sw.js](../../web/sw.js)'s shell inventory with a version bump.
 
 The phone client is an installable web app, with an offline shell and durable
-outbox. [The icon guide](../guides/iphone-icons.md) explains the five Home Screen
-designs. The gallery and static installation pages live under
+outbox. [The phone apps guide](../guides/iphone-apps.md) explains separate Weight
+and JobTracker identities and safe migration. [The icon guide](../guides/iphone-icons.md)
+explains older designs. The gallery and static installation pages live under
 [web/icons](../../web/icons/index.html); Settings opens the gallery separately
-so drafts and queues remain in the current app. Keep manifests rooted at `/`
-and preserve the standalone redirect in [install.js](../../web/icons/install.js).
+so drafts and queues remain in the current app. Weight keeps the legacy `/`
+identity; JobTracker uses `/phone/jobtracker/`. Metadata is owned by
+[profile.js](../../web/shared/profile.js); [the generator](../../scripts/generate_phone_apps.py)
+shares one HTML shell. Preserve legacy standalone redirects and queues.
 
 ## Verification
 

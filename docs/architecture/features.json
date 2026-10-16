@@ -724,6 +724,10 @@
         {
           "path": "web/data/sync-status.js",
           "symbol": "createSyncStatus"
+        },
+        {
+          "path": "web/shared/profile.js",
+          "symbol": "profileForPath"
         }
       ],
       "rule_owner": {
@@ -757,7 +761,9 @@
         "tests/mobile/subject-quick-add.cjs",
         "tests/mobile/sync-status.test.mjs",
         "tests/mobile/accessibility.cjs",
-        "tests/mobile/browser.cjs"
+        "tests/mobile/browser.cjs",
+        "tests/test_phone_apps.py",
+        "tests/mobile/profiles.test.mjs"
       ],
       "related": [
         "weight.daily-entry",
@@ -773,7 +779,13 @@
         "orientation",
         "icon",
         "branding",
-        "gallery"
+        "gallery",
+        "profiles",
+        "split",
+        "installation",
+        "Weight app",
+        "JobTracker app",
+        "legacy"
       ],
       "supporting": [
         {
@@ -796,9 +808,33 @@
         },
         {
           "path": "web/icons/cutout.svg"
+        },
+        {
+          "path": "web/legacy.js"
+        },
+        {
+          "path": "web/phone/index.html"
+        },
+        {
+          "path": "web/phone/weight/index.html"
+        },
+        {
+          "path": "web/phone/jobtracker/index.html"
+        },
+        {
+          "path": "web/phone/weight/manifest.webmanifest"
+        },
+        {
+          "path": "web/phone/jobtracker/manifest.webmanifest"
+        },
+        {
+          "path": "web/icons/weight.svg"
+        },
+        {
+          "path": "scripts/generate_phone_apps.py"
         }
       ],
-      "guide": "docs/features/weight.md#phone-shell-and-home-screen"
+      "guide": "docs/guides/iphone-apps.md"
     },
     {
       "id": "release.packaging",

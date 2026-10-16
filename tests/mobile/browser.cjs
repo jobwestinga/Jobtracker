@@ -12,6 +12,7 @@ fs.mkdirSync(output, { recursive: true });
 let head = 1, offline = false, active = null, ops = [], weights = [], delays = {}, holdWeight = null, holdOps = null,
   holdContext = null, failedContext = false, failedWeight = false;
 let getWeightCount = 0;
+let rejectProfileAuth = false, dropProfileAck = false;
 const hits = [];
 const subjects = [{ uid: 'subject-a', name: 'Work', color: '#3B82F6', sort_order: 0, is_archived: 0 },
   { uid: 'subject-b', name: 'Reading', color: '#10B981', sort_order: 1, is_archived: 0 },
@@ -777,20 +778,20 @@ async function iconChecks(browser, url) {
     await page.goto(`${url}/icons/${name}.html`);
     assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), `/icons/${name}-touch.png`);
     const manifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
-    assert.equal(manifest.id, '/'); assert.equal(manifest.start_url, '/'); assert.equal(manifest.scope, '/');
+    assert.equal(manifest.id, '/'); assert.equal(manifest.start_url, '/phone/weight/'); assert.equal(manifest.scope, '/');
     assert.equal(manifest.icons[0].src, `/icons/${name}.png`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
   await page.goto(url);
-  assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), '/icons/cutout-touch.png');
+  assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), '/icons/weight-touch.png');
   const defaultManifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
-  assert.equal(defaultManifest.icons[0].src, '/icons/cutout.png');
+  assert.equal(defaultManifest.icons[0].src, '/icons/weight.png');
   assert.deepEqual(writes, [], 'choosing an icon never writes application data');
   const standalone = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await standalone.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
   const installed = await standalone.newPage();
   await installed.goto(`${url}/icons/cutout.html`);
-  await installed.waitForURL(new URL('/', url).href);
+  await installed.waitForURL(new URL('/phone/weight/', url).href);
   assert.equal(await installed.locator('#setup').isVisible(), true, 'a new standalone icon opens the normal app');
   await standalone.close(); await context.close();
 }
@@ -882,10 +883,181 @@ async function accountControlsChecks(browser, url) {
   await context.close();
 }
 
+async function phoneProfileChecks(browser, url) {
+  weights = [
+    { uid: 'profile-weight-older', measured_at: '2026-10-02T09:00:00', weight_kg: 80.8, source: 'scale' },
+    { uid: 'profile-weight-middle', measured_at: '2026-10-06T09:00:00', weight_kg: 80.4, source: 'scale' },
+    { uid: 'profile-weight', measured_at: '2026-10-10T09:00:00', weight_kg: 80.2, source: 'scale' },
+  ];
+  delays = {}; offline = false;
+  active = { uid: 'profile-running', subject_uid: 'subject-a', start_time: '2026-10-10T09:00:00', elapsed_seconds: 1800 };
+  const running = JSON.stringify(active), originalOps = ops.length;
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Europe/Amsterdam' });
+  const weight = await context.newPage(), tracker = await context.newPage();
+  const errors = [];
+  for (const page of [weight, tracker]) page.on('pageerror', (error) => errors.push(error.message));
+  const rollout = { op_id: 'profile-before-update-op', op: 'add_session', params: { uid: 'profile-before-update-session', subject_uid: 'subject-b', start_time: '2026-10-08T12:00:00', end_time: '2026-10-08T12:10:00' } };
+  // Seed the existing installation only. Shared-origin installations must still
+  // enroll independently, rather than copying its secret to the second app.
+  await context.addInitScript((entry) => {
+    const RealDate = Date;
+    const now = new RealDate('2026-10-10T09:30:00').getTime();
+    window.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } };
+    if (!localStorage.getItem('profile-fixture')) {
+      localStorage.setItem('jobtracker.token', 'synthetic-legacy-phone');
+      localStorage.setItem('jobtracker.outbox', JSON.stringify([entry]));
+      caches.open('jobtracker-legacy-fixture').then((cache) => cache.put('/legacy-marker', new Response('old shell')));
+      localStorage.setItem('profile-fixture', 'yes');
+    }
+  }, rollout);
+  const weightHits = hits.length;
+  offline = true;
+  await weight.goto(`${url}/phone/weight/`);
+  await weight.waitForSelector('#weight-whole button');
+  await weight.waitForFunction(() => navigator.serviceWorker.controller);
+  assert.deepEqual(await weight.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.outbox'))), [rollout],
+    'installing the updated worker preserves an unsent legacy operation');
+  assert.equal(await weight.evaluate(async () => (await caches.keys()).includes('jobtracker-legacy-fixture')), false);
+  offline = false;
+  await weight.locator('#refresh').click();
+  await weight.waitForSelector('#weight-history .card');
+  await weight.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Synced '));
+  assert.equal(await weight.locator('#view-title').textContent(), 'Weight');
+  assert.equal(await weight.locator('.tab:visible').count(), 0);
+  assert.ok(!hits.slice(weightHits).includes('/api/snapshot'), 'Weight skips the time-history mirror');
+  await tracker.goto(`${url}/phone/jobtracker/`);
+  await tracker.waitForSelector('#setup:not(.hidden)');
+  assert.equal(await tracker.locator('#setup h1').textContent(), 'JobTracker');
+  await tracker.locator('#setup-token').fill('synthetic-work-phone');
+  await tracker.locator('#setup-save').click();
+  await tracker.waitForSelector('#subject-list .card');
+  await tracker.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Synced '));
+  assert.equal(await tracker.locator('#view-title').textContent(), 'Subjects');
+  assert.deepEqual(await tracker.locator('.tab').evaluateAll((tabs) => tabs.map((tab) => tab.dataset.view)), ['goals', 'today', 'sessions', 'graphs']);
+  assert.equal(await tracker.locator('#active-card').isVisible(), true);
+  assert.equal(ops.length, originalOps + 1, 'launch only flushes the existing operation, without starting a session');
+  assert.equal(sessions.filter((row) => row.uid === 'profile-before-update-session').length, 1);
+  // Each live app retains its own tab and unfinished form on foreground resume.
+  await chooseWeight(weight, 80, 6);
+  await tracker.locator('[data-view="sessions"]').click();
+  await tracker.locator('#add-session').click();
+  const input = tracker.locator('#sheet-body input').first();
+  await input.fill('2026-10-09T14:23');
+  const draftValue = await input.inputValue();
+  for (const page of [weight, tracker]) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  assert.equal(await weight.locator('#weight-value').textContent(), '80.6 kg');
+  assert.equal(await tracker.locator('#view-title').textContent(), 'Sessions');
+  assert.equal(await tracker.locator('#sheet').isVisible(), true);
+  assert.equal(await input.inputValue(), draftValue);
+  await tracker.locator('#sheet-close').click();
+  await tracker.locator('[data-view="today"]').click();
+  await weight.locator('#weight-clear').click();
+  await weight.screenshot({ path: path.join(output, 'phone-weight.png') });
+  // Remove the hostile synthetic XSS label from the visual sample only.
+  await tracker.locator('#subject-list .card').filter({ hasText: '<img' }).evaluateAll((nodes) => nodes.forEach((node) => node.remove()));
+  await tracker.screenshot({ path: path.join(output, 'phone-jobtracker.png') });
+  // Screen size has no influence on the product or chosen tab.
+  await tracker.setViewportSize({ width: 1280, height: 900 });
+  assert.equal(await tracker.locator('.tab').count(), 4);
+  await tracker.setViewportSize({ width: 390, height: 844 });
+  await weight.locator('#open-settings').click();
+  assert.equal(await weight.locator('#settings-day-start').count(), 0);
+  assert.match(await weight.locator('#sheet-body').textContent(), /Neither is a full backup/);
+  await weight.locator('#sheet-close').click();
+  // Wait until the real shared worker has cached every profile and its assets.
+  await weight.waitForFunction(() => navigator.serviceWorker.controller);
+  await tracker.waitForFunction(() => navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  // A legacy queued time write remains owned by Weight and must be replayed,
+  // even though it no longer has a time-tracking tab.
+  const legacy = { op_id: 'profile-legacy-op', op: 'add_session', params: { uid: 'profile-legacy-session', subject_uid: 'subject-b', start_time: '2026-10-09T12:00:00', end_time: '2026-10-09T12:10:00' } };
+  await weight.evaluate((entry) => localStorage.setItem('jobtracker.outbox', JSON.stringify([entry])), legacy);
+  await weight.goto(`${url}/phone/weight/?offline=1`);
+  await weight.waitForSelector('#weight-whole button');
+  assert.equal(await weight.locator('.tab:visible').count(), 0);
+  await chooseWeight(weight, 80, 7); await weight.locator('#weight-save').click();
+  await weight.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 2);
+  await tracker.reload(); await tracker.waitForSelector('#subject-list .card');
+  assert.equal(await tracker.locator('#view-title').textContent(), 'Subjects');
+  assert.equal(await tracker.locator('#active-card').isVisible(), true);
+  // Use the real outbox in the second profile, isolated even on one origin.
+  await tracker.evaluate(async () => {
+    const { send } = await import('/data/outbox.js');
+    await send('add_session', { uid: 'profile-work-session', subject_uid: 'subject-b', start_time: '2026-10-09T13:00:00', end_time: '2026-10-09T13:20:00' });
+  });
+  const beforeReload = await weight.evaluate(() => ({ weight: localStorage.getItem('jobtracker.outbox'), work: localStorage.getItem('jobtracker.phone.jobtracker.outbox') }));
+  assert.equal(JSON.parse(beforeReload.weight)[0].op_id, legacy.op_id);
+  assert.equal(JSON.parse(beforeReload.work).length, 1);
+  await weight.reload(); await tracker.reload();
+  await weight.waitForSelector('#weight-history .card'); await tracker.waitForSelector('#subject-list .card');
+  assert.equal(await weight.locator('#view-title').textContent(), 'Weight');
+  assert.equal(await tracker.locator('#view-title').textContent(), 'Subjects');
+  assert.deepEqual(await weight.evaluate(() => ({ weight: localStorage.getItem('jobtracker.outbox'), work: localStorage.getItem('jobtracker.phone.jobtracker.outbox') })), beforeReload);
+  // Refresh one app first: it must not drain the other product's local queue.
+  rejectProfileAuth = true;
+  await context.setOffline(false);
+  await weight.locator('#refresh').click();
+  await weight.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  await tracker.waitForSelector('#setup:not(.hidden)');
+  await tracker.waitForLoadState('networkidle');
+  assert.equal(await tracker.evaluate(() => localStorage.getItem('jobtracker.phone.jobtracker.outbox')), beforeReload.work,
+    'a rejected token retains the original pending queue');
+  assert.equal(await weight.evaluate(() => localStorage.getItem('jobtracker.token')), 'synthetic-legacy-phone');
+  rejectProfileAuth = false; dropProfileAck = true;
+  await tracker.locator('#setup-token').fill('synthetic-work-phone');
+  await tracker.locator('#setup-save').click();
+  try { await tracker.waitForFunction(() => document.querySelector('#sync-status').textContent.startsWith('Offline')); }
+  catch (error) {
+    console.error('phone recovery state', await tracker.evaluate(() => ({ status: document.querySelector('#sync-status').textContent,
+      setup: document.querySelector('#setup-error').textContent, pending: localStorage.getItem('jobtracker.phone.jobtracker.outbox') })),
+      { dropProfileAck, recentOps: ops.slice(-3) });
+    throw error;
+  }
+  assert.equal(sessions.filter((row) => row.uid === 'profile-work-session').length, 1);
+  assert.equal(await tracker.evaluate(() => JSON.parse(localStorage.getItem('jobtracker.phone.jobtracker.outbox')).length), 1,
+    'a committed write with a lost acknowledgement remains retryable');
+  dropProfileAck = false;
+  await tracker.locator('#refresh').click();
+  await tracker.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.phone.jobtracker.outbox') || '[]').length === 0);
+  await tracker.reload(); await tracker.waitForSelector('#subject-list .card');
+  for (const uid of ['profile-legacy-session', 'profile-work-session']) assert.equal(sessions.filter((row) => row.uid === uid).length, 1);
+  assert.equal(JSON.stringify(active), running, 'the running timer is never ended or restarted by app launches');
+  // Another independent installation receives the same server weight history,
+  // with its own storage and one-time credential setup.
+  const separate = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const other = await separate.newPage();
+  await other.goto(`${url}/phone/weight/`); await other.waitForSelector('#setup:not(.hidden)');
+  await other.locator('#setup-token').fill('synthetic-other-phone'); await other.locator('#setup-save').click();
+  await other.waitForSelector('#weight-history .card');
+  assert.match(await other.locator('#weight-history').textContent(), /80\.7 kg/);
+  await separate.close();
+  // Cached installations still launch the correct profile with separate storage.
+  await tracker.locator('[data-view="graphs"]').click();
+  await tracker.waitForSelector('#graph-body .bars');
+  await tracker.locator('[data-view="goals"]').click();
+  await tracker.waitForSelector('#goal-list .card');
+  assert.equal(await tracker.locator('[data-view="weight"]').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+  // Old root and icon launch URLs remain Weight only in installed mode;
+  // Safari/desktop / still provides all five sections.
+  const installed = await browser.newContext();
+  await installed.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+  const legacyPage = await installed.newPage();
+  for (const route of ['/', '/index.html', '/icons/cutout.html']) {
+    await legacyPage.goto(url + route);
+    await legacyPage.waitForURL(url + '/phone/weight/');
+    await legacyPage.waitForSelector('#setup:not(.hidden)');
+    assert.equal(await legacyPage.locator('#setup h1').textContent(), 'Weight');
+  }
+  await installed.close();
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost'); hits.push(url.pathname);
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/sync/') || url.pathname === '/ops') {
     if (offline) { req.socket.destroy(); return; }
+    if (rejectProfileAuth && req.headers.authorization === 'Bearer synthetic-work-phone') return json(res, { detail: 'Token rejected' }, 401);
     if (delays[url.pathname]) await new Promise((resolve) => setTimeout(resolve, delays[url.pathname]));
     if (url.pathname === '/api/context') {
       if (holdContext) await holdContext;
@@ -912,11 +1084,15 @@ const server = http.createServer(async (req, res) => {
       let body = ''; for await (const chunk of req) body += chunk;
       const submitted = JSON.parse(body).ops;
       if (holdOps) await holdOps;
-      return json(res, { applied: submitted.map((entry) => ({ op_id: entry.op_id, result: apply(entry) })), seq: head });
+      const payload = { applied: submitted.map((entry) => ({ op_id: entry.op_id, result: apply(entry) })), seq: head };
+      if (dropProfileAck && req.headers.authorization === 'Bearer synthetic-work-phone') {
+        req.socket.destroy(); return;
+      }
+      return json(res, payload);
     }
     return json(res, { detail: 'unknown mock endpoint' }, 404);
   }
-  const file = path.join(root, 'web', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
+  const file = path.join(root, 'web', url.pathname.endsWith('/') ? url.pathname.slice(1) + 'index.html' : url.pathname.slice(1));
   if (!file.startsWith(path.join(root, 'web')) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.html') ? 'text/html' : file.endsWith('.webmanifest') ? 'application/manifest+json' : file.endsWith('.svg') ? 'image/svg+xml' : 'image/png' });
   fs.createReadStream(file).pipe(res);
@@ -925,6 +1101,11 @@ const server = http.createServer(async (req, res) => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
+  if (process.env.JOBTRACKER_BROWSER_SCOPE === 'phone-profiles') {
+    await phoneProfileChecks(browser, url);
+    console.log(JSON.stringify({ browserChecks: 'passed', scope: 'phone-profiles', screenshots: output }));
+    await browser.close(); server.close(); return;
+  }
   if (process.env.JOBTRACKER_BROWSER_SCOPE === 'icons') {
     await iconChecks(browser, url);
     console.log(JSON.stringify({ browserChecks: 'passed', scope: 'icons', screenshots: output }));
@@ -1202,6 +1383,7 @@ const server = http.createServer(async (req, res) => {
   await accountControlsChecks(browser, url);
   await syncStatusChecks(browser, url);
   await iconChecks(browser, url);
+  await phoneProfileChecks(browser, url);
   console.log(JSON.stringify({ browserChecks: 'passed', viewports: ['390x844', '844x390', '1280x900', '320x740'], tested: ['fractional day-start save once, failed disconnect, pending account-change guard', 'session90m preset,170m chunks, offline/ACK-storage durability and duplicate guard', 'shared session ±1day controls, exact UID/duration and fractional timestamps', 'real service-worker offline launch, CSS/modules, queued save and reconnect', 'cold Weight before slow/failed tracking requests', 'viewport-wide whole/decimal tiles', 'durable save resets online/offline', 'storage failure and removed-target retry', 'fullscreen fallback, rotation, draft and account cleanup', 'agenda live clock and day-scroll preservation', 'calendar session navigation and day response race', 'agenda exact session', 'offline timer reload/replay', 'weight load/save race and double submission', 'timestamp and original precision preservation', 'new draft during save and correct receipts', 'weight graphs all/historic/custom', 'offline weight edit/delete/reload', 'account reset', 'latest/backfill anchor', 'manual date collision and same-day coalescing', 'refresh-stable selection and keyboard navigation', 'persistent entry options', 'calendar midnight rollover', '1060-row tap performance'], pickerPerformance, screenshots: output, requests: hits.length }));
   await browser.close(); server.close();
 })().catch((err) => { console.error(err); server.close(); process.exit(1); });

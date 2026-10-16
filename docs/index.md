@@ -42,6 +42,8 @@ are split by domain so unrelated implementation history stays out of a task.
 
 ## User guides
 
+- [iPhone apps](guides/iphone-apps.md): install Weight and JobTracker, preserve J,
+  enroll each app, sync, exports and rollback.
 - [Privacy](privacy.md): local data, public source, commit guards and history.
 - [iPhone icons](guides/iphone-icons.md): five designs and Home Screen setup.
 

@@ -21,8 +21,12 @@ them does.
 - Every action paints optimistically before the request goes out (a tap that
   waited a round trip felt broken), then the refresh that follows replaces the
   guess with the server's answer.
-- Tab order: Goals, Subjects, Sessions, Graphs, Weight.
-- A fresh phone launch starts on Weight; foreground resume preserves the current
+- Explicit profiles in [profile.js](../../web/shared/profile.js):
+  `/phone/weight/` has Weight only, `/phone/jobtracker/` has Goals, Subjects,
+  Sessions and Graphs and starts on Subjects. Browser `/` retains all five
+  sections and starts on Weight. Width/user agent never selects a product.
+  Standalone legacy root launches redirect to Weight without moving storage.
+- A fresh Weight launch starts on entry; foreground resume preserves the current
   tab and draft. A durable weight save clears its picker unless a newer draft
   was entered while saving. Fullscreen plots keep their DOM and resize on rotation.
 - **The app is a fixed frame**: `#app { position: fixed; inset: 0 }`, flex
@@ -51,3 +55,31 @@ them does.
   for every transitive local import and stylesheet. The worker caches shell assets
   only, never API responses, and never replays writes. The app's own outbox owns
   retry identity and order; keep replay in one place.
+
+## Profiles, installation and storage
+
+[The phone guide](../guides/iphone-apps.md) covers installation and safe legacy
+migration. One root-scoped worker caches the complete shell and both explicit
+app shells. Fallbacks match the requested path, including navigation queries;
+they never substitute another product. Updates remove old shell caches only,
+never credentials, mirrors or queued writes. First setup requires connectivity.
+
+Weight retains manifest `id: /`, scope `/`, and all legacy `jobtracker.*` keys,
+including queued time operations. JobTracker has `id`/scope/start URL
+`/phone/jobtracker/` and `jobtracker.phone.jobtracker.*` keys. This isolates tokens,
+queue ownership, drain locks, caches and preferences even with shared storage.
+iOS may isolate installations instead; each can enroll independently. Tabs and
+unsaved drafts live in each page, not a shared last-view key. Navigation is a UI
+boundary, not authorization or another account.
+
+Weight skips loading the tracking snapshot/mirror, but drains every legacy
+operation before reading context and weight history. The full/JobTracker views
+keep incremental mirror refresh. No service, API or database semantics change;
+the native app is unaffected.
+
+Edit [web/index.html](../../web/index.html) and profile metadata, then run
+`python3 scripts/generate_phone_apps.py --write` (or `dev.py check --write`).
+Generated static shells/manifests are committed and deployed without a build.
+`dev.py check` verifies drift and their transitive offline assets. Root deployment
+is supported; reverse-proxy prefixes are not. Keep origin-root asset/API URLs
+until the whole deployment stack explicitly supports prefixes.

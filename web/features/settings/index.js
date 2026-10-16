@@ -2,7 +2,7 @@ import { $, el } from "../../shared/dom.js";
 import { openSheet, closeSheet, createSheetAction } from "../../shared/sheet.js";
 import { STORAGE_KEYS } from "../../shared/storage.js";
 
-export function createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken, getSyncStatus = () => null }) {
+export function createSettingsFeature({ store, act, banner, flush, pendingCount, refresh, clearToken, getSyncStatus = () => null, profile = "full" }) {
 
 
   function settingsSheet() {
@@ -12,29 +12,33 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       // Day start is a SHARED setting: changing it here changes it on the Mac too,
       // because it describes the data rather than this device. Theme and graph
       // preferences stay per-machine and deliberately are not offered here.
-      const dayRow = el("div", "set-row");
-      const dayLabel = el("label", "k", "Day starts at");
-      dayLabel.htmlFor = "settings-day-start";
-      const dayInput = Object.assign(document.createElement("input"), {
-        id: "settings-day-start", type: "time", step: "60", required: true,
-        value: store.context?.day_start || store.snapshot?.settings?.day_start_time || "03:00",
-      });
-      const saveDay = el("button", "primary wide", "Save day start");
-      saveDay.id = "settings-day-save";
-      saveDay.onclick = async () => {
-        if (!submit.canSubmit() || !dayInput.reportValidity()) return;
-        const result = await submit("set_setting", { key: "day_start_time", value: dayInput.value });
-        if (result?.ok && body.isConnected) banner("Day start updated — shared with your Mac", "ok");
-      };
-      dayRow.append(dayLabel, dayInput);
-      body.append(dayRow, saveDay);
-      body.append(el("p", "set-note",
-        "Late-night work counts towards the day it started. Shared with your Mac."));
+      if (profile !== "weight") {
+        const dayRow = el("div", "set-row");
+        const dayLabel = el("label", "k", "Day starts at");
+        dayLabel.htmlFor = "settings-day-start";
+        const dayInput = Object.assign(document.createElement("input"), {
+          id: "settings-day-start", type: "time", step: "60", required: true,
+          value: store.context?.day_start || store.snapshot?.settings?.day_start_time || "03:00",
+        });
+        const saveDay = el("button", "primary wide", "Save day start");
+        saveDay.id = "settings-day-save";
+        saveDay.onclick = async () => {
+          if (!submit.canSubmit() || !dayInput.reportValidity()) return;
+          const result = await submit("set_setting", { key: "day_start_time", value: dayInput.value });
+          if (result?.ok && body.isConnected) banner("Day start updated — shared with your Mac", "ok");
+        };
+        dayRow.append(dayLabel, dayInput);
+        body.append(dayRow, saveDay);
+        body.append(el("p", "set-note",
+          "Late-night work counts towards the day it started. Shared with your Mac."));
+      }
 
       let waiting;
       try { waiting = String(pendingCount()); } catch { waiting = "Cannot read saved changes"; }
       const sync = getSyncStatus();
-      const info = [
+      const info = profile === "weight" ? [
+        ["Dates", "Weight uses calendar dates"], ["Waiting to send", waiting],
+      ] : [
         ["Today (logical)", store.context?.today || "—"],
         ["Server time", (store.context?.server_time || "—").replace("T", " ")],
         ["Subjects", String((store.snapshot?.subjects || []).filter((x) => !x.is_archived).length)],
@@ -71,25 +75,26 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       };
       body.append(retry);
 
-      const icons = el("a", "secondary wide settings-icons", "Choose Home Screen icon");
-      icons.href = "/icons/index.html";
+      const icons = el("a", "secondary wide settings-icons", profile === "full" ? "Choose Home Screen icon" : "Home Screen installation guide");
+      icons.href = profile === "full" ? "/icons/index.html" : "/phone/";
       icons.target = "_blank";
       icons.rel = "noopener";
       body.append(icons);
-      body.append(el("p", "set-note", "Open the gallery in Safari to add a Home Screen icon. Let waiting changes sync before replacing an existing Home Screen app."));
+      body.append(el("p", "set-note", "Install Weight and JobTracker separately in Safari. Each may need its own token. Let waiting changes sync before replacing an existing Home Screen app."));
+      if (profile === "weight") body.append(el("p", "set-note", "Chart CSV exports weight readings only; PNG exports the chart. Neither is a full backup. Full backups are available in the Mac app."));
 
       const reload = el("button", "secondary wide", "Reload app");
       reload.onclick = () => location.reload();
       body.append(reload);
 
-      const out = el("button", "danger wide", "Disconnect this phone");
+      const out = el("button", "danger wide", profile === "full" ? "Disconnect this phone" : "Disconnect this app");
       let disconnecting = false;
       out.onclick = () => {
         if (disconnecting || !submit.canSubmit()) return;
         try {
           if (pendingCount()) return banner("Send the waiting changes before disconnecting this phone.", "error", 0);
         } catch (error) { return banner(error.message || "Cannot read saved changes. Keep this phone connected.", "error", 0); }
-        if (!confirm("Remove the token from this phone? Your data stays on the server.")) return;
+        if (!confirm("Remove the token from this app? Your data stays on the server.")) return;
         disconnecting = true;
         try {
           if (pendingCount()) {
