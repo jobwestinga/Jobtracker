@@ -59,14 +59,16 @@ html, body {
   background: var(--panel);
   border-top: 1px solid var(--line);
   
-  padding-bottom: var(--safe-b);
+  /* Share part of the home-indicator inset with the buttons' lower padding.
+     Keep a clear indicator area while avoiding a separate empty strip. */
+  padding-bottom: max(0px, calc(var(--safe-b) - 12px));
 }
 
 .tab {
   appearance: none; border: 0; background: none; color: var(--dim);
   font-size: .75rem; padding: 6px 2px; min-width: 0; overflow-wrap: anywhere;
   
-  min-height: 60px;
+  min-height: 52px;
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 3px;
 }
