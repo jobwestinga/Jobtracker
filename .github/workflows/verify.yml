@@ -7,11 +7,11 @@ jobs:
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Install test dependencies
@@ -24,7 +24,8 @@ jobs:
         run: python scripts/dev.py mobile
       - name: Install isolated browser test tooling
         run: |
-          npm install --prefix "$RUNNER_TEMP/jobtracker-browser" playwright
+          # Pinned so a new Playwright release cannot change CI without a commit.
+          npm install --prefix "$RUNNER_TEMP/jobtracker-browser" playwright@1.64.1
           "$RUNNER_TEMP/jobtracker-browser/node_modules/.bin/playwright" install chromium
       - name: Browser regressions and synthetic performance
         env:
@@ -35,7 +36,7 @@ jobs:
           python scripts/dev.py browser
       - name: Preserve browser artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-checks
           path: ${{ runner.temp }}/jobtracker-browser-artifacts
