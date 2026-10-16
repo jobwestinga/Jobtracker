@@ -1,7 +1,7 @@
 // Fresh shell when reachable, cached shell when offline. Authenticated data is
 // never cached here: the app maintains an explicit mirror and queued edits, so
 // a stale /api/context cannot masquerade as a live timer response.
-const VERSION = "jobtracker-v10";
+const VERSION = "jobtracker-v11";
 const SHELL = [
   "/",
   "/index.html",
@@ -32,6 +32,7 @@ const SHELL = [
   "/features/subjects/styles.css",
   "/features/templates.js",
   "/features/weight/index.js",
+  "/features/weight/chart.js",
   "/features/weight/math.js",
   "/features/weight/picker.js",
   "/features/weight/projection.js",

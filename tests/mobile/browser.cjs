@@ -84,7 +84,7 @@ async function entryControls(page, open) {
   if (await page.locator('#weight-entry-controls').evaluate((details) => details.open) !== open) await page.locator('#weight-entry-controls > summary').click();
 }
 async function clearWeight(page) {
-  await entryControls(page, true); await page.locator('#weight-clear').click();
+  await page.locator('#weight-clear').click();
 }
 async function weightDate(page, value) {
   await entryControls(page, true); await page.locator('#weight-date').fill(value);
@@ -130,6 +130,16 @@ async function pickerRegressions(browser, url) {
   assert.equal(await page.locator('.weight-tile[aria-pressed="true"]').count(), 0);
   assert.equal(await page.locator('#weight-save').isDisabled(), true);
   assert.deepEqual(await integers(), [77, 78, 79, 80, 81, 82, 83]);
+  // Reset is beside Save and usable with entry controls collapsed. It clears
+  // partial or complete drafts without deleting anything from saved history.
+  assert.equal(await page.locator('#weight-entry-controls').evaluate((node) => node.open), false);
+  await page.locator('#weight-whole button[data-value="80"]').click();
+  await page.locator('#weight-clear').click();
+  assert.equal(await page.locator('.weight-tile[aria-pressed="true"]').count(), 0);
+  await chooseWeight(page, 80, 5); await page.locator('#weight-clear').click();
+  assert.equal(await page.locator('#weight-value').textContent(), '—.— kg');
+  assert.equal(await page.locator('#weight-save').isDisabled(), true);
+  assert.equal(weights.length, 3);
   // Existing precision survives unchanged edits, including values below .1.
   await page.locator('#weight-history .card').first().click();
   assert.equal(await page.locator('#weight-value').textContent(), '79.55 kg');
@@ -199,23 +209,44 @@ async function pickerRegressions(browser, url) {
     window.nativeFullscreenAttempts = 0;
     document.documentElement.requestFullscreen = () => { nativeFullscreenAttempts++; return Promise.reject(new Error('not supported on this phone')); };
     window.originalWeightPlot = document.querySelector('#weight-plot');
+    document.querySelector('.weight-options:last-child').open = true;
+    document.querySelector('#weight-chart-data').open = true;
   });
   await page.locator('#weight-fullscreen').click(); await page.waitForSelector('#weight-plot.plot-fullscreen');
   assert.equal(await page.locator('#weight-fullscreen').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.evaluate(() => nativeFullscreenAttempts), 1);
   assert.equal(await page.evaluate(() => originalWeightPlot === document.querySelector('#weight-body > #weight-plot')), true);
+  for (const selector of ['#weight-range', '#weight-chart-help', '#weight-chart-data', '.weight-options:last-child']) {
+    assert.equal(await page.locator(selector).isVisible(), false, `${selector} is hidden in fullscreen`);
+  }
   await page.waitForFunction(() => document.querySelector('#weight-canvas').clientHeight > 400);
   const portraitHeight = await page.locator('#weight-canvas').evaluate((canvas) => canvas.clientHeight);
   await page.screenshot({ path: path.join(output, 'weight-fullscreen-portrait.png'), fullPage: true });
   await page.setViewportSize({ width: 844, height: 390 });
   await page.waitForFunction(() => { const canvas = document.querySelector('#weight-canvas'); return canvas.width === Math.round(canvas.clientWidth * Math.min(2, devicePixelRatio)) && canvas.height === Math.round(canvas.clientHeight * Math.min(2, devicePixelRatio)); });
   const landscape = await page.locator('#weight-canvas').evaluate((canvas) => ({ width: canvas.clientWidth, height: canvas.clientHeight }));
-  assert.ok(landscape.width > 780 && landscape.height < portraitHeight && landscape.height >= 120, JSON.stringify(landscape));
+  assert.ok(landscape.width > 780 && landscape.height < portraitHeight && landscape.height >= 360, JSON.stringify(landscape));
   await page.screenshot({ path: path.join(output, 'weight-fullscreen-landscape.png'), fullPage: true });
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#weight-plot').evaluate((plot) => plot.classList.contains('plot-fullscreen')), false);
   assert.equal(await page.locator('#weight-fullscreen').getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.locator('.weight-options:last-child').evaluate((node) => node.open), true, 'plot options stay open on return');
+  assert.equal(await page.locator('#weight-chart-data').evaluate((node) => node.open), true);
   assert.equal(await page.locator('#weight-value').textContent(), '89.9 kg', 'fullscreen leaves the entry draft untouched');
+  // Entering fullscreen after rotation also expands the chart, and the close
+  // control stays at the top right without consuming a toolbar row.
+  await page.locator('#weight-range').selectOption('custom');
+  const inlineHeight = await page.locator('#weight-canvas').evaluate((canvas) => canvas.clientHeight);
+  await page.locator('#weight-fullscreen').click();
+  await page.waitForFunction((previous) => document.querySelector('#weight-canvas').clientHeight > previous, inlineHeight);
+  assert.equal(await page.locator('#weight-custom').isVisible(), false);
+  const close = await page.locator('#weight-fullscreen').boundingBox();
+  assert.ok(close.x > 760 && close.y < 20, JSON.stringify(close));
+  await page.locator('#weight-fullscreen').click();
+  assert.equal(await page.locator('#weight-custom').isVisible(), true);
+  await page.locator('#weight-range').selectOption('90');
+  await page.locator('.weight-options:last-child').evaluate((node) => { node.open = false; });
+  await page.locator('#weight-chart-data').evaluate((node) => { node.open = false; });
   await page.evaluate(() => { document.querySelector('#views').scrollTop = 0; });
   await page.screenshot({ path: path.join(output, 'weight-entry-landscape.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });

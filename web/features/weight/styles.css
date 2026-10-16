@@ -26,8 +26,9 @@
 [data-density="compact"] .weight-tile-row.decimal .weight-tile { min-height: 46px; font-size: 1.0625rem; }
 [data-contrast="high"] .weight-tile { background: #080E18; border-color: #A6B7D1; color: #fff; }
 [data-contrast="high"] .weight-tile.selected { background: #E6ECF7; border-color: #fff; color: #0B1220; box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(230,236,247,.35); }
-.weight-chosen-row { display: flex; align-items: center; gap: 12px; padding: 4px 10px; }
+.weight-chosen-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
 .weight-chosen-row output { flex: 1; min-width: 0; font-size: 1.625rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#weight-clear { flex: 0 0 44px; min-height: 48px; padding: 4px; font-size: 1.5rem; }
 .weight-chosen-row .primary { min-width: 130px; min-height: 48px; font-size: 1.125rem; }
 .weight-entry-options { margin: 4px 10px 0; }
 .weight-entry-options summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; min-height: 44px; font-size: 0.8125rem; color: var(--dim); cursor: pointer; }
@@ -99,9 +100,14 @@ button:disabled { opacity: 0.55; cursor: default; }
   .weight-export button { flex-basis: 120px; }
 }
 
-.weight-plot.plot-fullscreen { margin: 0; display: flex; flex-direction: column; gap: 0; }
-.weight-plot.plot-fullscreen #weight-canvas { flex: 1 1 270px; min-height: 120px; height: 0; }
-.weight-plot.plot-fullscreen .weight-plot-toolbar,
-.weight-plot.plot-fullscreen #weight-chart-detail,
-.weight-plot.plot-fullscreen .weight-options { flex: 0 0 auto; }
-.weight-plot.plot-fullscreen .weight-options[open] { max-height: 40%; overflow-y: auto; }
+/* Keep options/drafts in their original DOM, but dedicate the viewport to the
+   canvas. The toolbar becomes an overlay containing only the exit button. */
+.weight-plot.plot-fullscreen { display: flex; overflow: hidden; }
+.weight-plot.plot-fullscreen > :not(#weight-canvas):not(.weight-plot-toolbar),
+.weight-plot.plot-fullscreen .weight-plot-toolbar > :not(#weight-fullscreen) { display: none; }
+.weight-plot.plot-fullscreen #weight-canvas { flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.weight-plot.plot-fullscreen .weight-plot-toolbar {
+  position: absolute; top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right)); margin: 0; z-index: 1;
+}
+.weight-plot.plot-fullscreen #weight-fullscreen { background: var(--panel); border: 1px solid var(--line); border-radius: 50%; }

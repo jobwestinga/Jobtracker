@@ -33,6 +33,19 @@ export function weightDayOffset(day, offset) {
   return year >= 1 && year <= 9999 ? date.toISOString().slice(0, 10) : "";
 }
 
+/** January 1 boundaries in naive calendar coordinates, including ISO years 1–99. */
+export function weightYearTicks(first, last) {
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first > last) return [];
+  const start = Math.max(1, new Date(first).getUTCFullYear());
+  const end = Math.min(9999, new Date(last).getUTCFullYear());
+  const ticks = [];
+  for (let year = start; year <= end; year++) {
+    const x = weightTimestamp(`${String(year).padStart(4, "0")}-01-01`);
+    if (x >= first && x <= last) ticks.push({ x, year });
+  }
+  return ticks;
+}
+
 export function selectMeasurements(rows, { start = "", end = "", historic = false } = {}) {
   return (Array.isArray(rows) ? rows : []).filter((row) => {
     if (!row || weightTimestamp(row.measured_at) === null || parseWeight(row.weight_kg) === null) return false;

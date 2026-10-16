@@ -47,6 +47,16 @@ def date_label(ordinal: float, pattern="%d %b %Y") -> str:
     return date.fromordinal(min(date.max.toordinal(), max(1, math.floor(ordinal)))).strftime(pattern)
 
 
+def year_ticks(first: float, last: float) -> list[tuple[int, int]]:
+    """January 1 coordinates for the separate year axis, in calendar ordinals."""
+    if not math.isfinite(first) or not math.isfinite(last) or first > last:
+        return []
+    start = date.fromordinal(min(date.max.toordinal(), max(1, math.floor(first)))).year
+    end = date.fromordinal(min(date.max.toordinal(), max(1, math.floor(last)))).year
+    return [(day, year) for year in range(start, end + 1)
+            if first <= (day := date(year, 1, 1).toordinal()) <= last]
+
+
 def _unique(points):
     values = []
     for point in sorted(points, key=lambda item: item.x):

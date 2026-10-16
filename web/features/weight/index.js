@@ -2,6 +2,7 @@ import { el as node } from "../../shared/dom.js";
 import { localDate } from "../../shared/time.js";
 import { STORAGE_KEYS, accountTag } from "../../shared/storage.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
+import { drawWeightChart } from "./chart.js";
 import { projectWeightOperation, findWeightMeasurement, withWeightAliases } from "./projection.js";
 import { parseWeight, selectMeasurements, pointsFor, trendFor, weightTimestamp, weightDayOffset } from "./math.js";
 import { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } from "./picker.js";
@@ -27,6 +28,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   if (!["comfortable", "compact"].includes(preferences.density)) preferences.density = "comfortable";
   if (!["normal", "high"].includes(preferences.contrast)) preferences.contrast = "normal";
   let host, chartObserver, fullscreen, calendarInterval = null, drawnVersion = -1, chartRows = [], inspectedUid = null;
+  let chartData = null;
 
   const field = (id) => host.querySelector(`#${id}`);
   const formatDay = (value) => {
@@ -63,7 +65,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     model.version++; model.epoch++; model.draft++;
     model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
     resetPicker();
-    chartRows = []; inspectedUid = null;
+    chartRows = []; inspectedUid = null; chartData = null;
     try { localStorage.removeItem(CACHE); } catch { /* ignore */ }
     fullscreen?.destroy(); fullscreen = null;
     host = null; chartObserver?.disconnect();
@@ -79,7 +81,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       model.epoch++; model.draft++;
       model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
       resetPicker();
-      chartRows = []; inspectedUid = null;
+      chartRows = []; inspectedUid = null; chartData = null;
       fullscreen?.destroy(); fullscreen = null;
       host = null; chartObserver?.disconnect();
       try {
@@ -150,6 +152,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
         </fieldset>
         <div class="weight-chosen-row">
           <output id="weight-value" aria-label="Selected weight" aria-live="polite">—.— kg</output>
+          <button id="weight-clear" class="ghost" type="button" aria-label="Clear weight selection" title="Clear weight selection">↻</button>
           <button id="weight-save" class="primary" type="submit" disabled>Save</button>
         </div>
         <p id="weight-picker-hint" class="muted" aria-live="polite"></p>
@@ -164,7 +167,6 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
             <label>Tile size<select id="weight-density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
             <label>Contrast<select id="weight-contrast"><option value="normal">Normal</option><option value="high">High contrast</option></select></label>
           </div>
-          <button id="weight-clear" type="button" class="ghost wide">Clear selection</button>
           <div id="weight-edit-actions" class="hidden weight-edit-actions">
             <button id="weight-cancel" class="ghost" type="button">Cancel edit</button>
             <button id="weight-delete" class="ghost error" type="button">Delete entry</button>
@@ -548,60 +550,23 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       end = localDate();
       start = weightDayOffset(end, -Number(preferences.range) + 1);
     }
-    const rows = selectMeasurements(model.rows, { start, end, historic: preferences.historic });
+    // Resizing/fullscreen only repaints: never refit LOESS for unchanged data.
+    const key = JSON.stringify([model.version, start, end, preferences.historic, preferences.trend, preferences.span]);
+    const dataChanged = chartData?.key !== key;
+    if (dataChanged) {
+      const rows = selectMeasurements(model.rows, { start, end, historic: preferences.historic });
+      const points = pointsFor(rows);
+      chartData = { key, rows, points, trend: trendFor(points, preferences.trend, Number(preferences.span)) };
+    }
+    const { rows, points, trend } = chartData;
     chartRows = rows;
-    if (field("weight-chart-data").open) paintChartData();
-    const points = pointsFor(rows);
-    const trend = trendFor(points, preferences.trend, Number(preferences.span));
-    const height = Math.max(120, Math.round(canvas.clientHeight)), ratio = Math.min(2, devicePixelRatio || 1);
-    canvas.width = Math.round(width * ratio); canvas.height = height * ratio;
-    const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio);
-    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, width, height);
-    ctx.font = "12px -apple-system, sans-serif";
-    if (!points.length) {
-      ctx.fillStyle = "#555"; ctx.textAlign = "center";
-      ctx.fillText(start && end && start > end ? "Choose an end date after the start date." : "No weighings in this date range", width / 2, height / 2);
+    if (dataChanged && field("weight-chart-data").open) paintChartData();
+    const geometry = drawWeightChart(canvas, points, trend, preferences, Boolean(start && end && start > end));
+    if (!geometry) {
       canvas.setAttribute("aria-label", "No weight measurements in the selected date range");
       canvas.tabIndex = -1; canvas.onpointerdown = null; canvas.onkeydown = null; return;
     }
-    const left = 48, right = width - 15, top = 18, bottom = height - 42;
-    const first = points[0].x, last = points.at(-1).x;
-    const x0 = first === last ? first - 86400000 : first, x1 = first === last ? last + 86400000 : last;
-    const values = [...points, ...trend].map((p) => p.y);
-    let min = Math.min(...values), max = Math.max(...values);
-    const step = max - min > 25 ? 5 : max - min > 10 ? 2 : 1;
-    min = preferences.zero ? 0 : Math.floor((min - 0.5) / step) * step;
-    max = Math.ceil((max + 0.5) / step) * step;
-    if (max <= min) max = min + 1;
-    const px = (x) => left + (x - x0) / (x1 - x0) * (right - left), py = (y) => bottom - (y - min) / (max - min) * (bottom - top);
-    ctx.fillStyle = "#ebebeb"; ctx.fillRect(left, top, right - left, bottom - top);
-    ctx.textAlign = "right"; ctx.textBaseline = "middle";
-    const tick = preferences.zero ? Math.max(step, Math.ceil((max - min) / 8 / 5) * 5) : step;
-    for (let value = min; value <= max + 1e-8; value += tick) {
-      const y = py(value); ctx.strokeStyle = "#fff"; ctx.lineWidth = value % 5 === 0 ? 1.8 : 0.8;
-      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
-      ctx.fillStyle = "#4b4b4b"; ctx.fillText(String(Math.round(value * 10) / 10), left - 8, y);
-    }
-    ctx.fillStyle = "#555"; ctx.textAlign = "left"; ctx.fillText("kg", 8, 12);
-    const labels = width < 450 ? 3 : 5;
-    for (let i = 0; i < labels; i++) {
-      const x = x0 + (x1 - x0) * i / (labels - 1);
-      ctx.textAlign = i === 0 ? "left" : i === labels - 1 ? "right" : "center";
-      const date = new Date(x);
-      ctx.fillText(date.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" }), px(x), bottom + 18);
-      if (x1 - x0 > 365 * 86400000) ctx.fillText(String(date.getUTCFullYear()), px(x), bottom + 33);
-    }
-    ctx.save(); ctx.beginPath(); ctx.rect(left - 3, top - 3, right - left + 6, bottom - top + 6); ctx.clip();
-    if (preferences.points) {
-      ctx.fillStyle = "#888"; ctx.beginPath();
-      for (const point of points) { ctx.moveTo(px(point.x) + 2.1, py(point.y)); ctx.arc(px(point.x), py(point.y), 2.1, 0, Math.PI * 2); }
-      ctx.fill();
-    }
-    if (trend.length) {
-      ctx.strokeStyle = "#111"; ctx.lineWidth = 2.2; ctx.beginPath();
-      trend.forEach((point, index) => index ? ctx.lineTo(px(point.x), py(point.y)) : ctx.moveTo(px(point.x), py(point.y))); ctx.stroke();
-    }
-    ctx.restore();
+    const { x0, x1, left, right } = geometry;
     canvas.setAttribute("aria-label", `${points.length} weight measurements from ${formatDay(rows[0].measured_at)} to ${formatDay(rows.at(-1).measured_at)}, latest ${points.at(-1).y} kilograms`);
     canvas.tabIndex = 0;
     const inspect = (point) => {
