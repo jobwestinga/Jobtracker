@@ -881,6 +881,55 @@
         "native.shell",
         "mobile.shell"
       ]
+    },
+    {
+      "id": "repository.privacy",
+      "title": "Public repository privacy and commit checks",
+      "keywords": [
+        "secret",
+        "credentials",
+        "commit",
+        "hook",
+        "export",
+        "private",
+        "gitignore"
+      ],
+      "entrypoints": [
+        {
+          "path": "scripts/dev.py",
+          "symbol": "main"
+        },
+        {
+          "path": ".githooks/pre-commit"
+        }
+      ],
+      "rule_owner": {
+        "path": "scripts/check_privacy.py",
+        "symbol": "inspect"
+      },
+      "persistence": [],
+      "supporting": [
+        {
+          "path": ".gitignore"
+        },
+        {
+          "path": "AGENTS.md"
+        },
+        {
+          "path": "CLAUDE.md"
+        }
+      ],
+      "guide": "docs/privacy.md",
+      "operations": [],
+      "tables": [],
+      "contracts": [],
+      "routes": [],
+      "tests": [
+        "tests/test_privacy.py"
+      ],
+      "related": [
+        "mobile.shell"
+      ]
     }
   ]
 }

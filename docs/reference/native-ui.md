@@ -154,7 +154,7 @@ concatenating hex digits.
 
 ## Layout and visual conventions
 
-Tried and **rejected** by the user — don't reintroduce these:
+Preserve these established layout choices:
 
 - A capped/centred content column. Content is deliberately **full-bleed**: the
   screen should look filled at fullscreen width.

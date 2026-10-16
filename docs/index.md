@@ -34,10 +34,16 @@ in [features.json](architecture/features.json); compatibility contracts live in
 | Queue, replay, mirror, connection | `context sync.replication` |
 | Backup, import/export, restore | `context backups.restore` |
 | Mac window, shortcuts, sync lifecycle | `context native.shell` |
+| Public source, credentials, private exports, commit guard | [Privacy policy](privacy.md) · `context repository.privacy` |
 
 The feature registry and generated maps are checked against actual paths and
 symbols. [Detailed rules](engineering-rules.md#read-only-the-applicable-details)
 are split by domain so unrelated implementation history stays out of a task.
+
+## User guides
+
+- [Privacy](privacy.md): local data, public source, commit guards and history.
+- [iPhone icons](guides/iphone-icons.md): five designs and Home Screen setup.
 
 ## Architecture
 
@@ -59,16 +65,6 @@ These are generated from explicit source metadata. `python scripts/dev.py check`
 checks references, module boundaries, generated maps and offline shell assets.
 Use `python scripts/dev.py check --write` after an intentional metadata/source
 change, then review the generated diff and rerun the check.
-
-## Refactor deliverables
-
-- [App improvement backlog](product/improvements.md): review fixes and prioritized
-  product ideas, with benefits, owners and concrete acceptance checks.
-
-- [Measured refactor report](generated/refactor-report.md): source snapshot,
-  ownership changes and verification evidence.
-- [Implementation status](generated/implementation-status.md): the proposal's
-  backlog items mapped to their implementation and remaining work.
 
 ## Runbooks
 

@@ -46,13 +46,13 @@ def find_features(query: str = "") -> list[dict]:
 def print_context(feature: dict):
     print(f"{feature['id']}: {feature['title']}")
     for label, references in (("Entry points", feature["entrypoints"]), ("Rule owner", [feature["rule_owner"]]), ("Persistence / adapter", feature["persistence"])):
-        print(label + ": " + ", ".join(reference["path"] + ("::" + reference["symbol"] if reference.get("symbol") else "") for reference in references))
+        print(label + ": " + (", ".join(reference["path"] + ("::" + reference["symbol"] if reference.get("symbol") else "") for reference in references) or "None"))
     if feature.get("supporting"):
         print("Supporting files: " + ", ".join(reference["path"] + ("::" + reference["symbol"] if reference.get("symbol") else "") for reference in feature["supporting"]))
     if feature.get("guide"):
         print("Task guide: " + feature["guide"])
     contracts = json.loads((ROOT / "docs/architecture/contracts.json").read_text())["contracts"]
-    print("Contracts: " + ", ".join(contract["document"] for contract in contracts if contract["id"] in feature["contracts"]))
+    print("Contracts: " + (", ".join(contract["document"] for contract in contracts if contract["id"] in feature["contracts"]) or "None"))
     print("Operations: " + (", ".join(feature["operations"]) or "None (read/presentation)"))
     print("Routes: " + (", ".join(feature["routes"]) or "None"))
     print("Tables: " + (", ".join(feature["tables"]) or "None"))
@@ -67,7 +67,8 @@ def print_context(feature: dict):
             print("Browser: node " + path)
     print("Test files: " + ", ".join(feature["tests"]))
     print("Related: " + ", ".join(feature["related"]))
-    print("Synced writes: jobtracker/sync/service.py or web/data/outbox.js → POST /ops; see docs/architecture/write-path.md")
+    if not feature["id"].startswith("repository."):
+        print("Synced writes: jobtracker/sync/service.py or web/data/outbox.js → POST /ops; see docs/architecture/write-path.md")
     print("After moving an owner: update features.json; run python scripts/dev.py check --write, then check.")
 
 
@@ -149,12 +150,12 @@ def main(argv=None):
             return 0
         if args.command == "check":
             try:
-                from . import check_references, check_boundaries, check_web_assets
+                from . import check_references, check_boundaries, check_web_assets, check_privacy
             except ImportError:
-                import check_references, check_boundaries, check_web_assets
-            results = [check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT)]
+                import check_references, check_boundaries, check_web_assets, check_privacy
+            results = [check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT), check_privacy.check(ROOT)]
             errors = [error for result in results for error in result]
-            print("\n".join(errors) if errors else "References, layer boundaries and offline assets pass.")
+            print("\n".join(errors) if errors else "References, layer boundaries, offline assets and privacy guard pass.")
             return int(bool(errors))
         if args.command == "test":
             paths = [path for path in feature_context(args.feature)["tests"] if path.endswith(".py")] if args.feature else []

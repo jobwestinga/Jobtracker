@@ -53,7 +53,9 @@ python scripts/dev.py check
 python scripts/dev.py mobile
 ```
 
-The full test command runs pytest. `mobile` runs the Node regressions; Node must
+The full test command runs pytest. `check` also runs the repository privacy
+guard; enable its staged-content hook with `git config core.hooksPath .githooks`.
+`mobile` runs the Node regressions; Node must
 be installed. The pytest mobile wrapper also invokes Node when available, so
 report any skip instead of calling it a pass. After checks pass, repeat or broaden
 them only for new changes, failures or unresolved concerns.
@@ -69,6 +71,10 @@ It honors `PLAYWRIGHT_MODULE` for an existing Playwright installation and
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` for an existing Chromium executable. Browser
 tooling is a development dependency, not a phone runtime dependency; do not add
 a bundler or package manager to the app to run these checks.
+
+For icon-only work, `JOBTRACKER_BROWSER_SCOPE=icons node tests/mobile/browser.cjs`
+checks the five install pages, manifests, normal-app redirect, reflow and absence
+of writes. It creates a gallery preview using only public artwork.
 
 [Feature-sheet checks](../../tests/mobile/feature-sheets.cjs) inject isolated
 write callbacks into the real goal, template and settings factories. They cover

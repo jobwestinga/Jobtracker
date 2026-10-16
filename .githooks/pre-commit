@@ -1,0 +1,4 @@
+#!/bin/sh
+# Inspect exact staged content, including files added with git add -f.
+set -eu
+exec python3 scripts/check_privacy.py --staged

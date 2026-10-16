@@ -7,6 +7,7 @@ __pycache__/
 
 # Virtual environment
 venv/
+.venv/
 
 # Local data
 /data/
@@ -20,6 +21,24 @@ jobtracker_backup*.zip
 sessions*.csv
 subjects*.csv
 daily_summary*.csv
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.sqlite3
+*.sqlite3-*
+jobtracker_backup*.json
+JobTrackerWeights.json
+/backups/
+/exports/
+/private/
+/.local/
+/output/
+/tmp/
+/MOD/
+/.codex/
+/.claude/
+/.vscode/
 
 # macOS
 .DS_Store
@@ -35,4 +54,7 @@ deploy/server.env
 *.key
 *.pem
 tokens.json
+sync_token
 .env
+.env.*
+!.env.example

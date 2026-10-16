@@ -40,7 +40,7 @@ Weight tasks also have a [small end-to-end owner map](features/weight.md).
   it records sessions. **Goals are a separate, outcome-focused area** with
   descriptions and milestones. They are intentionally **not** connected to
   timed subjects.
-- Personal-use and single-user. Keep it **simple and personal**.
+- Each self-hosted deployment serves one person. Keep workflows simple.
 - Architecture layers: `core` (config, models, database, themes, timeutils,
   sync_policy, logging) → `services` (TrackerService) → `ui` (PySide6 widgets).
   `core` and `services` contain **no Qt imports** and must stay that way: the
