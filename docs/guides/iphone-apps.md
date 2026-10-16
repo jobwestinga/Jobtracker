@@ -76,6 +76,12 @@ running timer are unaffected.
    confirm.
 4. Install both apps as described above. Connect each with its own new token.
 
+iOS stores an app's icon when it is added, so new artwork appears only after
+removing and re-adding that app (steps 1–4 for that app alone). In the Dark
+Home Screen style, iOS may restyle web-app icons with a neutral background and
+glass shading. If one icon looks flat beside the other, switch the Home Screen
+style to Light and back to Dark so that iOS redraws them.
+
 ## Tokens and connection recovery
 
 Tokens are shown once when issued. The server stores only hashes; it cannot
