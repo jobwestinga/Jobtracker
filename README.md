@@ -80,8 +80,10 @@ unfinished timer intact.
 The phone opens on **Weight** after a fresh launch. Returning to an app still
 open in the background preserves its current tab and unfinished selection.
 Use the plot's fullscreen button, then rotate the phone for a wider chart;
-close fullscreen to return. Weight plot options and the time graphs remain
-available. The agenda shows a current-time line in the current logical day,
+fullscreen shows only the chart and a top-right exit button. Close it to return
+to the plot options. The ↻ button beside Save clears your weight selection.
+Thin January 1 lines and a separate year row orient longer weight histories.
+The agenda shows a current-time line in the current logical day,
 updated each minute and when the app resumes.
 
 On **Subjects**, tap a subject's **Add time** button to open Quick Add. Choose a
@@ -163,6 +165,13 @@ python scripts/dev.py check
 python scripts/dev.py mobile
 python scripts/dev.py browser
 ```
+
+For a small task packet, use `python3 scripts/dev.py context` to list features
+or search with words/file paths, such as `context weight graph`. The
+[task index](docs/index.md#find-a-task-without-reading-the-repository) routes
+common requests; [weight owners](docs/features/weight.md) link entry, chart,
+styles, shared helpers and tests directly. Detailed engineering references load
+by domain instead of requiring the entire implementation history for each task.
 
 `test` runs isolated pytest tests, including offscreen native widgets. `mobile`
 runs the Node regressions; `browser` runs four Playwright harnesses against

@@ -7,7 +7,9 @@ Continue independent work while waiting. Report results and blockers concisely.
 
 Read [engineering rules](docs/engineering-rules.md) for the user's constraints.
 Use the [documentation index](docs/index.md) and
-`python scripts/dev.py context weight.daily-entry` to find feature owners.
+`python3 scripts/dev.py context` to list/search feature owners, then
+`context FEATURE_ID` for the exact files and checks. Read only the applicable
+detail references linked from the engineering rules.
 
 - Keep core/services Qt-free and within [import boundaries](docs/architecture/boundaries.md).
   The server shares desktop services; phone features receive explicit dependencies.

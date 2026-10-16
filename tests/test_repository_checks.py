@@ -162,6 +162,17 @@ def test_unknown_context_and_interpreter_fail_without_app_import():
         dev.validate_python("/this/interpreter/does/not/exist", [])
 
 
+def test_context_search_routes_words_and_paths_without_unrelated_features(capsys):
+    assert [feature["id"] for feature in dev.find_features("weight graph")] == ["weight.plot"]
+    assert [feature["id"] for feature in dev.find_features("web/styles/shell.css")] == ["mobile.shell"]
+    assert dev.find_features("missing feature phrase") == []
+    assert len(dev.find_features()) > 5
+    assert dev.main(["context", "weight", "graph", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data[0]["id"] == "weight.plot"
+    assert data[0]["guide"] == "docs/features/weight.md#charts-and-fullscreen"
+
+
 def test_generated_index_drift_is_detected_and_reproducible(tmp_path):
     documents = {"feature-index.md": "# Feature index\n"}
     assert check_references.update_generated(tmp_path, documents)

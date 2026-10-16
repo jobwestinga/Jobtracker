@@ -10,6 +10,35 @@ owners, contracts and focused tests. Feature IDs and their source ownership live
 in [features.json](architecture/features.json); compatibility contracts live in
 [contracts.json](architecture/contracts.json).
 
+## Find a task without reading the repository
+
+1. Read the compact [engineering rules](engineering-rules.md).
+2. Run `python3 scripts/dev.py context` for a feature list, or search with words
+   or a file path, e.g. `context weight graph`, `context fullscreen`, or
+   `context web/styles/shell.css`. Multiple matches return a compact list.
+3. Run `context FEATURE_ID` for exact entry points, supporting styles/helpers,
+   contracts and focused checks. Add `--json` for machine-readable metadata.
+4. Read the relevant linked detail reference and owners; run the focused checks,
+   then the required complete checks. Update metadata if ownership changes.
+
+| Request | Go directly to |
+| --- | --- |
+| Weight tiles, Save/reset, offline weight edits | [Weight entry](features/weight.md#entry-and-reset) · `weight.daily-entry` |
+| Weight line/dots, years, smoothing, fullscreen | [Weight charts](features/weight.md#charts-and-fullscreen) · `weight.plot` |
+| Bottom bar, startup, orientation, home screen | [Phone shell](features/weight.md#phone-shell-and-home-screen) · `mobile.shell` |
+| Timer, stop/switch, crash recovery | `context timer.sessions` |
+| Editing, adding, moving or deleting sessions | `context sessions.edit` |
+| Time bars, agenda, current-time line | `context graphs.tracking` |
+| Subjects or archive | `context subjects.manage` |
+| Goals, milestones, recurring templates | `context goals.milestones` / `context goals.recurrence` |
+| Queue, replay, mirror, connection | `context sync.replication` |
+| Backup, import/export, restore | `context backups.restore` |
+| Mac window, shortcuts, sync lifecycle | `context native.shell` |
+
+The feature registry and generated maps are checked against actual paths and
+symbols. [Detailed rules](engineering-rules.md#read-only-the-applicable-details)
+are split by domain so unrelated implementation history stays out of a task.
+
 ## Architecture
 
 - [Module boundaries and compatibility](architecture/boundaries.md): layers,

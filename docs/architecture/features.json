@@ -338,6 +338,26 @@
       "related": [
         "sessions.edit",
         "weight.plot"
+      ],
+      "keywords": [
+        "graph",
+        "chart",
+        "bar",
+        "agenda",
+        "fullscreen",
+        "rotation"
+      ],
+      "supporting": [
+        {
+          "path": "web/features/graphs/styles.css"
+        },
+        {
+          "path": "web/shared/fullscreen.js",
+          "symbol": "createFullscreenController"
+        },
+        {
+          "path": "web/shared/fullscreen.css"
+        }
       ]
     },
     {
@@ -404,11 +424,33 @@
         "tests/mobile/weight-picker.test.mjs",
         "tests/test_weight_validation_edges.py",
         "tests/mobile/weight-edges.test.mjs",
-        "tests/mobile/accessibility.cjs"
+        "tests/mobile/accessibility.cjs",
+        "tests/mobile/browser.cjs"
       ],
       "related": [
         "weight.plot",
         "sync.replication"
+      ],
+      "keywords": [
+        "picker",
+        "tiles",
+        "kilograms",
+        "decimal",
+        "save",
+        "clear",
+        "reset"
+      ],
+      "guide": "docs/features/weight.md#entry-and-reset",
+      "supporting": [
+        {
+          "path": "web/features/weight/picker.js"
+        },
+        {
+          "path": "web/features/weight/styles.css"
+        },
+        {
+          "path": "web/features/weight/projection.js"
+        }
       ]
     },
     {
@@ -416,15 +458,15 @@
       "title": "Weight history, smoothing and fullscreen",
       "entrypoints": [
         {
-          "path": "web/features/weight/math.js",
-          "symbol": "trendFor"
+          "path": "web/features/weight/index.js",
+          "symbol": "createWeightFeature"
         },
         {
-          "path": "jobtracker/services/tracker_service.py",
-          "symbol": "TrackerService"
+          "path": "web/features/weight/chart.js",
+          "symbol": "drawWeightChart"
         },
         {
-          "path": "jobtracker/ui/widgets/weight_view.py",
+          "path": "jobtracker/ui/widgets/weight_chart.py",
           "symbol": "WeightChart"
         }
       ],
@@ -455,10 +497,42 @@
         "tests/mobile/fullscreen.test.mjs",
         "tests/test_weight_validation_edges.py",
         "tests/mobile/weight-edges.test.mjs",
-        "tests/mobile/accessibility.cjs"
+        "tests/mobile/accessibility.cjs",
+        "tests/mobile/weight-axis.test.mjs",
+        "tests/mobile/browser.cjs"
       ],
       "related": [
         "weight.daily-entry"
+      ],
+      "keywords": [
+        "graph",
+        "chart",
+        "year",
+        "axis",
+        "rotation",
+        "landscape",
+        "theme",
+        "contrast"
+      ],
+      "guide": "docs/features/weight.md#charts-and-fullscreen",
+      "supporting": [
+        {
+          "path": "web/features/weight/math.js"
+        },
+        {
+          "path": "web/features/weight/styles.css"
+        },
+        {
+          "path": "web/shared/fullscreen.js",
+          "symbol": "createFullscreenController"
+        },
+        {
+          "path": "web/shared/fullscreen.css"
+        },
+        {
+          "path": "jobtracker/ui/widgets/weight_view.py",
+          "symbol": "WeightView"
+        }
       ]
     },
     {
@@ -687,7 +761,31 @@
       "related": [
         "weight.daily-entry",
         "sync.replication"
-      ]
+      ],
+      "keywords": [
+        "tabbar",
+        "navigation",
+        "safe area",
+        "home screen",
+        "widget",
+        "pwa",
+        "orientation"
+      ],
+      "supporting": [
+        {
+          "path": "web/styles/shell.css"
+        },
+        {
+          "path": "web/styles/tokens.css"
+        },
+        {
+          "path": "web/manifest.webmanifest"
+        },
+        {
+          "path": "web/sw.js"
+        }
+      ],
+      "guide": "docs/features/weight.md#phone-shell-and-home-screen"
     },
     {
       "id": "release.packaging",

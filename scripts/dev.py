@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -23,10 +24,33 @@ def feature_context(ident: str) -> dict:
         raise ValueError(f"Unknown feature {ident}. Available: " + ", ".join(feature["id"] for feature in features)) from None
 
 
+def find_features(query: str = "") -> list[dict]:
+    """Search only the small registry; never crawl/import application code."""
+    features = json.loads((ROOT / "docs/architecture/features.json").read_text())["features"]
+    exact = [feature for feature in features if feature["id"] == query]
+    if exact:
+        return exact
+    words = re.findall(r"[a-z0-9]+", query.lower())
+    matches = []
+    for feature in features:
+        # Related IDs/contracts are deliberately excluded: their matches would
+        # send a targeted query to almost every feature in the application.
+        searchable = {key: feature.get(key) for key in
+                      ("id", "title", "keywords", "entrypoints", "supporting", "rule_owner", "persistence", "operations", "routes", "tables")}
+        text = json.dumps(searchable).lower()
+        if all(word in text for word in words):
+            matches.append(feature)
+    return matches
+
+
 def print_context(feature: dict):
     print(f"{feature['id']}: {feature['title']}")
     for label, references in (("Entry points", feature["entrypoints"]), ("Rule owner", [feature["rule_owner"]]), ("Persistence / adapter", feature["persistence"])):
         print(label + ": " + ", ".join(reference["path"] + ("::" + reference["symbol"] if reference.get("symbol") else "") for reference in references))
+    if feature.get("supporting"):
+        print("Supporting files: " + ", ".join(reference["path"] + ("::" + reference["symbol"] if reference.get("symbol") else "") for reference in feature["supporting"]))
+    if feature.get("guide"):
+        print("Task guide: " + feature["guide"])
     contracts = json.loads((ROOT / "docs/architecture/contracts.json").read_text())["contracts"]
     print("Contracts: " + ", ".join(contract["document"] for contract in contracts if contract["id"] in feature["contracts"]))
     print("Operations: " + (", ".join(feature["operations"]) or "None (read/presentation)"))
@@ -38,6 +62,9 @@ def print_context(feature: dict):
         print("Focused Python: python scripts/dev.py test " + feature["id"] + " --python /path/to/python")
     if node_tests:
         print("Focused phone: node --test " + " ".join(node_tests))
+    for path in feature["tests"]:
+        if path.endswith(".cjs"):
+            print("Browser: node " + path)
     print("Test files: " + ", ".join(feature["tests"]))
     print("Related: " + ", ".join(feature["related"]))
     print("Synced writes: jobtracker/sync/service.py or web/data/outbox.js → POST /ops; see docs/architecture/write-path.md")
@@ -88,7 +115,8 @@ def main(argv=None):
     parser.add_argument("--python", default=sys.executable, help="Interpreter for tests/builds (defaults to this interpreter).")
     sub = parser.add_subparsers(dest="command", required=True)
     context_parser = sub.add_parser("context", help="Print a compact feature task packet.")
-    context_parser.add_argument("feature")
+    context_parser.add_argument("query", nargs="*", help="Feature ID, words, or file path; omit to list features.")
+    context_parser.add_argument("--json", action="store_true", help="Emit matching registry entries without prose.")
     check_parser = sub.add_parser("check", help="Check references, imports and web assets without importing the app.")
     check_parser.add_argument("--write", action="store_true", help="Regenerate source-derived reference maps.")
     tests = sub.add_parser("test", help="Run the full suite, or a feature's Python tests.")
@@ -106,7 +134,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "context":
-            print_context(feature_context(args.feature))
+            query = " ".join(args.query)
+            matches = find_features(query)
+            if not matches:
+                raise ValueError(f"No feature matches {query!r}. Run context without a query to list features.")
+            if args.json:
+                print(json.dumps(matches, indent=2))
+            elif len(matches) == 1:
+                print_context(matches[0])
+            else:
+                for feature in matches:
+                    print(f"{feature['id']}: {feature['title']}")
+                print("Use context FEATURE_ID for owners, supporting files, contracts and tests.")
             return 0
         if args.command == "check":
             try:
