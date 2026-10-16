@@ -281,6 +281,14 @@ If you ever need to migrate data between machines, or between your code environm
 Place the PNG artwork at `assets/icon.png` and use the safe build command.
 The builder generates and bundles the macOS icon in its staged source copy.
 
+## Agent commit workflow
+
+After appropriate verification, automatically create small local commits grouped
+by feature, fix or refactor, including related tests and documentation. Stage only
+relevant files or hunks and preserve other uncommitted work. Never push, open a PR,
+amend or rewrite history unless explicitly requested. See [AGENTS.md](AGENTS.md)
+and [CLAUDE.md](CLAUDE.md).
+
 ## Contributing
 
 Contributions, issues, and feature requests are welcome! Feel free to check the issues page if you want to contribute.

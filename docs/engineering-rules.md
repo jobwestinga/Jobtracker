@@ -29,7 +29,7 @@ Weight tasks also have a [small end-to-end owner map](features/weight.md).
 - Ask only when essential information, access or a required approval prevents
   progress. Continue independent work while a required answer is pending.
 - Report completed changes, meaningful validation and remaining blockers
-  concisely. Respect the scope; do not commit or publish unless authorized.
+  concisely. Create local commits under the policy below; publishing is separate.
 
 ## What this app is
 
@@ -49,8 +49,10 @@ Weight tasks also have a [small end-to-end owner map](features/weight.md).
 
 ## Hard rules (do not break)
 
-- **Never commit.** The user commits manually. Do not run `git commit`, `git
-  push`, or open PRs unless explicitly told to.
+- **Commit cohesive work automatically after verification.** Keep each feature,
+  fix or refactor in its own local commit with the related tests/documentation.
+  Stage explicit files or hunks, preserve unrelated work, and use descriptive
+  messages. Do not amend or rewrite history, push, or open PRs unless asked.
 - **The only remote the app may ever talk to is the user's own server.** No
   telemetry, no analytics, no accounts with anyone else, no update checker, no
   remote logging, no third-party APIs, no cloud provider. All data stays on

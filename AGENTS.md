@@ -27,7 +27,11 @@ detail references linked from the engineering rules.
   no telemetry/third parties. Never track secrets, private deployment or user data.
 - Use [isolated checks](docs/runbooks/testing.md) and [safe installation](docs/runbooks/build-install.md).
   Open sessions/pending writes block updates. Never force-kill or replace bundles
-  manually; back up affected databases before migrations. No commit/push/PR unless asked.
+  manually; back up affected databases before migrations.
+- After appropriate checks, automatically create one local commit per cohesive
+  feature, fix or refactor, including its tests and documentation. Split unrelated
+  work into separate commits; stage explicit files/hunks and preserve other work.
+  Never push, open a PR, amend or rewrite history unless explicitly requested.
 
 Run `python scripts/dev.py check`. Update feature metadata when owners move;
 generated maps are checked from source. Follow the linked runbooks for releases
