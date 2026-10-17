@@ -183,3 +183,14 @@ export function trendFor(points, mode = "loess", span = 0.04) {
   const sparse = pchip([...old, ...fitted.slice(0, 20)], fitted[0].x);
   return [...sparse, ...fitted];
 }
+
+/** The stretch of a whole-history trend that a [x0, x1] view shows, plus one
+ * point beyond each edge so the line reaches the clipped plot border. */
+export function trendBetween(trend, x0, x1) {
+  if (!Array.isArray(trend) || !trend.length || !Number.isFinite(x0) || !Number.isFinite(x1)) return [];
+  const first = trend.findIndex((point) => point.x >= x0);
+  if (first < 0) return [];
+  let last = trend.length - 1;
+  while (last > first && trend[last].x > x1) last--;
+  return trend.slice(Math.max(0, first - 1), Math.min(trend.length, last + 2));
+}

@@ -123,10 +123,13 @@ const server = http.createServer((req, res) => {
     await page.locator('#weight-canvas').focus(); await page.keyboard.press('Home');
     assert.match(await page.locator('#weight-chart-detail').textContent(), /82\.5 kg/);
     await page.keyboard.press('End'); assert.match(await page.locator('#weight-chart-detail').textContent(), /83\.960123 kg/);
-    await page.getByText('Read plot data', { exact: true }).click();
-    await page.waitForFunction(() => document.querySelectorAll('.weight-data-table tbody tr').length === 2);
-    assert.equal(await page.locator('.weight-data-table tbody tr').count(), 2);
-    assert.match(await page.locator('.weight-data-table').textContent(), /83\.960123/);
+    // Plot options are one disclosure button; the history list carries the readings.
+    const options = page.getByRole('button', { name: 'Plot options' });
+    assert.equal(await options.getAttribute('aria-expanded'), 'false');
+    await options.press('Enter');
+    assert.equal(await options.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('#weight-plot-options').isVisible(), true);
+    await options.press('Enter');
 
     // A reusable sheet traps focus, keeps inert background announcements available,
     // preserves a rejected draft, and restores the invoker on Escape.

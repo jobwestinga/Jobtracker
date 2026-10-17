@@ -7,7 +7,7 @@ import { weightYearTicks } from "./math.js";
 export const WEIGHT_CHART_PALETTES = {
   screen: {
     background: "#131C2E", panel: "#131C2E", grid: "#263149", text: "#8A98B0", tick: "#8A98B0",
-    yearLine: "#34405A", points: "rgba(138, 152, 176, 0.55)", trend: "#60A5FA",
+    yearLine: "#34405A", points: "rgba(196, 207, 224, 0.82)", trend: "#60A5FA",
   },
   print: {
     background: "#fff", panel: "#ebebeb", grid: "#fff", text: "#555", tick: "#4b4b4b",
@@ -15,21 +15,24 @@ export const WEIGHT_CHART_PALETTES = {
   },
 };
 
+const POINT_RADIUS = 1.7;
+
+// `domain` ({x0, x1}) fixes the time axis for a zoomed view; otherwise it spans the points.
 export function drawWeightChart(canvas, points, trend, preferences, invalidRange = false,
-  { palette = WEIGHT_CHART_PALETTES.screen, width: fixedWidth, height: fixedHeight, ratio: fixedRatio } = {}) {
+  { palette = WEIGHT_CHART_PALETTES.screen, width: fixedWidth, height: fixedHeight, ratio: fixedRatio, domain = null } = {}) {
   const width = fixedWidth ?? canvas.clientWidth, height = Math.max(1, Math.round(fixedHeight ?? canvas.clientHeight));
   const ratio = fixedRatio ?? Math.min(2, devicePixelRatio || 1);
   canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
   const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio);
   ctx.fillStyle = palette.background; ctx.fillRect(0, 0, width, height);
   ctx.font = "12px -apple-system, sans-serif";
-  if (!points.length) {
+  if (!points.length && !(domain && trend.length)) {
     ctx.fillStyle = palette.text; ctx.textAlign = "center";
     ctx.fillText(invalidRange ? "Choose an end date after the start date." : "No weighings in this date range", width / 2, height / 2);
     return null;
   }
   const left = 48, right = width - 15, top = 18, bottom = height - 48;
-  const first = points[0].x, last = points.at(-1).x;
+  const first = domain ? domain.x0 : points[0].x, last = domain ? domain.x1 : points.at(-1).x;
   const x0 = first === last ? first - 86400000 : first, x1 = first === last ? last + 86400000 : last;
   let min = Infinity, max = -Infinity;
   for (const point of [...points, ...trend]) { min = Math.min(min, point.y); max = Math.max(max, point.y); }
@@ -75,7 +78,7 @@ export function drawWeightChart(canvas, points, trend, preferences, invalidRange
   ctx.save(); ctx.beginPath(); ctx.rect(left - 3, top - 3, right - left + 6, bottom - top + 6); ctx.clip();
   if (preferences.points) {
     ctx.fillStyle = palette.points; ctx.beginPath();
-    for (const point of points) { ctx.moveTo(px(point.x) + 2.1, py(point.y)); ctx.arc(px(point.x), py(point.y), 2.1, 0, Math.PI * 2); }
+    for (const point of points) { ctx.moveTo(px(point.x) + POINT_RADIUS, py(point.y)); ctx.arc(px(point.x), py(point.y), POINT_RADIUS, 0, Math.PI * 2); }
     ctx.fill();
   }
   if (trend.length) {

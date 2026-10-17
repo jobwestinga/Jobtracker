@@ -86,7 +86,7 @@ outbox with isolated storage to check presets, custom totals, captured endpoints
 double clicks, offline reload, storage failures and lost acknowledgements.
 [Accessibility checks](../../tests/mobile/accessibility.cjs) exercise keyboard
 focus, nested fullscreen/sheet dismissal, 320px layouts, 200% text, visible focus,
-contrast, reduced motion, chart data tables, Subject Quick Add and named colour
+contrast, reduced motion, the plot options disclosure, Subject Quick Add and named colour
 swatches; reflow covers every tab. The full-app harness also checks persistent
 sync feedback through offline saves, reload and replay, and that the status line
 opens its details.

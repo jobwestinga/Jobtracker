@@ -29,16 +29,23 @@ Durable online/queued saves still clear only their unchanged captured draft.
 
 | Responsibility | Owner |
 | --- | --- |
-| Filter and fit cache, data table, inspection | [index.js](../../web/features/weight/index.js), `paintChart` |
+| Whole-history fit, view window, zoom gestures, inspection | [index.js](../../web/features/weight/index.js), `chartView`, `bindChartGestures` |
 | Canvas drawing and year labels | [chart.js](../../web/features/weight/chart.js), `drawWeightChart` |
 | Calendar coordinates, January 1 boundaries, LOESS/PCHIP | [math.js](../../web/features/weight/math.js), [weight_plot.py](../../jobtracker/core/weight_plot.py) |
 | Native drawing, theme colours, hover/click targets | [WeightChart](../../jobtracker/ui/widgets/weight_chart.py); compatibility import remains in `weight_view.py` |
 | Fullscreen lifecycle, fallback, focus/scroll restoration | [shared/fullscreen.js](../../web/shared/fullscreen.js), [shared CSS](../../web/shared/fullscreen.css) |
 | Plot-only fullscreen, picker and chart layout | [weight styles](../../web/features/weight/styles.css) |
 
-Fullscreen shows the chart and top-right exit button. Settings, custom range,
-data table and help remain in the DOM and return on exit. Rotation repaints the
-same canvas; unchanged data reuses its fitted trend. January 1 lines use calendar
+The trend is fitted once over the whole history (`trendFor`) and each view shows
+its stretch (`trendBetween`), so a smoothing preset keeps the same neighbourhood at
+every range; fitting only the visible points made a 90-day LOESS trace every
+weighing. Plot options open from the toolbar button; Recent weighings lists the
+readings. Fullscreen shows the chart, exit button and the inspected weighing:
+pinch zooms the time axis (at least 7 days), one finger pans across the whole
+history, double tap or **Reset zoom** restores the chosen range, and `+`/`-`/`0`
+do the same from a keyboard. Leaving fullscreen or changing the range resets the
+zoom. Options, custom range and help remain in the DOM and return on exit.
+Rotation repaints the same canvas; unchanged data reuses its fitted trend. January 1 lines use calendar
 coordinates, with years on a separate label row. Dense histories keep every
 year line but thin labels to prevent overlap. Native dots are neutral and the
 theme accent trend is drawn above them. The phone canvas uses the matching dark

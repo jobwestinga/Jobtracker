@@ -210,14 +210,15 @@ async function pickerRegressions(browser, url) {
     window.nativeFullscreenAttempts = 0;
     document.documentElement.requestFullscreen = () => { nativeFullscreenAttempts++; return Promise.reject(new Error('not supported on this phone')); };
     window.originalWeightPlot = document.querySelector('#weight-plot');
-    document.querySelector('.weight-options:last-child').open = true;
-    document.querySelector('#weight-chart-data').open = true;
   });
+  await page.locator('#weight-options-toggle').click();
+  assert.equal(await page.locator('#weight-options-toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(await page.locator('#weight-plot-options').isVisible(), true);
   await page.locator('#weight-fullscreen').click(); await page.waitForSelector('#weight-plot.plot-fullscreen');
   assert.equal(await page.locator('#weight-fullscreen').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.evaluate(() => nativeFullscreenAttempts), 1);
   assert.equal(await page.evaluate(() => originalWeightPlot === document.querySelector('#weight-body > #weight-plot')), true);
-  for (const selector of ['#weight-range', '#weight-chart-help', '#weight-chart-data', '.weight-options:last-child']) {
+  for (const selector of ['#weight-range', '#weight-chart-help', '#weight-plot-options', '#weight-options-toggle']) {
     assert.equal(await page.locator(selector).isVisible(), false, `${selector} is hidden in fullscreen`);
   }
   await page.waitForFunction(() => document.querySelector('#weight-canvas').clientHeight > 400);
@@ -231,8 +232,7 @@ async function pickerRegressions(browser, url) {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#weight-plot').evaluate((plot) => plot.classList.contains('plot-fullscreen')), false);
   assert.equal(await page.locator('#weight-fullscreen').getAttribute('aria-pressed'), 'false');
-  assert.equal(await page.locator('.weight-options:last-child').evaluate((node) => node.open), true, 'plot options stay open on return');
-  assert.equal(await page.locator('#weight-chart-data').evaluate((node) => node.open), true);
+  assert.equal(await page.locator('#weight-plot-options').isVisible(), true, 'plot options stay open on return');
   assert.equal(await page.locator('#weight-value').textContent(), '89.9 kg', 'fullscreen leaves the entry draft untouched');
   // Entering fullscreen after rotation also expands the chart, and the close
   // control stays at the top right without consuming a toolbar row.
@@ -246,8 +246,8 @@ async function pickerRegressions(browser, url) {
   await page.locator('#weight-fullscreen').click();
   assert.equal(await page.locator('#weight-custom').isVisible(), true);
   await page.locator('#weight-range').selectOption('90');
-  await page.locator('.weight-options:last-child').evaluate((node) => { node.open = false; });
-  await page.locator('#weight-chart-data').evaluate((node) => { node.open = false; });
+  await page.locator('#weight-options-toggle').click();
+  assert.equal(await page.locator('#weight-plot-options').isVisible(), false);
   await page.evaluate(() => { document.querySelector('#views').scrollTop = 0; });
   await page.screenshot({ path: path.join(output, 'weight-entry-landscape.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -364,10 +364,64 @@ async function pickerRegressions(browser, url) {
   });
   assert.equal(performance.chartRepaints, 0); assert.equal(performance.historyChanges, 0);
   assert.ok(performance.directMaxMs < 20, `tile update took ${performance.directMaxMs}ms`);
+  await weightZoomChecks(page);
   assert.deepEqual(errors, []);
   await context.close();
   return performance;
 }
+// Fullscreen pinch/pan/double-tap and keyboard zoom on a dense history. Touches
+// are synthetic pointer events, so this checks the gesture maths, not iOS itself.
+async function weightZoomChecks(page) {
+  const count = async () => Number((await page.locator('#weight-canvas').getAttribute('aria-label')).match(/^(\d+) weight/)?.[1] || 0);
+  const firstDay = async () => (await page.locator('#weight-canvas').getAttribute('aria-label')).match(/from (.+?) to /)?.[1];
+  const frames = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const touch = (steps) => page.evaluate(async (steps) => {
+    const canvas = document.querySelector('#weight-canvas'), box = canvas.getBoundingClientRect();
+    for (const [type, pointerId, fx, fy] of steps) {
+      canvas.dispatchEvent(new PointerEvent(type, { pointerId, pointerType: 'touch', isPrimary: pointerId === 1, bubbles: true,
+        clientX: box.left + box.width * fx, clientY: box.top + box.height * fy }));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  }, steps);
+  await page.locator('#weight-range').selectOption('90');
+  await page.locator('#weight-fullscreen').click(); await page.waitForSelector('#weight-plot.plot-fullscreen');
+  await frames();
+  const initial = await count();
+  assert.ok(initial > 30, `90-day view shows ${initial} weighings`);
+  assert.equal(await page.locator('#weight-zoom-reset').isVisible(), false);
+  assert.equal(await page.locator('#weight-canvas').evaluate((canvas) => getComputedStyle(canvas).touchAction), 'none');
+  await page.locator('#weight-canvas').focus(); await page.keyboard.press('+'); await frames();
+  assert.ok(await count() < initial, 'keyboard zoom narrows the view');
+  assert.equal(await page.locator('#weight-zoom-reset').isVisible(), true);
+  await page.keyboard.press('0'); await frames();
+  assert.equal(await count(), initial);
+  // Two fingers spreading apart around the middle zoom in.
+  await touch([['pointerdown', 1, 0.45, 0.5], ['pointerdown', 2, 0.55, 0.5], ['pointermove', 1, 0.3, 0.5], ['pointermove', 2, 0.7, 0.5],
+    ['pointermove', 1, 0.15, 0.5], ['pointermove', 2, 0.85, 0.5], ['pointerup', 1, 0.15, 0.5], ['pointerup', 2, 0.85, 0.5]]);
+  await frames();
+  const zoomed = await count();
+  assert.ok(zoomed > 0 && zoomed < initial / 2, `pinch shows ${zoomed} of ${initial} weighings`);
+  // One finger dragging right moves to earlier dates, beyond the 90-day range.
+  const before = await firstDay();
+  await touch([['pointerdown', 1, 0.2, 0.5], ['pointermove', 1, 0.5, 0.5], ['pointermove', 1, 0.95, 0.5], ['pointerup', 1, 0.95, 0.5]]);
+  await frames();
+  assert.notEqual(await firstDay(), before, 'pan moves the visible dates');
+  // A tap inspects the nearest weighing; a double tap restores the full view.
+  await touch([['pointerdown', 1, 0.5, 0.5], ['pointerup', 1, 0.5, 0.5]]);
+  assert.match(await page.locator('#weight-chart-detail').textContent(), / kg$/);
+  assert.equal(await page.locator('#weight-chart-detail').isVisible(), true, 'the inspected weighing shows in fullscreen');
+  await page.waitForTimeout(400);
+  await touch([['pointerdown', 1, 0.5, 0.5], ['pointerup', 1, 0.5, 0.5], ['pointerdown', 1, 0.5, 0.5], ['pointerup', 1, 0.5, 0.5]]);
+  await frames();
+  assert.equal(await count(), initial, 'double tap resets the zoom');
+  await touch([['pointerdown', 1, 0.45, 0.5], ['pointerdown', 2, 0.55, 0.5], ['pointermove', 1, 0.2, 0.5], ['pointermove', 2, 0.8, 0.5], ['pointerup', 1, 0.2, 0.5], ['pointerup', 2, 0.8, 0.5]]);
+  await frames();
+  assert.ok(await count() < initial);
+  await page.keyboard.press('Escape'); await frames();
+  assert.equal(await count(), initial, 'leaving fullscreen restores the chosen range');
+  await page.locator('#weight-range').selectOption('all');
+}
+
 async function coldWeightFailure(browser, url) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -1332,7 +1386,7 @@ const server = http.createServer(async (req, res) => {
   await page.locator('#weight-cancel').click();
   await page.evaluate(() => { document.querySelector('#views').scrollTop = 0; });
   await page.screenshot({ path: path.join(output, 'weight-entry-phone.png'), fullPage: true });
-  await page.locator('#weight-range').selectOption('all'); await page.getByText('Plot options', { exact: true }).click();
+  await page.locator('#weight-range').selectOption('all'); await page.locator('#weight-options-toggle').click();
   await page.locator('#weight-historic').check();
   assert.match(await page.locator('#weight-canvas').getAttribute('aria-label'), /3 weight measurements/);
   await page.screenshot({ path: path.join(output, 'weight-phone.png'), fullPage: true });

@@ -4,7 +4,7 @@ import { STORAGE_KEYS, accountTag } from "../../shared/storage.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
 import { drawWeightChart, WEIGHT_CHART_PALETTES } from "./chart.js";
 import { projectWeightOperation, findWeightMeasurement, withWeightAliases } from "./projection.js";
-import { parseWeight, selectMeasurements, pointsFor, trendFor, weightTimestamp, weightDayOffset } from "./math.js";
+import { parseWeight, selectMeasurements, pointsFor, trendFor, trendBetween, weightTimestamp, weightDayOffset } from "./math.js";
 import { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } from "./picker.js";
 
 export function createWeightFeature({ api, send, uuid, getToken, pendingOperations }) {
@@ -27,8 +27,9 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   for (const key of ["start", "end"]) if (!/^\d{4}-\d{2}-\d{2}$/.test(preferences[key]) || weightTimestamp(preferences[key]) === null) preferences[key] = "";
   if (!["comfortable", "compact"].includes(preferences.density)) preferences.density = "comfortable";
   if (!["normal", "high"].includes(preferences.contrast)) preferences.contrast = "normal";
-  let host, chartObserver, fullscreen, calendarInterval = null, drawnVersion = -1, chartRows = [], inspectedUid = null;
-  let chartData = null;
+  let host, chartObserver, fullscreen, calendarInterval = null, drawnVersion = -1, chartGeometry = null, inspectedUid = null;
+  let chartData = null, trendData = null, zoom = null;
+  const MIN_ZOOM_SPAN = 7 * 86400000;
 
   const field = (id) => host.querySelector(`#${id}`);
   const formatDay = (value) => {
@@ -65,7 +66,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     model.version++; model.epoch++; model.draft++;
     model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
     resetPicker();
-    chartRows = []; inspectedUid = null; chartData = null;
+    chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null;
     try { localStorage.removeItem(CACHE); } catch { /* ignore */ }
     fullscreen?.destroy(); fullscreen = null;
     host = null; chartObserver?.disconnect();
@@ -81,7 +82,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       model.epoch++; model.draft++;
       model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
       resetPicker();
-      chartRows = []; inspectedUid = null; chartData = null;
+      chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null;
       fullscreen?.destroy(); fullscreen = null;
       host = null; chartObserver?.disconnect();
       try {
@@ -177,23 +178,22 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       <div id="weight-plot" class="weight-plot">
         <div class="weight-plot-toolbar"><h2>Weight over time</h2><select id="weight-range" aria-label="Plot date range">
           <option value="30">30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option><option value="custom">Custom</option>
-        </select><button id="weight-fullscreen" class="ghost" type="button" aria-label="Open weight plot fullscreen" aria-pressed="false" aria-expanded="false">⛶</button></div>
-        <div id="weight-custom" class="weight-custom hidden">
-          <label>From<input id="weight-start" type="date"></label><label>To<input id="weight-end" type="date"></label>
-        </div>
-        <canvas id="weight-canvas" role="img" tabindex="0" aria-label="Body weight over time" aria-describedby="weight-chart-help"></canvas>
-        <p id="weight-chart-help" class="muted">Tap the plot or use Left and Right arrows to inspect a weighing.</p>
-        <p id="weight-chart-detail" class="muted" aria-live="polite" aria-atomic="true"></p>
-        <details id="weight-chart-data" class="weight-options"><summary>Read plot data</summary><div id="weight-data-table"></div></details>
-        <details class="weight-options"><summary>Plot options</summary>
+        </select><button id="weight-options-toggle" class="ghost weight-tool" type="button" aria-label="Plot options" aria-expanded="false" aria-controls="weight-plot-options"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></button><button id="weight-zoom-reset" class="ghost hidden" type="button">Reset zoom</button><button id="weight-fullscreen" class="ghost" type="button" aria-label="Open weight plot fullscreen" aria-pressed="false" aria-expanded="false">⛶</button></div>
+        <div id="weight-plot-options" class="weight-options weight-plot-options hidden">
           <label>Trend<select id="weight-trend"><option value="loess">LOESS (original plot)</option><option value="mean7">7-day average</option><option value="none">No trend</option></select></label>
           <label>Smoothing<select id="weight-span"><option value="0.04">Original (4%)</option><option value="0.08">Smoother (8%)</option><option value="0.15">Broad (15%)</option></select></label>
           <label class="weight-check"><input id="weight-points" type="checkbox">Show measurements</label>
           <label class="weight-check"><input id="weight-historic" type="checkbox">Include historic measurements</label>
           <label class="weight-check"><input id="weight-zero" type="checkbox">Start weight axis at zero</label>
-          <p class="muted">The historic curve interpolates between sparse measurements.</p>
+          <p class="muted">The trend is fitted over your whole history, so it keeps its shape for every range. The historic curve interpolates between sparse measurements.</p>
           <div class="weight-export"><button id="weight-png" type="button" class="ghost">Save plot</button><button id="weight-csv" type="button" class="ghost">Export data</button></div>
-        </details>
+        </div>
+        <div id="weight-custom" class="weight-custom hidden">
+          <label>From<input id="weight-start" type="date"></label><label>To<input id="weight-end" type="date"></label>
+        </div>
+        <canvas id="weight-canvas" role="img" tabindex="0" aria-label="Body weight over time" aria-describedby="weight-chart-help"></canvas>
+        <p id="weight-chart-help" class="muted">Tap the plot or use Left and Right arrows to inspect a weighing. In fullscreen, pinch to zoom and drag to move.</p>
+        <p id="weight-chart-detail" class="muted" aria-live="polite" aria-atomic="true"></p>
       </div>
       <h2 class="weight-history-title">Recent weighings</h2><div id="weight-history" class="list"></div>
       <button id="weight-more" class="ghost wide" type="button">Show older weighings</button>`;
@@ -206,7 +206,11 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     field("weight-today").onclick = () => { cancelEdit(); field("weight-date").value = localDate(); };
     field("weight-cancel").onclick = cancelEdit;
     field("weight-delete").onclick = deleteEntry;
-    field("weight-chart-data").addEventListener("toggle", () => { if (field("weight-chart-data").open) paintChartData(); });
+    field("weight-options-toggle").onclick = () => {
+      const panel = field("weight-plot-options"), open = panel.classList.toggle("hidden") === false;
+      field("weight-options-toggle").setAttribute("aria-expanded", String(open));
+    };
+    field("weight-zoom-reset").onclick = () => setZoom(null);
     field("weight-more").onclick = () => { model.limit += 30; paintHistory(); };
     for (const key of ["range", "trend", "span", "points", "historic", "zero", "start", "end", "density", "contrast"]) {
       const input = field(`weight-${key}`);
@@ -216,14 +220,14 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
         preferences[key] = input.type === "checkbox" ? input.checked : input.value;
         try { localStorage.setItem(PREFS, JSON.stringify(preferences)); } catch { /* optional preferences */ }
         if (key === "density" || key === "contrast") paintPicker();
-        else { drawnVersion = -1; paintChart(); }
+        else { if (["range", "start", "end"].includes(key)) zoom = null; drawnVersion = -1; paintChart(); }
       });
     }
     // The screen chart follows the dark app theme; saved plots keep the light figure.
     field("weight-png").onclick = () => {
       const screen = field("weight-canvas"), figure = document.createElement("canvas");
-      const { points = [], trend = [] } = chartData || {};
-      drawWeightChart(figure, points, trend, preferences, false, {
+      const { points, trend, invalid } = chartView();
+      drawWeightChart(figure, points, trend, preferences, invalid, {
         palette: WEIGHT_CHART_PALETTES.print, width: screen.clientWidth || 640, height: screen.clientHeight || 360, ratio: 2,
       });
       figure.toBlob((blob) => { if (blob) download(blob, "weight-plot.png"); });
@@ -239,12 +243,14 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       button.setAttribute("aria-label", open ? "Close weight plot fullscreen" : "Open weight plot fullscreen");
       button.setAttribute("aria-pressed", String(open));
       button.setAttribute("aria-expanded", String(open));
+      if (!open) zoom = null;
       drawnVersion = -1;
       requestAnimationFrame(() => { if (host) paintChart(); });
     } });
     field("weight-fullscreen").onclick = () => fullscreen.toggle();
     chartObserver = new ResizeObserver(() => { drawnVersion = -1; if (host && !host.classList.contains("hidden")) paintChart(); });
     chartObserver.observe(field("weight-canvas"));
+    bindChartGestures(field("weight-canvas"));
   }
 
   function download(blob, filename) {
@@ -528,74 +534,165 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     if (focusedUid) [...list.querySelectorAll("button")].find((button) => button.dataset.weightUid === focusedUid)?.focus({ preventScroll: true });
   }
 
-  function paintChartData() {
-    const output = field("weight-data-table"); output.replaceChildren();
-    if (!chartRows.length) { output.append(node("p", "muted", "No weighings in this date range.")); return; }
-    const table = node("table", "weight-data-table");
-    table.append(node("caption", "sr-only", "Weighings in the selected plot range"));
-    const head = node("thead"), header = node("tr");
-    for (const text of ["Date", "kg", "Source"]) { const cell = node("th", null, text); cell.scope = "col"; header.append(cell); }
-    head.append(header); table.append(head);
-    const body = node("tbody");
-    for (const row of chartRows) {
-      const record = node("tr");
-      record.append(node("td", null, formatDay(row.measured_at)), node("td", null, String(row.weight_kg)), node("td", null, row.source || "manual"));
-      body.append(record);
+  // Fit the trend once over the whole history and show its visible stretch, so a
+  // smoothing preset means the same neighbourhood at every range and zoom.
+  function fittedTrend() {
+    const key = JSON.stringify([model.version, preferences.historic, preferences.trend, preferences.span]);
+    if (trendData?.key !== key) {
+      const points = pointsFor(selectMeasurements(model.rows, { historic: preferences.historic }));
+      trendData = { key, points, trend: trendFor(points, preferences.trend, Number(preferences.span)) };
     }
-    table.append(body); output.append(table);
+    return trendData;
   }
 
-  function paintChart() {
-    field("weight-custom").classList.toggle("hidden", preferences.range !== "custom");
-    field("weight-span").disabled = preferences.trend !== "loess";
-    if (drawnVersion === model.version) return;
-    const canvas = field("weight-canvas"), width = canvas.clientWidth;
-    if (!width) return;
-    drawnVersion = model.version;
+  function chartView() {
     let start = "", end = "";
     if (preferences.range === "custom") { start = preferences.start; end = preferences.end; }
     else if (preferences.range !== "all") {
       end = localDate();
       start = weightDayOffset(end, -Number(preferences.range) + 1);
     }
-    // Resizing/fullscreen only repaints: never refit LOESS for unchanged data.
-    const key = JSON.stringify([model.version, start, end, preferences.historic, preferences.trend, preferences.span]);
-    const dataChanged = chartData?.key !== key;
-    if (dataChanged) {
+    const fit = fittedTrend();
+    const key = JSON.stringify([fit.key, start, end]);
+    if (chartData?.key !== key) {
       const rows = selectMeasurements(model.rows, { start, end, historic: preferences.historic });
-      const points = pointsFor(rows);
-      chartData = { key, rows, points, trend: trendFor(points, preferences.trend, Number(preferences.span)) };
+      chartData = { key, points: pointsFor(rows), invalid: Boolean(start && end && start > end) };
     }
-    const { rows, points, trend } = chartData;
-    chartRows = rows;
-    if (dataChanged && field("weight-chart-data").open) paintChartData();
-    const geometry = drawWeightChart(canvas, points, trend, preferences, Boolean(start && end && start > end));
-    if (!geometry) {
-      canvas.setAttribute("aria-label", "No weight measurements in the selected date range");
-      canvas.tabIndex = -1; canvas.onpointerdown = null; canvas.onkeydown = null; return;
-    }
-    const { x0, x1, left, right } = geometry;
-    canvas.setAttribute("aria-label", `${points.length} weight measurements from ${formatDay(rows[0].measured_at)} to ${formatDay(rows.at(-1).measured_at)}, latest ${points.at(-1).y} kilograms`);
-    canvas.tabIndex = 0;
-    const inspect = (point) => {
-      inspectedUid = point.row.uid;
-      const message = `${formatDay(point.row.measured_at)} · ${point.y} kg`;
-      if (field("weight-chart-detail").textContent !== message) field("weight-chart-detail").textContent = message;
+    // A fullscreen zoom may pan beyond the chosen range across the whole history.
+    const domain = zoom && fullscreen?.isOpen ? zoom : null;
+    const points = domain ? fit.points.filter((point) => point.x >= domain.x0 && point.x <= domain.x1) : chartData.points;
+    const x0 = domain ? domain.x0 : points[0]?.x, x1 = domain ? domain.x1 : points.at(-1)?.x;
+    return { points, trend: trendBetween(fit.trend, x0, x1), domain, invalid: chartData.invalid };
+  }
+
+  function setZoom(next) {
+    zoom = next;
+    drawnVersion = -1;
+    paintChart();
+  }
+
+  function clampZoom(x0, span) {
+    const points = fittedTrend().points;
+    if (!points.length) return null;
+    const first = points[0].x, last = points.at(-1).x;
+    const width = Math.max(MIN_ZOOM_SPAN, Math.min(Math.max(MIN_ZOOM_SPAN, last - first), span));
+    const left = Math.max(first, Math.min(last - width, x0));
+    return { x0: left, x1: left + width };
+  }
+
+  function zoomBy(factor) {
+    if (!chartGeometry) return;
+    const { x0, x1 } = chartGeometry, middle = (x0 + x1) / 2, span = (x1 - x0) * factor;
+    setZoom(clampZoom(middle - span / 2, span));
+  }
+
+  function inspect(point) {
+    inspectedUid = point.row.uid;
+    const message = `${formatDay(point.row.measured_at)} · ${point.y} kg`;
+    if (field("weight-chart-detail").textContent !== message) field("weight-chart-detail").textContent = message;
+  }
+
+  function inspectAt(clientX) {
+    if (!chartGeometry?.points.length) return;
+    const { x0, x1, left, right, points } = chartGeometry, box = field("weight-canvas").getBoundingClientRect();
+    const at = x0 + (clientX - box.left - left) / (right - left) * (x1 - x0);
+    inspect(points.reduce((a, b) => Math.abs(a.x - at) <= Math.abs(b.x - at) ? a : b));
+  }
+
+  // Inline, a tap inspects the nearest weighing and the page still scrolls.
+  // Fullscreen adds iPhone-style gestures: pinch to zoom the time axis, drag to
+  // pan, double-tap to reset.
+  function bindChartGestures(canvas) {
+    const pointers = new Map();
+    let start = null, moved = false, lastTap = { time: 0, x: 0 }, frame = null, pending = null;
+    const flush = () => {
+      if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+      if (pending) { const next = pending; pending = null; setZoom(next); }
     };
+    const schedule = (next) => {
+      pending = next;
+      if (frame === null) frame = requestAnimationFrame(() => { frame = null; flush(); });
+    };
+    const spread = (list) => Math.max(24, Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y));
+    function begin() {
+      flush();
+      const list = [...pointers.values()];
+      if (!chartGeometry || !list.length) { start = null; return; }
+      const box = canvas.getBoundingClientRect(), { x0, x1, left, right } = chartGeometry;
+      start = { x0, span: x1 - x0, left: box.left + left, width: right - left,
+        mid: list.reduce((sum, point) => sum + point.x, 0) / list.length,
+        distance: list.length > 1 ? spread(list) : 0 };
+    }
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!fullscreen?.isOpen) { inspectAt(event.clientX); return; }
+      try { canvas.setPointerCapture(event.pointerId); } catch { /* an ended or synthetic pointer */ }
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
+      moved = pointers.size > 1;
+      begin();
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      const pointer = pointers.get(event.pointerId);
+      if (!pointer || !start) return;
+      pointer.x = event.clientX; pointer.y = event.clientY;
+      if (!moved && Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) < 6) return;
+      moved = true;
+      const list = [...pointers.values()];
+      const mid = list.reduce((sum, point) => sum + point.x, 0) / list.length;
+      const span = list.length > 1 && start.distance ? start.span * start.distance / spread(list) : start.span;
+      // Keep the date under the fingers' starting midpoint beneath their midpoint.
+      const anchor = start.x0 + (start.mid - start.left) / start.width * start.span;
+      const next = clampZoom(anchor - (mid - start.left) / start.width * span, span);
+      if (next) schedule(next);
+    });
+    const finish = (event) => {
+      const pointer = pointers.get(event.pointerId);
+      if (!pointer) return;
+      pointers.delete(event.pointerId);
+      if (pointers.size) { begin(); return; }
+      flush(); start = null;
+      if (event.type !== "pointerup" || moved) return;
+      const now = performance.now();
+      if (now - lastTap.time < 320 && Math.abs(pointer.x - lastTap.x) < 30) { lastTap = { time: 0, x: 0 }; setZoom(null); }
+      else { lastTap = { time: now, x: pointer.x }; inspectAt(pointer.x); }
+    };
+    canvas.addEventListener("pointerup", finish);
+    canvas.addEventListener("pointercancel", finish);
+    // Safari's page-zoom gesture must not take over the fullscreen plot.
+    canvas.addEventListener("gesturestart", (event) => { if (fullscreen?.isOpen) event.preventDefault(); });
+  }
+
+  function paintChart() {
+    field("weight-custom").classList.toggle("hidden", preferences.range !== "custom");
+    field("weight-span").disabled = preferences.trend !== "loess";
+    field("weight-zoom-reset").classList.toggle("hidden", !(zoom && fullscreen?.isOpen));
+    if (drawnVersion === model.version) return;
+    const canvas = field("weight-canvas");
+    if (!canvas.clientWidth) return;
+    drawnVersion = model.version;
+    const view = chartView();
+    const geometry = drawWeightChart(canvas, view.points, view.trend, preferences, view.invalid, { domain: view.domain });
+    chartGeometry = geometry ? { ...geometry, points: view.points } : null;
+    const shown = view.points;
+    if (!geometry || !shown.length) {
+      canvas.setAttribute("aria-label", view.domain ? "No weighings in this zoomed range" : "No weight measurements in the selected date range");
+      canvas.tabIndex = geometry ? 0 : -1; canvas.onkeydown = null; return;
+    }
+    canvas.setAttribute("aria-label", `${shown.length} weight measurements from ${formatDay(shown[0].row.measured_at)} to ${formatDay(shown.at(-1).row.measured_at)}, latest ${shown.at(-1).y} kilograms`);
+    canvas.tabIndex = 0;
     canvas.onkeydown = (event) => {
+      if (fullscreen?.isOpen && ["+", "=", "-", "0"].includes(event.key)) {
+        event.preventDefault();
+        if (event.key === "0") setZoom(null); else zoomBy(event.key === "-" ? 1.5 : 1 / 1.5);
+        return;
+      }
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
-      let index = points.findIndex((point) => point.row.uid === inspectedUid);
-      if (index < 0) index = points.length - 1;
+      let index = shown.findIndex((point) => point.row.uid === inspectedUid);
+      if (index < 0) index = shown.length - 1;
       if (event.key === "Home") index = 0;
-      else if (event.key === "End") index = points.length - 1;
-      else index = Math.max(0, Math.min(points.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1)));
-      inspect(points[index]);
-    };
-    canvas.onpointerdown = (event) => {
-      const box = canvas.getBoundingClientRect(), at = x0 + (event.clientX - box.left - left) / (right - left) * (x1 - x0);
-      const closest = points.reduce((a, b) => Math.abs(a.x - at) <= Math.abs(b.x - at) ? a : b);
-      inspect(closest);
+      else if (event.key === "End") index = shown.length - 1;
+      else index = Math.max(0, Math.min(shown.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1)));
+      inspect(shown[index]);
     };
   }
   return { mount, render: renderWeight, invalidate: invalidateWeight, reset: resetWeight, destroy };
