@@ -56,6 +56,19 @@ are split by domain so unrelated implementation history stays out of a task.
   retries, identity and ordered replication.
 - [Decisions](architecture/decisions.md): reasons for the retained design.
 
+## Detailed references
+
+Read only the one matching the owners you are changing; the engineering rules say
+when each applies.
+
+- [Phone implementation](reference/mobile.md): app shell, profiles, offline
+  worker, storage, status bar, subject order and graph layout.
+- [Server and sync](reference/server-sync.md): API, operations, replay and mirror.
+- [Database and migrations](reference/persistence.md): schema, additive columns
+  and backups.
+- [Native UI and charts](reference/native-ui.md): Mac window, widgets and plots.
+- [Feature behaviour](reference/features.md): service rules shared by all clients.
+
 ## Generated source maps
 
 - [Feature index](generated/feature-index.md): feature entry points and checks.
@@ -74,3 +87,5 @@ change, then review the generated diff and rerun the check.
   replacement with backups.
 - [Deployment](runbooks/deploy.md): own-server updates and phone refresh.
 - [Incidents](runbooks/incidents.md): preserve data, diagnose queues and recover safely.
+- [Weight import](runbooks/weight-import.md): one-off import/export of a legacy
+  weight history.

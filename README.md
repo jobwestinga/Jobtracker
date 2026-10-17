@@ -17,8 +17,8 @@ source and synthetic test data. See the [privacy policy](docs/privacy.md).
 - **Record weight:** whole-kilogram and decimal tiles, calendar dates, historical
   entries, editing and deletion. The phone's ↻ button clears a selection.
 - **Explore history:** stacked time bars, agenda timelines and weight trends.
-  Phone weight plots offer chart-only fullscreen, custom ranges and PNG/CSV
-  export. Thin year lines help orient long histories.
+  Phone weight plots offer fullscreen with pinch-to-zoom and panning, custom
+  ranges and PNG/CSV export. Thin year lines help orient long histories.
 - **Work offline:** local SQLite on the Mac and a durable write queue on the
   phone. Reconnecting sends queued changes in order without duplicating saves.
 - **Keep control:** local backups, explicit restore, per-device preferences,
