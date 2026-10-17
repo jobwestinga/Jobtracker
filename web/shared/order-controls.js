@@ -1,8 +1,16 @@
 import { el } from "./dom.js";
 
+// The Mac's subject order (tasks ORDER BY sort_order ASC, created_at DESC).
+// Snapshots arrive in database order, so every subject list sorts through here.
+export function orderSubjects(rows) {
+  return [...(rows || [])].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) ||
+    String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
 export function createOrderControls({ act, closeSheet }) {
   function reorderButtons(body, rows, uid, operation, params = {}, submit = null) {
-    const ordered = [...rows].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const ordered = operation === "set_subject_order" ? orderSubjects(rows) :
+      [...rows].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const index = ordered.findIndex((row) => row.uid === uid);
     const controls = el("div", "row");
     const caption = el("p", "caption", "List order");

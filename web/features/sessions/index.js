@@ -3,6 +3,7 @@ import { addDays, localIso } from "../../shared/time.js";
 import { hm, clockOf, prettyDay as formatDay } from "../../shared/format.js";
 import { openSheet, createSheetAction, field } from "../../shared/sheet.js";
 import { uuid } from "../../shared/ids.js";
+import { orderSubjects } from "../../shared/order-controls.js";
 import { logicalAgendaNow, dayStartHour } from "../graphs/agenda-time.js";
 import { QUICK_DURATIONS, endingNowRange, manualDurationSeconds } from "./duration.js";
 import { createDurationPicker } from "./duration-picker.js";
@@ -159,7 +160,7 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
       const content = el("div", "session-form");
       body.append(content);
       const submit = createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") });
-      const subjects = (store.snapshot?.subjects || []).filter((s) => !s.is_archived || s.uid === session.subject_uid);
+      const subjects = orderSubjects((store.snapshot?.subjects || []).filter((s) => !s.is_archived || s.uid === session.subject_uid));
       const select = document.createElement("select");
       for (const subject of subjects) {
         const option = el("option", null, subject.name);
@@ -233,7 +234,7 @@ export function createSessionsFeature({ store, api, act, banner, saveMirror, nav
       const content = el("div", "session-form");
       body.append(content);
       const submit = createSheetAction(content, { act, onError: (error) => banner(error.message || "That did not work") });
-      const subjects = (store.snapshot?.subjects || []).filter((s) => !s.is_archived);
+      const subjects = orderSubjects((store.snapshot?.subjects || []).filter((s) => !s.is_archived));
       if (!subjects.length) {
         content.append(el("p", "muted", "Add a subject in the Subjects tab first."));
         return;

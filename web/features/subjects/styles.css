@@ -12,11 +12,38 @@
 
 .active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; }
 
-.subject-start { border: 0; background: none; color: var(--accent); min-width: 44px; min-height: 44px; padding: 0; }
+/* Like the Mac subject card: a soft border in the subject colour, a solid
+   5px left edge, and a full colour frame while that subject is running. */
+.subject-card {
+  --subject: var(--accent);
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) 44px 44px;
+  column-gap: 10px; row-gap: 8px; padding: 11px 12px 12px 12px;
+  border: 1.5px solid color-mix(in srgb, var(--subject) 55%, transparent);
+  border-left: 5px solid var(--subject);
+  border-radius: 12px;
+}
+.subject-card.archived { grid-template-columns: 10px minmax(0, 1fr) 44px; opacity: 0.75; }
+.subject-card.running {
+  border: 3px solid var(--subject); border-left-width: 5px;
+  background: color-mix(in srgb, var(--subject) 10%, var(--panel));
+}
+.subject-card.tappable:active { background: color-mix(in srgb, var(--subject) 14%, var(--panel)); }
+.subject-card .name { font-size: 1rem; font-weight: 650; }
+.subject-card .sub { font-size: 0.8125rem; font-weight: 500; }
 
-.subject-card { display: grid; grid-template-columns: 10px minmax(0, 1fr) 44px 44px; }
-.subject-card.archived { grid-template-columns: 10px minmax(0, 1fr) 44px; }
-.subject-quick-add { grid-column: 2 / -1; min-height: 44px; }
+.subject-start {
+  min-width: 44px; min-height: 44px; padding: 0; border-radius: 22px;
+  background: color-mix(in srgb, var(--subject) 14%, transparent);
+  border: 1.2px solid color-mix(in srgb, var(--subject) 60%, transparent);
+  color: var(--text); font-size: 0.875rem;
+}
+.subject-card .icon-btn { color: var(--dim); }
+.subject-quick-add {
+  grid-column: 2 / -1; min-height: 44px; border-radius: 9px;
+  background: color-mix(in srgb, var(--subject) 11%, transparent);
+  border: 1.2px solid color-mix(in srgb, var(--subject) 60%, transparent);
+}
+.subject-quick-add:active, .subject-start:active { background: color-mix(in srgb, var(--subject) 28%, transparent); }
 
 .swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
 

@@ -1,8 +1,9 @@
 import { $, el, safeColor, captureFocus, restoreFocus } from "../../shared/dom.js";
 import { localIso } from "../../shared/time.js";
-import { hms, clockOf } from "../../shared/format.js";
+import { hms, hm, clockOf } from "../../shared/format.js";
 import { openSheet, createSheetAction, field } from "../../shared/sheet.js";
 import { uuid } from "../../shared/ids.js";
+import { orderSubjects } from "../../shared/order-controls.js";
 
 const SUBJECT_PALETTE = Object.freeze([
   ["#3B82F6", "Blue"], ["#EF4444", "Red"], ["#10B981", "Green"], ["#F59E0B", "Amber"], ["#8B5CF6", "Violet"],
@@ -36,18 +37,21 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
     const list = $("subject-list");
     const focusKey = captureFocus(list);
     list.innerHTML = "";
-    const active = (store.snapshot?.subjects || [])
-      .filter((s) => state.subjectFilter === "archived" ? s.is_archived : !s.is_archived)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const active = orderSubjects((store.snapshot?.subjects || [])
+      .filter((s) => state.subjectFilter === "archived" ? s.is_archived : !s.is_archived));
 
+    const tracked = trackedSeconds(store.snapshot?.sessions || []);
     for (const subject of active) {
       const running = store.active?.subject_uid === subject.uid;
-      const card = el("div", `card tappable subject-card${subject.is_archived ? " archived" : ""}`);
+      const card = el("div", `card tappable subject-card${subject.is_archived ? " archived" : ""}${running ? " running" : ""}`);
+      // The Mac frames each card in its subject colour; --subject drives the tints.
+      card.style.setProperty("--subject", safeColor(subject.color));
       const dot = el("div", "dot");
       dot.style.backgroundColor = safeColor(subject.color);
       const body = el("div", "grow");
       body.append(el("div", "name", subject.name));
-      if (running) body.append(el("div", "sub", "running now"));
+      const seconds = tracked.get(subject.uid) || 0;
+      body.append(el("div", "sub", running ? "Running now" : seconds ? `Tracked: ${hm(seconds)}` : "No time tracked yet"));
       card.append(dot, body);
       const more = el("button", "icon-btn", "⋯");
       more.dataset.focusKey = `subject:${subject.uid}:edit`;
@@ -73,6 +77,16 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
     if (!active.length) list.append(el("p", "muted", state.subjectFilter === "archived" ?
       "No archived subjects." : "Add a subject to start tracking."));
     restoreFocus(list, focusKey, $("subjects-active"));
+  }
+
+  // Closed-session totals, like the Mac's "Tracked:" line.
+  function trackedSeconds(sessions) {
+    const totals = new Map();
+    for (const row of sessions) {
+      const seconds = Number(row.duration_seconds);
+      if (row.end_time && Number.isFinite(seconds) && seconds > 0) totals.set(row.subject_uid, (totals.get(row.subject_uid) || 0) + seconds);
+    }
+    return totals;
   }
 
   function startTicking() {
