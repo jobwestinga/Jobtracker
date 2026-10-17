@@ -36,3 +36,12 @@ detail references linked from the engineering rules.
 Run `python scripts/dev.py check`. Update feature metadata when owners move;
 generated maps are checked from source. Follow the linked runbooks for releases
 and recovery; report validation and material limitations.
+
+## Optional shared context
+
+For local work use the engineering rules/index above. If another component's
+behavior, shared hosting or a device workflow is relevant or helpful, follow
+README's Personal Tech Stack section. The parent ownership table is
+`../README.md#where-to-look`; shared rules are `../AGENTS.md` when available.
+Read only the relevant owner's entry and rules; do not scan siblings by default.
+Standalone project setup stays complete here.

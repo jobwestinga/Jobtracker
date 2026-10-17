@@ -128,9 +128,15 @@ MIT.
 
 ## Personal Tech Stack context
 
-This project also belongs to a local Personal Tech Stack workspace. When that
-parent is available, read its overview (`../README.md`),
-connection map (`../MAP.md`) and working instructions (`../AGENTS.md`) for a task
-that spans projects. For normal work, start in this repository and follow its
-own instructions. These optional parent links are not required for a standalone
-clone; application code, history and setup remain owned here.
+Start here and use this project's local instructions/index for local work.
+If another component is needed or helpful, use the optional parent overview
+(`../README.md#where-to-look`) and shared rules (`../AGENTS.md`), then only the
+relevant entry below. Read that owner's local instructions before editing it.
+These paths are optional when this project is used/cloned independently.
+
+| Helpful context | Entry path relative to this project |
+| --- | --- |
+| Live hosting, reachability and backup evidence | `../Server & Services/INVENTORY.md` |
+| Native phone modes/widgets and phone preferences | `../iPhone Optimization/README.md` |
+| General Mac files/settings, beyond this app | `../MacBook Optimization/README.md` |
+| A sequence combining apps/devices | `../Integrations/README.md` |

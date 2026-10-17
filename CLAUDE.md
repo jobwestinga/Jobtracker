@@ -15,9 +15,12 @@ unrelated changes. Never push, open a PR, amend or rewrite history unless asked.
 
 ## Personal Tech Stack context
 
-This project also belongs to a local Personal Tech Stack workspace. When that
-parent is available, read its overview (`../README.md`),
-connection map (`../MAP.md`) and working instructions (`../AGENTS.md`) for a task
-that spans projects. For normal work, start in this repository and follow its
-own instructions. These optional parent links are not required for a standalone
-clone; application code, history and setup remain owned here.
+Stay in this project for local work. If cross-project context is needed or helpful,
+use the focused destinations in README's Personal Tech Stack section, or the
+optional parent ownership table (`../README.md#where-to-look`) and shared rules
+(`../AGENTS.md`). Read only the relevant sibling's entry/rules before editing it.
+Standalone clones do not require the parent. Do not search all sibling/history
+folders by default; keep each fact and implementation with its owner.
+
+The parent coordinates plans, ideas and connections. Implement this project's
+tasks inside this child; it keeps ownership of its domain work.
