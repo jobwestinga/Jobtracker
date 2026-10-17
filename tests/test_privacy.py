@@ -40,9 +40,9 @@ def test_embedded_image_metadata_is_private_but_colour_profiles_are_allowed():
     signature = b"\x89PNG\r\n\x1a\n"
     def chunk(kind):
         return struct.pack(">I", 0) + kind + b"\0" * 4
-    assert check_privacy.inspect("web/icon.png", signature + chunk(b"iTXt"))
-    assert check_privacy.inspect("web/icon.png", signature + chunk(b"eXIf"))
-    assert not check_privacy.inspect("web/icon.png", signature + chunk(b"iCCP") + chunk(b"IEND"))
+    assert check_privacy.inspect("web/icons/weight.png", signature + chunk(b"iTXt"))
+    assert check_privacy.inspect("web/icons/weight.png", signature + chunk(b"eXIf"))
+    assert not check_privacy.inspect("web/icons/weight.png", signature + chunk(b"iCCP") + chunk(b"IEND"))
 
 
 def test_force_added_file_and_staged_secret_cannot_hide_behind_working_tree(tmp_path):

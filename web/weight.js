@@ -1,4 +1,4 @@
-// Default composition and compatibility API. The feature itself accepts its data dependencies.
+// Default composition of the weight feature with the real data layer (used by app.js and tests).
 import { api } from "./data/api.js";
 import { send, pendingForProjection as pendingOperations } from "./data/outbox.js";
 import { getToken } from "./data/credentials.js";

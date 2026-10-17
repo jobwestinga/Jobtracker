@@ -432,11 +432,11 @@ def test_the_offline_shell_is_cacheable_without_a_token(api):
     """The worker precaches these at install time, before any token exists."""
     api.headers.pop("Authorization")
     for path in ("/", "/index.html", "/app.js", "/api.js", "/styles.css",
-                 "/manifest.webmanifest", "/icon.png", "/sw.js"):
+                 "/manifest.webmanifest", "/icons/weight.png", "/sw.js"):
         assert api.get(path).status_code == 200, path
 
 
-# ── grouping override over the API (what the phone's Days/Weeks/Months does) ──
+# ── grouping override over the API (the phone's "Group bars by" graph option) ──
 
 
 @pytest.mark.parametrize("grouping", ["daily", "weekly", "monthly"])

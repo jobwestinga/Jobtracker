@@ -22,7 +22,7 @@ def check(root: Path) -> list[str]:
     if len(inventory) != len(set(inventory)):
         errors.append("sw.js: duplicate shell entry")
     shell = {(item + "index.html" if item.endswith("/") else item).lstrip("/") for item in inventory}
-    needed = {"index.html", "manifest.webmanifest", "icon.png"}
+    needed = {"index.html", "manifest.webmanifest"}
     for name in shell:
         if not (web / name).is_file():
             errors.append(f"sw.js: missing cached asset {name}")

@@ -1,4 +1,5 @@
-/* Compatibility stylesheet; the shell links individual owners directly. */
+/* All shared stylesheets in one import, for the test harness pages. The app
+   shells link each owner directly (see web/index.html). */
 @import url("./styles/tokens.css");
 @import url("./styles/shell.css");
 @import url("./styles/controls.css");

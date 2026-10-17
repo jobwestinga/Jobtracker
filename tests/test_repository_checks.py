@@ -144,8 +144,7 @@ def test_transitive_web_asset_requires_cache_entry(tmp_path, statement):
     put(tmp_path, "web/app.js", statement + "\n")
     put(tmp_path, "web/feature.js", "export function render() {}\n")
     put(tmp_path, "web/manifest.webmanifest", "{}")
-    put(tmp_path, "web/icon.png", "placeholder")
-    inventory = ["/", "/index.html", "/app.js", "/manifest.webmanifest", "/icon.png"]
+    inventory = ["/", "/index.html", "/app.js", "/manifest.webmanifest"]
     put(tmp_path, "web/sw.js", "const SHELL = " + json.dumps(inventory) + ";")
     assert "sw.js: uncached dependency feature.js" in check_web_assets.check(tmp_path)
     inventory.append("/feature.js")
