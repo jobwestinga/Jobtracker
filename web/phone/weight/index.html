@@ -104,8 +104,9 @@
 
   <section id="view-graphs" class="view hidden">
     <div class="graph-toolbar">
-      <span class="muted">Tracked time</span>
-      <button id="graph-fullscreen" class="secondary" aria-expanded="false">Fullscreen</button>
+      <h2 class="graph-title">Tracked time</h2>
+      <button id="graph-options" class="icon-btn graph-tool" type="button" aria-label="Graph options"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></button>
+      <button id="graph-fullscreen" class="icon-btn graph-tool" type="button" aria-label="Open graphs fullscreen" aria-expanded="false"><svg class="icon icon-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg class="icon icon-close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <!-- Two choices, like the desktop: which view, and over what range. -->
     <div class="seg">
@@ -123,15 +124,8 @@
       <div class="field"><label for="graph-start">From</label><input id="graph-start" type="date"></div>
       <div class="field"><label for="graph-end">Through</label><input id="graph-end" type="date"></div>
     </div>
-    <!-- Bucket size, same choice the desktop offers. "Auto" follows the range. -->
-    <div class="seg seg-group">
-      <button class="seg-btn on" data-group="auto">Auto</button>
-      <button class="seg-btn" data-group="daily">Days</button>
-      <button class="seg-btn" data-group="weekly">Weeks</button>
-      <button class="seg-btn" data-group="monthly">Months</button>
-    </div>
+    <!-- Bar grouping and agenda hours live in the options sheet. -->
     <div id="graph-total" class="muted day-total"></div>
-    <button id="graph-options" class="ghost wide hidden">Agenda hours</button>
     <div id="graph-body" aria-label="Tracking graphs"></div>
     <div id="graph-legend" class="legend"></div>
   </section>

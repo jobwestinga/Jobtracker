@@ -42,6 +42,14 @@ them does.
   blurred. Neither CSS heights nor measured JS heights can paint into that band.
   Installed apps may keep the style they were added with, so re-add them after
   changing it. Header and tab icons are inline `currentColor` SVGs, not emoji.
+- **Subjects follow the Mac's order** (`sort_order`, then newest first) through
+  `orderSubjects` in [order-controls.js](../../web/shared/order-controls.js);
+  snapshots arrive in database order. Subject cards and agenda blocks take the
+  Mac styling: a subject-colour frame with a solid left edge, and agenda blocks in
+  a strong subject tint on a neutral dark base over one uniform panel.
+- **Graphs show only view and range**; bar grouping and agenda hours are in the
+  options sheet. Fullscreen is a fixed column whose chart fills the remaining
+  height, so the header never scrolls over the controls.
 - No `backdrop-filter` on the chrome. Nothing scrolls under the bars any more,
   so it was a GPU composite every frame for a blur of a solid colour — and the
   translucency is what made the bottom look two-toned.

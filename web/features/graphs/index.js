@@ -82,17 +82,12 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     $("graph-custom").classList.toggle("hidden", state.graphRange !== "custom");
     if (document.activeElement !== $("graph-start")) $("graph-start").value = state.graphStart;
     if (document.activeElement !== $("graph-end")) $("graph-end").value = state.graphEnd;
-    $("graph-options").classList.toggle("hidden", state.graphMode !== "agenda");
-    for (const [key, value] of [["mode", state.graphMode], ["range", state.graphRange], ["group", state.graphGroup]]) {
+    for (const [key, value] of [["mode", state.graphMode], ["range", state.graphRange]]) {
       document.querySelectorAll(`#view-graphs [data-${key}]`).forEach((button) => {
         const selected = button.dataset[key] === value;
         button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
       });
     }
-    // Bucket size means nothing to the agenda, which is always one column per day.
-    document.querySelector("#view-graphs .seg-group")
-      .classList.toggle("hidden", state.graphMode !== "bars");
-
     const host = $("graph-body");
     const paintKey = JSON.stringify([state.graphs, state.graphRange, state.graphHourStart, state.graphHourEnd, state.graphAutofit]);
     if (paintKey === graphPaintKey) {
@@ -255,9 +250,8 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         const block = el("div", "agenda-block");
         block.style.top = `${top}%`;
         block.style.height = `${blockHeight}%`;
-        block.style.borderLeftColor = safeColor(session.color);
-        // Neutral base plus a tint of the subject colour, as on the desktop.
-        block.style.background = `color-mix(in srgb, ${safeColor(session.color)} 35%, var(--panel-2))`;
+        // Neutral dark base plus a strong subject tint and a solid left bar (CSS).
+        block.style.setProperty("--subject", safeColor(session.color));
         if (blockHeight / 100 * height > 16) block.textContent = session.subject_name;
         block.title = `${session.subject_name} · ${hm(session.duration_seconds)}`;
         const startClock = session.start_time?.slice(11, 16) || agendaHourLabel(session.start_h);
@@ -338,11 +332,13 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       graphResizeFrame = null;
       if (getView() !== "graphs") return;
       const fullscreen = graphFullscreen?.isOpen;
-      const chart = agendaLayout?.wrap || $("graph-body").querySelector(".bars");
+      const body = $("graph-body");
+      const chart = agendaLayout?.wrap || body.querySelector(".bars");
       if (!chart) return;
-      const panel = $("view-graphs");
-      const available = panel.clientHeight - (chart.getBoundingClientRect().top - panel.getBoundingClientRect().top) - 44;
-      const height = fullscreen ? Math.max(200, available) : agendaLayout ? 300 : 260;
+      // Fullscreen is a fixed column: the chart fills the body below the
+      // controls. The agenda also needs its padding, border and day labels.
+      const available = body.clientHeight - (chart.getBoundingClientRect().top - body.getBoundingClientRect().top) - (agendaLayout ? 66 : 2);
+      const height = fullscreen ? Math.max(100, available) : agendaLayout ? 300 : 260;
       if (agendaLayout) {
         const layout = agendaLayout;
         for (const node of [layout.gutter, ...layout.tracks.values()]) node.style.height = `${height}px`;
@@ -354,24 +350,32 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
   }
 
   function graphOptionsSheet() {
-    openSheet("Agenda hours", (body) => {
-      const start = field(body, "Start hour (0–26)", Object.assign(document.createElement("input"),
+    openSheet("Graph options", (body) => {
+      const group = document.createElement("select");
+      for (const [value, label] of [["auto", "Automatic (follows range)"], ["daily", "Days"], ["weekly", "Weeks"], ["monthly", "Months"]]) {
+        const option = el("option", null, label); option.value = value; option.selected = value === state.graphGroup;
+        group.append(option);
+      }
+      field(body, "Group bars by", group);
+      const start = field(body, "Agenda start hour (0–26)", Object.assign(document.createElement("input"),
         { type: "number", min: "0", max: "26", required: true, value: state.graphHourStart }));
-      const end = field(body, "End hour (1–27; 25 is 01:00 next day)", Object.assign(document.createElement("input"),
+      const end = field(body, "Agenda end hour (1–27; 25 is 01:00 next day)", Object.assign(document.createElement("input"),
         { type: "number", min: "1", max: "27", required: true, value: state.graphHourEnd }));
       const autofit = Object.assign(document.createElement("input"), { type: "checkbox", checked: state.graphAutofit });
-      field(body, "Expand hours to include sessions", autofit);
+      field(body, "Expand agenda hours to include sessions", autofit);
       const save = el("button", "primary wide", "Save");
       save.onclick = () => {
         if (!start.checkValidity() || !end.checkValidity() || Number(end.value) <= Number(start.value)) {
           return banner("Choose an end hour after the start, within 0–27.");
         }
+        const regroup = group.value !== state.graphGroup;
+        state.graphGroup = group.value;
         state.graphHourStart = Number(start.value);
         state.graphHourEnd = Number(end.value);
         state.graphAutofit = autofit.checked;
         saveGraphPreferences();
         closeSheet();
-        renderGraphs();
+        if (regroup) graphChanged(); else renderGraphs();
       };
       body.append(save);
     });
@@ -404,7 +408,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     $("graph-end").onchange = () => { state.graphEnd = $("graph-end").value; graphChanged(); };
     $("graph-options").onclick = graphOptionsSheet;
     graphFullscreen = createFullscreenController($("view-graphs"), { label: "Tracking graphs", onChange: (open) => {
-      $("graph-fullscreen").textContent = open ? "Close fullscreen" : "Fullscreen";
+      $("graph-fullscreen").setAttribute("aria-label", open ? "Close graphs fullscreen" : "Open graphs fullscreen");
       $("graph-fullscreen").setAttribute("aria-expanded", String(open));
       queueGraphResize();
     } });

@@ -1294,7 +1294,28 @@ const server = http.createServer(async (req, res) => {
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100);
   assert.equal(await page.locator('.agenda-now-label').textContent(), '09:31');
   await page.screenshot({ path: path.join(output, 'agenda-fullscreen-landscape.png'), fullPage: true });
+  // The fullscreen header stays above the controls and the chart fits the body,
+  // so nothing scrolls underneath the header.
+  for (const size of [{ width: 844, height: 390 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size); await page.waitForTimeout(60);
+    const layout = await page.evaluate(() => {
+      const view = document.querySelector('#view-graphs'), body = document.querySelector('#graph-body');
+      const bar = view.querySelector('.graph-toolbar').getBoundingClientRect(), controls = view.querySelector('.seg').getBoundingClientRect();
+      return { overlap: bar.bottom > controls.top + 0.5, clipped: body.scrollHeight > body.clientHeight + 1, scrolls: view.scrollTop };
+    });
+    assert.deepEqual(layout, { overlap: false, clipped: false, scrolls: 0 }, `fullscreen layout at ${size.width}x${size.height}`);
+  }
+  await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(30);
+  assert.equal(await page.locator('#graph-fullscreen').getAttribute('aria-label'), 'Close graphs fullscreen');
   await page.locator('#graph-fullscreen').click(); await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(30);
+  assert.equal(await page.locator('#graph-fullscreen').getAttribute('aria-label'), 'Open graphs fullscreen');
+  // Bar grouping and agenda hours share one options sheet instead of extra rows.
+  assert.equal(await page.locator('#view-graphs .seg-group').count(), 0);
+  await page.locator('#graph-options').click(); await page.waitForSelector('#sheet:not(.hidden)');
+  assert.equal(await page.locator('#sheet-title').textContent(), 'Graph options');
+  assert.equal(await page.getByLabel('Group bars by').inputValue(), 'auto');
+  assert.equal(await page.getByLabel('Agenda start hour (0–26)').count(), 1);
+  await page.locator('#sheet-close').click(); await page.waitForSelector('#sheet.hidden', { state: 'attached' });
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100);
   await page.evaluate(() => { const scroll = document.querySelector('.agenda-scroll'); scroll.scrollLeft = scroll.scrollWidth; });
   await page.screenshot({ path: path.join(output, 'agenda-now-phone.png'), fullPage: true });
