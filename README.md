@@ -125,3 +125,12 @@ requested. [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) share this policy.
 ## License
 
 MIT.
+
+## Personal Tech Stack context
+
+This project also belongs to a local Personal Tech Stack workspace. When that
+parent is available, read its overview (`../README.md`),
+connection map (`../MAP.md`) and working instructions (`../AGENTS.md`) for a task
+that spans projects. For normal work, start in this repository and follow its
+own instructions. These optional parent links are not required for a standalone
+clone; application code, history and setup remain owned here.
