@@ -67,8 +67,8 @@
 
 .agenda-col { flex: 0 0 46px; }
 
-/* As on the Mac: one uniform dark surface with barely-there day columns, and
-   blocks in a strong subject tint on a neutral dark base with a solid bar. */
+/* One uniform dark surface with barely-there day columns; blocks in nearly
+   solid subject colour with a lighter accent bar, vivid against the panel. */
 .agenda-wrap { display: flex; margin-top: 14px; padding: 10px 6px 4px 0; border-radius: 12px; background: var(--panel); border: 1px solid rgba(48, 59, 77, 0.6); }
 
 .agenda-track {
@@ -80,9 +80,10 @@
   --subject: var(--accent);
   position: absolute; left: 1px; right: 1px;
   border-radius: 3px; overflow: hidden; min-height: 3px;
-  background: color-mix(in srgb, var(--subject) 52%, #0E1117);
-  border-left: 3px solid var(--subject);
-  font-size: 0.625rem; font-weight: 600; line-height: 1.1; color: #F1F5F9;
+  background: color-mix(in srgb, var(--subject) 82%, #0E1117);
+  border-left: 3px solid color-mix(in srgb, var(--subject) 55%, #FFFFFF);
+  font-size: 0.625rem; font-weight: 700; line-height: 1.1; color: #FFFFFF;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
   padding: 2px 3px;
 }
 

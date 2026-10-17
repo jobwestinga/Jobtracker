@@ -272,7 +272,9 @@ const server = http.createServer((req, res) => {
       const node = document.createElement('div'); node.style.animation = 'pulse 1s infinite'; document.body.append(node);
       const animation = getComputedStyle(node).animationName; node.remove(); return animation;
     }), 'none');
-    assert.ok(!/user-scalable\s*=\s*no/i.test(await page.locator('meta[name="viewport"]').getAttribute('content')));
+    // Zooming in stays available; pinching below 1x (which shrank the whole app) does not.
+    const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+    assert.ok(!/user-scalable\s*=\s*no/i.test(viewport) && !/maximum-scale/i.test(viewport) && /minimum-scale=1/.test(viewport), viewport);
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ accessibilityChecks: 'passed', viewport: '320x740', textSize: '200%',
       covered: ['sheet focus/Escape/draft recovery', 'fullscreen nested dialog and focus restoration', 'keyboard goals/graphs/weight', 'subject quick add and colour names', 'lazy chart text data', 'contrast/reflow/reduced motion'], voiceOverTested: false }));
