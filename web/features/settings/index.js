@@ -75,12 +75,6 @@ export function createSettingsFeature({ store, act, banner, flush, pendingCount,
       };
       body.append(retry);
 
-      const icons = el("a", "secondary wide settings-icons", "Home Screen installation guide");
-      icons.href = "/phone/";
-      icons.target = "_blank";
-      icons.rel = "noopener";
-      body.append(icons);
-      body.append(el("p", "set-note", "Install Weight and JobTracker separately in Safari. Each may need its own token. Let waiting changes sync before replacing an existing Home Screen app."));
       if (profile === "weight") body.append(el("p", "set-note", "Chart CSV exports weight readings only; PNG exports the chart. Neither is a full backup. Full backups are available in the Mac app."));
 
       const reload = el("button", "secondary wide", "Reload app");

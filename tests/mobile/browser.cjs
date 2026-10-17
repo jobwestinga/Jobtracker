@@ -863,9 +863,7 @@ async function accountControlsChecks(browser, url) {
   await page.goto(url);
   await page.waitForFunction(() => localStorage.getItem('jobtracker.mirror'));
   await page.locator('#open-settings').click();
-  const iconLink = page.getByRole('link', { name: 'Home Screen installation guide' });
-  assert.equal(await iconLink.getAttribute('href'), '/phone/');
-  assert.equal(await iconLink.getAttribute('target'), '_blank');
+  assert.equal(await page.getByRole('link', { name: 'Home Screen installation guide' }).count(), 0, 'Settings no longer links the installation guide');
   assert.equal(await page.getByLabel('Day starts at', { exact: true }).inputValue(), '03:30');
   const beforeSettings = ops.filter((entry) => entry.op === 'set_setting').length;
   await page.getByLabel('Day starts at', { exact: true }).fill('04:45');
