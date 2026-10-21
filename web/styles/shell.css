@@ -67,12 +67,15 @@ html[data-profile="weight"] #views { padding-bottom: var(--safe-b); }
 
 .tab {
   appearance: none; border: 0; background: none; color: var(--dim);
-  font-size: .75rem; padding: 6px 2px; min-width: 0; overflow-wrap: anywhere;
+  font-size: .75rem; font-weight: 500; padding: 6px 2px; min-width: 0; overflow-wrap: anywhere;
   
   min-height: 52px;
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 3px;
+  border-radius: 10px;
+  transition: color 0.14s ease, background-color 0.14s ease, transform 0.1s ease;
 }
+.tab:active { transform: scale(0.96); }
 
 .icon {
   width: 22px; height: 22px; flex: 0 0 auto;
@@ -87,7 +90,11 @@ html[data-profile="weight"] #views { padding-bottom: var(--safe-b); }
   #refresh[aria-busy="true"] .icon { animation: none; opacity: 0.5; }
 }
 
-.tab.on { color: var(--accent); }
+.tab.on {
+  color: var(--accent);
+  font-weight: 650;
+  background: rgba(56, 189, 248, 0.10);
+}
 
 .tabbar.four { grid-template-columns: repeat(4, 1fr); }
 

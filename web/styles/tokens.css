@@ -1,18 +1,18 @@
 :root {
-  --bg: #0B1220;
-  --panel: #131C2E;
-  --panel-2: #1A2438;
-  --line: #263149;
-  --text: #E6ECF7;
-  --dim: #8A98B0;
-  --accent: #3B82F6;
+  --bg: #080B12;
+  --panel: #0F1522;
+  --panel-2: #172033;
+  --line: #1F2B42;
+  --text: #EEF2F8;
+  --dim: #94A3B8;
+  --accent: #38BDF8;
   --button-accent: #2563EB;
   --button-danger: #B91C1C;
   --focus: #A5C8FF;
   --green: #10B981;
-  --red: #EF4444;
+  --red: #F87171;
   --amber: #F59E0B;
-  --radius: 8px;
+  --radius: 10px;
   
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);

@@ -497,7 +497,8 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       const old = cutoff && model.rows.findLast((r) => r.measured_at.slice(0, 10) <= cutoff);
       if (old) {
         const delta = Number(newest.weight_kg) - Number(old.weight_kg), change = node("div");
-        change.append(node("div", "muted", "Change since"), node("strong", "weight-metric", `${delta > 0 ? "+" : ""}${delta.toFixed(1)} kg`), node("div", "muted", formatDay(old.measured_at)));
+        const deltaNode = node("strong", `weight-metric ${delta > 0.04 ? "delta-up" : delta < -0.04 ? "delta-down" : "delta-flat"}`, `${delta > 0 ? "+" : ""}${delta.toFixed(1)} kg`);
+        change.append(node("div", "muted", "Change since"), deltaNode, node("div", "muted", formatDay(old.measured_at)));
         summary.append(change);
       }
     }

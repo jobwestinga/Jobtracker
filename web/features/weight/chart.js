@@ -6,8 +6,8 @@ import { weightYearTicks } from "./math.js";
 // native chart. Saved PNGs keep the original light figure.
 export const WEIGHT_CHART_PALETTES = {
   screen: {
-    background: "#131C2E", panel: "#131C2E", grid: "#263149", text: "#8A98B0", tick: "#8A98B0",
-    yearLine: "#34405A", points: "rgba(196, 207, 224, 0.82)", trend: "#60A5FA",
+    background: "#0F1522", panel: "#0F1522", grid: "#1F2B42", text: "#94A3B8", tick: "#94A3B8",
+    yearLine: "#2C3B59", points: "rgba(238, 242, 248, 0.96)", trend: "#38BDF8",
   },
   print: {
     background: "#fff", panel: "#ebebeb", grid: "#fff", text: "#555", tick: "#4b4b4b",
@@ -15,7 +15,7 @@ export const WEIGHT_CHART_PALETTES = {
   },
 };
 
-const POINT_RADIUS = 1.7;
+const POINT_RADIUS = 2.5;
 
 // `domain` ({x0, x1}) fixes the time axis for a zoomed view; otherwise it spans the points.
 export function drawWeightChart(canvas, points, trend, preferences, invalidRange = false,
@@ -76,14 +76,35 @@ export function drawWeightChart(canvas, points, trend, preferences, invalidRange
     ctx.fillText(String(new Date(first).getUTCFullYear()), left, bottom + 35);
   }
   ctx.save(); ctx.beginPath(); ctx.rect(left - 3, top - 3, right - left + 6, bottom - top + 6); ctx.clip();
-  if (preferences.points) {
-    ctx.fillStyle = palette.points; ctx.beginPath();
-    for (const point of points) { ctx.moveTo(px(point.x) + POINT_RADIUS, py(point.y)); ctx.arc(px(point.x), py(point.y), POINT_RADIUS, 0, Math.PI * 2); }
+  if (trend.length > 1 && palette === WEIGHT_CHART_PALETTES.screen) {
+    if (typeof ctx.createLinearGradient === "function") {
+      const grad = ctx.createLinearGradient(0, top, 0, bottom);
+      grad.addColorStop(0, "rgba(56, 189, 248, 0.24)");
+      grad.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
+    }
+    ctx.beginPath();
+    ctx.moveTo(px(trend[0].x), bottom);
+    for (const point of trend) ctx.lineTo(px(point.x), py(point.y));
+    ctx.lineTo(px(trend.at(-1).x), bottom);
     ctx.fill();
   }
   if (trend.length) {
-    ctx.strokeStyle = palette.trend; ctx.lineWidth = 2.2; ctx.lineJoin = "round"; ctx.beginPath();
+    ctx.strokeStyle = palette.trend; ctx.lineWidth = 2.4; ctx.lineJoin = "round"; ctx.beginPath();
     trend.forEach((point, index) => index ? ctx.lineTo(px(point.x), py(point.y)) : ctx.moveTo(px(point.x), py(point.y))); ctx.stroke();
+  }
+  if (preferences.points) {
+    if (palette === WEIGHT_CHART_PALETTES.screen) {
+      ctx.fillStyle = palette.panel; ctx.beginPath();
+      const ringRadius = POINT_RADIUS + 1.1;
+      for (const point of points) { ctx.moveTo(px(point.x) + ringRadius, py(point.y)); ctx.arc(px(point.x), py(point.y), ringRadius, 0, Math.PI * 2); }
+      ctx.fill();
+    }
+    ctx.fillStyle = palette.points; ctx.beginPath();
+    for (const point of points) { ctx.moveTo(px(point.x) + POINT_RADIUS, py(point.y)); ctx.arc(px(point.x), py(point.y), POINT_RADIUS, 0, Math.PI * 2); }
+    ctx.fill();
   }
   ctx.restore();
   return { x0, x1, left, right };
