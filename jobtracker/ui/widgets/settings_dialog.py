@@ -31,6 +31,11 @@ from .dialog_utils import (
 
 logger = logging.getLogger("jobtracker")
 
+THEME_PRESETS = {
+    "OLED Midnight": ("Clean", "Obsidian"),
+    "Carbon Dark": ("Clean", "Dark"),
+}
+
 
 class SettingsDialog(InlineDialog):
     def __init__(self, parent=None, service=None) -> None:
@@ -73,6 +78,23 @@ class SettingsDialog(InlineDialog):
         outer.addWidget(self.scroll_area)
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(12)
+
+        theme_label = QLabel("Dark themes")
+        theme_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        layout.addWidget(theme_label)
+        presets = QHBoxLayout()
+        self._preset_btns = {}
+        for name in THEME_PRESETS:
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setMinimumHeight(54)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setAccessibleName(f"Use {name} theme")
+            button.setToolTip("Layered dark surfaces with the Clean effect")
+            button.clicked.connect(lambda _checked=False, n=name: self._select_preset(n))
+            presets.addWidget(button, 1)
+            self._preset_btns[name] = button
+        layout.addLayout(presets)
 
         # ── FX Style ─────────────────────────────────────────────────────
         fx_lbl = QLabel("Theme FX")
@@ -295,9 +317,17 @@ class SettingsDialog(InlineDialog):
     def _keep_focus_visible(self, _previous=None, current=None) -> None:
         current = current or QApplication.focusWidget()
         if self.isVisible() and current is not None and self.scroll_area.isAncestorOf(current):
-            self.scroll_area.ensureWidgetVisible(current, 0, 12)
+            # ensureWidgetVisible uses a text field's cursor rectangle, which
+            # can leave its lower border clipped. Reveal the whole control.
+            center = current.mapTo(self.scroll_area.widget(), current.rect().center())
+            self.scroll_area.ensureVisible(center.x(), center.y(), 0, (current.height() + 1) // 2 + 12)
 
     # ── Selection ────────────────────────────────────────────────────────
+    def _select_preset(self, name: str) -> None:
+        self._fx, self._palette = THEME_PRESETS[name]
+        self._palette_name_lbl.setText(self._palette)
+        self._apply_preview()
+
     def _select_fx(self, name: str) -> None:
         self._fx = name
         self._refresh_buttons()
@@ -316,6 +346,19 @@ class SettingsDialog(InlineDialog):
         border = tokens["BORDER_COLOR"]
         text = tokens["TEXT_PRIMARY"]
         text_dim = tokens["TEXT_SECONDARY"]
+
+        for name, button in self._preset_btns.items():
+            fx, palette = THEME_PRESETS[name]
+            preview = get_tokens(fx, palette)
+            selected = (self._fx, self._palette) == (fx, palette)
+            button.setChecked(selected)
+            edge = preview["ACCENT"] if selected else preview["BORDER_COLOR"]
+            button.setStyleSheet(
+                f"QPushButton {{ background: {preview['BG_SECONDARY']}; color: {preview['TEXT_PRIMARY']};"
+                f" border: {2 if selected else 1}px solid {edge}; border-radius: 8px;"
+                " font-size: 12px; font-weight: 600; padding: 8px; }"
+                f" QPushButton:focus {{ border: 2px solid {preview['BORDER_FOCUS']}; }}"
+            )
 
         for btn in self._fx_btns:
             name = btn.property("fx_name")
@@ -366,7 +409,17 @@ class SettingsDialog(InlineDialog):
             main._graph_view.set_tokens(tokens)
         if main and hasattr(main, "_agenda_view"):
             main._agenda_view.set_tokens(tokens)
+        self._preview_navigation_and_weight(main, tokens)
         self._refresh_buttons()
+
+    def _preview_navigation_and_weight(self, main, tokens) -> None:
+        if main and hasattr(main, "_weight_view"):
+            main._weight_view.set_tokens(tokens)
+        if main and hasattr(main, "_sync_status"):
+            main._sync_status.apply_tokens(tokens)
+        for button in getattr(main, "_nav_buttons", []):
+            if hasattr(button, "set_tokens"):
+                button.set_tokens(tokens)
 
     def _cancel(self) -> None:
         self.reject()
@@ -400,6 +453,7 @@ class SettingsDialog(InlineDialog):
                 main._graph_view.set_tokens(tokens)
             if main and hasattr(main, "_agenda_view"):
                 main._agenda_view.set_tokens(tokens)
+            self._preview_navigation_and_weight(main, tokens)
         self._fx = self._original_fx
         self._palette = self._original_palette
 

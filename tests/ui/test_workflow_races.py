@@ -126,6 +126,42 @@ def test_settings_rejection_always_reverts_theme_preview(native_window, dismissa
     assert app.styleSheet() == original_style
 
 
+@pytest.mark.parametrize("name,palette", [("OLED Midnight", "Obsidian"), ("Carbon Dark", "Dark")])
+def test_dark_theme_preset_preview_cancel_and_save_preserve_weight_draft(native_window, name, palette):
+    from jobtracker.core.themes import get_tokens
+
+    app, window = native_window
+    original_style, original_tokens = app.styleSheet(), window._tokens
+    window._weight_view._select_whole(80)
+    window._weight_view._select_decimal(6)
+    original_palette = window.service.get_setting("theme_palette", "Ocean")
+
+    editor = SettingsDialog(window, service=window.service)
+    open_dialog(editor, window._finish_settings)
+    app.processEvents()
+    editor._preset_btns[name].click()
+    tokens = get_tokens("Clean", palette)
+    assert window._weight_view._chart._tokens == tokens
+    assert all(button._tokens == tokens for button in window._nav_buttons)
+    assert window.service.get_setting("theme_palette", "Ocean") == original_palette
+    editor.reject()
+    app.processEvents()
+    assert app.styleSheet() == original_style
+    assert window._weight_view._chart._tokens == original_tokens
+    assert all(button._tokens == original_tokens for button in window._nav_buttons)
+
+    editor = SettingsDialog(window, service=window.service)
+    open_dialog(editor, window._finish_settings)
+    app.processEvents()
+    editor._preset_btns[name].click()
+    editor.accept()
+    app.processEvents()
+    assert window.service.get_setting("theme_fx") == "Clean"
+    assert window.service.get_setting("theme_palette") == palette
+    assert window._tokens == tokens
+    assert window._weight_view._value() == 80.6
+
+
 @pytest.mark.parametrize("boundary", ["06:30", "23:45"])
 def test_unrelated_settings_save_preserves_exact_day_boundary(service, monkeypatch, boundary):
     _application()
