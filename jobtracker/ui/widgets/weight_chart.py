@@ -26,9 +26,14 @@ class WeightChart(QWidget):
         self._positions = []
         self._hovered_point = None
         self._contrast = False
+        self._show_points = True
 
     def set_tokens(self, tokens, contrast=False):
         self._tokens, self._contrast = tokens, contrast
+        self.update()
+
+    def set_show_points(self, show: bool):
+        self._show_points = bool(show)
         self.update()
 
     def set_data(self, points, trend):
@@ -114,6 +119,36 @@ class WeightChart(QWidget):
             painter.setBrush(grad)
             painter.drawPath(area)
 
+        # Adapt dot size & layering to point density so dense ranges ("All history" / "1Y")
+        # stay clean and never bury the trend curve.
+        self._positions = [(project(point), point) for point in self._points]
+        px_per_point = rect.width() / max(1, len(self._points))
+        dense_points = px_per_point < 5.5
+
+        def _draw_dots():
+            if not self._show_points:
+                return
+            dot_fill = QColor(t["TEXT_PRIMARY"] if self._contrast else "#E2E8F0")
+            if dense_points:
+                dot_fill.setAlpha(180 if self._contrast else 115)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(dot_fill)
+                for position, point in self._positions:
+                    if self._hovered_point is not point:
+                        painter.drawEllipse(position, 1.35, 1.35)
+            else:
+                radius = 2.6 if px_per_point >= 11.0 else 1.9
+                dot_fill.setAlpha(245 if self._contrast else 225)
+                ring_pen = QPen(QColor(t["BG_SECONDARY"]), 1.1 if px_per_point >= 11.0 else 0.7)
+                painter.setPen(ring_pen)
+                painter.setBrush(dot_fill)
+                for position, point in self._positions:
+                    if self._hovered_point is not point:
+                        painter.drawEllipse(position, radius, radius)
+
+        if dense_points:
+            _draw_dots()
+
         # Trend line
         if self._trend:
             path = QPainterPath()
@@ -121,29 +156,21 @@ class WeightChart(QWidget):
             for point in self._trend[1:]:
                 path.lineTo(project(point))
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(accent_color, 3.0 if self._contrast else 2.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.setPen(QPen(accent_color, 3.0 if self._contrast else 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawPath(path)
 
-        # Measurement dots (clear visible dots on the curve/points)
-        self._positions = []
-        dot_fill = QColor(t["TEXT_PRIMARY"] if self._contrast else "#E2E8F0")
-        dot_fill.setAlpha(245 if self._contrast else 225)
-        ring_pen = QPen(QColor(t["BG_SECONDARY"]), 1.2)
-        for point in self._points:
-            position = project(point)
-            self._positions.append((position, point))
-            is_hovered = self._hovered_point is point
-            radius = 4.4 if is_hovered else 3.0
-            painter.setPen(ring_pen)
-            painter.setBrush(accent_color if is_hovered else dot_fill)
-            painter.drawEllipse(position, radius, radius)
+        if not dense_points:
+            _draw_dots()
 
-        # Interactive hover crosshair + inspection pill
+        # Interactive hover crosshair + highlighted dot
         if self._hovered_point is not None:
             hp = project(self._hovered_point)
             cross_pen = QPen(accent_color, 1.0, Qt.DashLine)
             painter.setPen(cross_pen)
             painter.drawLine(QPointF(hp.x(), rect.top()), QPointF(hp.x(), rect.bottom()))
+            painter.setPen(QPen(QColor(t["BG_SECONDARY"]), 1.4))
+            painter.setBrush(accent_color)
+            painter.drawEllipse(hp, 4.4, 4.4)
 
         painter.restore()
 

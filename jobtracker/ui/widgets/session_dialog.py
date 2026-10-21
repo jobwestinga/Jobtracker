@@ -248,8 +248,12 @@ class SessionDialog(InlineDialog):
 
     def _build_ui(self, show_subject_picker: bool) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 20, 24, 18)
+        layout.setSpacing(10)
+
+        heading = QLabel(self.windowTitle())
+        heading.setStyleSheet("font-size: 18px; font-weight: 800;")
+        layout.addWidget(heading)
 
         # ── Subject (edit only): move the session to another subject ─────
         if show_subject_picker:

@@ -83,15 +83,17 @@ class WeightView(QWidget):
         self._layout = QVBoxLayout(self._body)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(12)
-        header = QHBoxLayout()
+        self._header_widget = QWidget()
+        header = QHBoxLayout(self._header_widget)
+        header.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Weight"); title.setObjectName("weightTitle")
         header.addWidget(title)
         header.addStretch()
-        options_button = QPushButton("Options")
+        self._options_button = options_button = QPushButton("Options")
         options_button.setCheckable(True)
         options_button.clicked.connect(lambda checked: self._options.setVisible(checked))
         header.addWidget(options_button)
-        self._layout.addLayout(header)
+        self._layout.addWidget(self._header_widget)
 
         self._entry = QFrame(); self._entry.setObjectName("weightCard")
         entry = QVBoxLayout(self._entry)
@@ -182,7 +184,7 @@ class WeightView(QWidget):
         self._options.hide()
         self._layout.addWidget(self._options)
 
-        chart_card = QFrame(); chart_card.setObjectName("weightCard")
+        self._chart_card = chart_card = QFrame(); chart_card.setObjectName("weightCard")
         chart_layout = QVBoxLayout(chart_card)
         chart_controls = QHBoxLayout()
         self._range = QComboBox()
@@ -197,8 +199,19 @@ class WeightView(QWidget):
         self._smoothing.setCurrentIndex(max(0, self._smoothing.findData(self.service.get_setting("weight_chart_smoothing", "loess"))))
         self._smoothing.currentIndexChanged.connect(self._chart_options_changed)
         chart_controls.addWidget(self._smoothing, 1)
+        self._fullscreen_btn = QPushButton("⛶ Fullscreen")
+        self._fullscreen_btn.setCheckable(True)
+        self._fullscreen_btn.setCursor(Qt.PointingHandCursor)
+        self._fullscreen_btn.setToolTip("Expand weight plot to fill the window (Esc to exit)")
+        self._fullscreen_btn.setAccessibleName("Toggle weight plot fullscreen")
+        self._fullscreen_btn.toggled.connect(self._toggle_plot_fullscreen)
+        chart_controls.addWidget(self._fullscreen_btn, 0)
         chart_layout.addLayout(chart_controls)
         detail = QHBoxLayout()
+        self._points_check = QCheckBox("Show dots")
+        self._points_check.setChecked(self.service.get_setting("weight_chart_points", "1") != "0")
+        self._points_check.toggled.connect(self._chart_options_changed)
+        detail.addWidget(self._points_check)
         self._historic = QCheckBox("Historic readings")
         self._historic.setChecked(self.service.get_setting("weight_chart_historic", "0") == "1")
         self._historic.toggled.connect(self._chart_options_changed)
@@ -215,14 +228,15 @@ class WeightView(QWidget):
         detail.addWidget(self._span)
         chart_layout.addLayout(detail)
         self._chart = WeightChart()
+        self._chart.set_show_points(self._points_check.isChecked())
         self._chart.entry_clicked.connect(self.edit_entry)
         chart_layout.addWidget(self._chart, 1)
         self._summary = QLabel(); self._summary.setObjectName("weightHint")
         self._summary.setWordWrap(True)
         chart_layout.addWidget(self._summary)
-        self._layout.addWidget(chart_card)
+        self._layout.addWidget(chart_card, 2)
 
-        history_card = QFrame(); history_card.setObjectName("weightCard")
+        self._history_card = history_card = QFrame(); history_card.setObjectName("weightCard")
         history_layout = QVBoxLayout(history_card)
         history_header = QHBoxLayout()
         history_header.addWidget(QLabel("History"))
@@ -231,7 +245,7 @@ class WeightView(QWidget):
         history_header.addWidget(self._search, 1)
         history_layout.addLayout(history_header)
         self._history = QTreeWidget()
-        self._history.setHeaderLabels(["Date", "kg", "Source"])
+        self._history.setHeaderLabels(["Date", "kg", "Change", "Source"])
         self._history.setRootIsDecorated(False)
         self._history.setAlternatingRowColors(False)
         self._history.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -240,6 +254,7 @@ class WeightView(QWidget):
         self._history.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self._history.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self._history.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._history.header().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self._history.itemDoubleClicked.connect(lambda item, _column: self.edit_entry(item.data(0, Qt.UserRole)))
         self._history.itemSelectionChanged.connect(self._history_selection_changed)
         history_layout.addWidget(self._history, 1)
@@ -286,12 +301,38 @@ class WeightView(QWidget):
         self.service.set_setting("weight_ui_contrast", "1" if self._contrast.isChecked() else "0")
         self.set_tokens(self._tokens)
 
+    def _toggle_plot_fullscreen(self, expanded: bool):
+        if expanded:
+            self._header_widget.hide()
+            self._entry.hide()
+            self._options.hide()
+            self._history_card.hide()
+            self._chart.setMinimumHeight(460)
+            self._fullscreen_btn.setText("✕ Exit Fullscreen")
+        else:
+            self._header_widget.show()
+            self._entry.show()
+            self._options.setVisible(self._options_button.isChecked())
+            self._history_card.show()
+            self._chart.setMinimumHeight(195)
+            self._fullscreen_btn.setText("⛶ Fullscreen")
+        self._chart.update()
+
+    def keyPressEvent(self, event):  # noqa: N802
+        if event.key() == Qt.Key_Escape and self._fullscreen_btn.isChecked():
+            self._fullscreen_btn.setChecked(False)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def _chart_options_changed(self, *_args):
         for key, value in (("weight_chart_range", self._range.currentData()),
                            ("weight_chart_smoothing", self._smoothing.currentData()),
+                           ("weight_chart_points", "1" if self._points_check.isChecked() else "0"),
                            ("weight_chart_historic", "1" if self._historic.isChecked() else "0"),
                            ("weight_chart_span", str(self._span.value()))):
             self.service.set_setting(key, value)
+        self._chart.set_show_points(self._points_check.isChecked())
         self._update_chart()
 
     def _shift_range(self, delta):
@@ -397,6 +438,8 @@ class WeightView(QWidget):
         row = next((row for row in self._rows if row.get("uid") == uid), None)
         if row is None:
             return
+        if self._fullscreen_btn.isChecked():
+            self._fullscreen_btn.setChecked(False)
         self._follow_today = False
         self._draft_dirty = False
         self._date.blockSignals(True)
@@ -437,8 +480,22 @@ class WeightView(QWidget):
         if changed:
             selected = self._selected_uid()
             self._history.clear()
-            for row in reversed(rows):
-                item = QTreeWidgetItem([row["measured_at"][:10], _weight_text(row["weight_kg"]), row.get("source", "manual")])
+            for idx in range(len(rows) - 1, -1, -1):
+                row = rows[idx]
+                prev_kg = rows[idx - 1]["weight_kg"] if idx > 0 else None
+                diff = (row["weight_kg"] - prev_kg) if prev_kg is not None else None
+                diff_txt = f"{diff:+.1f} kg" if diff is not None else "—"
+                item = QTreeWidgetItem([
+                    row["measured_at"][:10],
+                    _weight_text(row["weight_kg"]),
+                    diff_txt,
+                    row.get("source", "manual"),
+                ])
+                if diff is not None:
+                    if diff < -0.04:
+                        item.setForeground(2, QColor("#38BDF8"))
+                    elif diff > 0.04:
+                        item.setForeground(2, QColor("#F87171"))
                 item.setData(0, Qt.UserRole, row["uid"])
                 self._history.addTopLevelItem(item)
                 if row["uid"] == selected:
@@ -461,14 +518,39 @@ class WeightView(QWidget):
         self._span.setEnabled(mode == "loess")
         self._chart.set_data(points, weight_plot.trend_for(points, mode, self._span.value()))
         if points:
-            delta = points[-1].y - points[0].y
-            self._summary.setText(
-                f"{len(points)} readings · latest {_weight_text(points[-1].y)} kg · change {delta:+.2f} kg"
-            )
+            range_delta = points[-1].y - points[0].y
+            # Compute 30-day delta relative to the latest measurement so the badge
+            # shows recent change rather than an uncontextualized multi-year total.
+            latest_day_str = points[-1].row.get("measured_at", "")[:10]
+            latest_qdate = QDate.fromString(latest_day_str, Qt.ISODate)
+            cutoff_str = latest_qdate.addDays(-30).toString(Qt.ISODate) if latest_qdate.isValid() else ""
+            ref_30d = next(
+                (r for r in reversed(self._rows) if r.get("measured_at", "")[:10] <= cutoff_str),
+                None,
+            ) if cutoff_str else None
+            if ref_30d is not None:
+                badge_delta = points[-1].y - ref_30d["weight_kg"]
+                badge_prefix = "30d"
+            else:
+                badge_delta = range_delta
+                badge_prefix = {"30": "30d", "90": "90d", "365": "1Y"}.get(str(choice), "Δ")
+
+            summary_parts = [
+                f"{len(points)} readings",
+                f"latest {_weight_text(points[-1].y)} kg",
+                f"change {range_delta:+.2f} kg",
+            ]
+            if ref_30d is not None and choice == "all":
+                summary_parts.append(f"30d {badge_delta:+.1f} kg")
+            self._summary.setText(" · ".join(summary_parts))
+
             # Blue / Red contrast badge for delta (D5-A user preference)
-            badge_color = "#38BDF8" if delta <= 0 else "#F87171"
-            badge_bg = "rgba(56, 189, 248, 0.14)" if delta <= 0 else "rgba(248, 113, 113, 0.14)"
-            self._delta_badge.setText(f"{delta:+.1f} kg")
+            badge_color = "#38BDF8" if badge_delta <= 0 else "#F87171"
+            badge_bg = "rgba(56, 189, 248, 0.14)" if badge_delta <= 0 else "rgba(248, 113, 113, 0.14)"
+            self._delta_badge.setText(f"{badge_prefix} {badge_delta:+.1f} kg")
+            self._delta_badge.setToolTip(
+                f"Change over {badge_prefix}: {badge_delta:+.2f} kg (visible range change: {range_delta:+.2f} kg)"
+            )
             self._delta_badge.setStyleSheet(
                 f"color: {badge_color}; background: {badge_bg};"
                 f" border: 1px solid {badge_color}; border-radius: 6px;"
@@ -519,9 +601,10 @@ class WeightView(QWidget):
 
     def _filter_history(self, *_args):
         query = self._search.text().strip().casefold()
+        cols = self._history.columnCount()
         for index in range(self._history.topLevelItemCount()):
             item = self._history.topLevelItem(index)
-            item.setHidden(bool(query) and query not in " ".join(item.text(column) for column in range(3)).casefold())
+            item.setHidden(bool(query) and query not in " ".join(item.text(column) for column in range(cols)).casefold())
 
     def _request_delete(self):
         uid = self._selected_uid()

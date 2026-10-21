@@ -91,21 +91,28 @@ export function drawWeightChart(canvas, points, trend, preferences, invalidRange
     ctx.lineTo(px(trend.at(-1).x), bottom);
     ctx.fill();
   }
+  const pxPerPoint = (right - left) / Math.max(1, points.length);
+  const dense = pxPerPoint < 5.5;
+  const drawPoints = () => {
+    if (!preferences.points) return;
+    const radius = dense ? 1.35 : pxPerPoint >= 11 ? POINT_RADIUS : 1.9;
+    if (!dense && palette === WEIGHT_CHART_PALETTES.screen) {
+      ctx.fillStyle = palette.panel; ctx.beginPath();
+      const ringRadius = radius + 1.0;
+      for (const point of points) { ctx.moveTo(px(point.x) + ringRadius, py(point.y)); ctx.arc(px(point.x), py(point.y), ringRadius, 0, Math.PI * 2); }
+      ctx.fill();
+    }
+    ctx.fillStyle = dense && palette === WEIGHT_CHART_PALETTES.screen ? "rgba(226, 232, 240, 0.45)" : palette.points;
+    ctx.beginPath();
+    for (const point of points) { ctx.moveTo(px(point.x) + radius, py(point.y)); ctx.arc(px(point.x), py(point.y), radius, 0, Math.PI * 2); }
+    ctx.fill();
+  };
+  if (dense) drawPoints();
   if (trend.length) {
     ctx.strokeStyle = palette.trend; ctx.lineWidth = 2.4; ctx.lineJoin = "round"; ctx.beginPath();
     trend.forEach((point, index) => index ? ctx.lineTo(px(point.x), py(point.y)) : ctx.moveTo(px(point.x), py(point.y))); ctx.stroke();
   }
-  if (preferences.points) {
-    if (palette === WEIGHT_CHART_PALETTES.screen) {
-      ctx.fillStyle = palette.panel; ctx.beginPath();
-      const ringRadius = POINT_RADIUS + 1.1;
-      for (const point of points) { ctx.moveTo(px(point.x) + ringRadius, py(point.y)); ctx.arc(px(point.x), py(point.y), ringRadius, 0, Math.PI * 2); }
-      ctx.fill();
-    }
-    ctx.fillStyle = palette.points; ctx.beginPath();
-    for (const point of points) { ctx.moveTo(px(point.x) + POINT_RADIUS, py(point.y)); ctx.arc(px(point.x), py(point.y), POINT_RADIUS, 0, Math.PI * 2); }
-    ctx.fill();
-  }
+  if (!dense) drawPoints();
   ctx.restore();
   return { x0, x1, left, right };
 }

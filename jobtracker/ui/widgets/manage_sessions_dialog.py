@@ -56,14 +56,28 @@ class ManageSessionsDialog(InlineDialog):
         self._subject = subject
         title = f"Sessions — {subject.name}" if subject else "Sessions"
         self.setWindowTitle(title)
-        self.setMinimumSize(560, 600)
+        self.setMinimumSize(460, 540)
         self._build_ui()
         self._load(select_session_id=select_session_id)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
+        if self._subject and getattr(self._subject, "color", None):
+            dot = QLabel()
+            dot.setFixedSize(10, 10)
+            dot.setStyleSheet(
+                f"background-color: {self._subject.color}; border-radius: 5px;"
+            )
+            header_row.addWidget(dot, 0, Qt.AlignVCenter)
+        title_lbl = QLabel(self.windowTitle())
+        title_lbl.setStyleSheet("font-size: 17px; font-weight: 750;")
+        header_row.addWidget(title_lbl, 1)
+        layout.addLayout(header_row)
 
         self._empty_lbl = QLabel(
             'No sessions recorded yet.\nClick "+ Add Session" to create one.'

@@ -71,8 +71,12 @@ class SettingsDialog(InlineDialog):
         layout = QVBoxLayout(content)
         self.scroll_area.setWidget(content)
         outer.addWidget(self.scroll_area)
-        layout.setContentsMargins(24, 24, 24, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("Settings")
+        heading.setStyleSheet("font-size: 18px; font-weight: 800;")
+        layout.addWidget(heading)
 
         # ── FX Style ─────────────────────────────────────────────────────
         fx_lbl = QLabel("Theme FX")

@@ -189,10 +189,10 @@ class TodoTaskItemWidget(QFrame):
     def _build_ui(self) -> None:
         t = self._t
         self.setObjectName("todoTaskCard")
-        self.setMinimumHeight(72)
+        self.setMinimumHeight(56)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 11, 12, 11)
+        layout.setContentsMargins(14, 10, 12, 10)
         layout.setSpacing(8)
         self._root_layout = layout
         self._shortcut_badge = None
@@ -206,15 +206,18 @@ class TodoTaskItemWidget(QFrame):
         )
         info.addWidget(self.name_lbl)
 
-        self.progress_lbl = QLabel()
-        info.addWidget(self.progress_lbl)
-
-        # Thin milestone progress bar, shown only when there are milestones.
+        progress_row = QHBoxLayout()
+        progress_row.setContentsMargins(0, 0, 0, 0)
+        progress_row.setSpacing(8)
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(3)
-        self.progress_bar.setMaximumWidth(180)
-        info.addWidget(self.progress_bar)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setMaximumWidth(140)
+        progress_row.addWidget(self.progress_bar, 0, Qt.AlignVCenter)
+        self.progress_lbl = QLabel()
+        progress_row.addWidget(self.progress_lbl, 0, Qt.AlignVCenter)
+        progress_row.addStretch()
+        info.addLayout(progress_row)
         self._apply_progress_label()
 
         if getattr(self.todo_task, "deadline", None):
@@ -256,6 +259,27 @@ class TodoTaskItemWidget(QFrame):
         self.focus_btn.clicked.connect(self._on_focus_clicked)
         layout.addWidget(self.focus_btn, 0, Qt.AlignVCenter)
 
+        self.edit_btn = QPushButton("✎", self)
+        self.edit_btn.setFixedSize(24, 24)
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
+        self.edit_btn.setFlat(True)
+        self.edit_btn.setFocusPolicy(Qt.StrongFocus)
+        self.edit_btn.setProperty("no_drag", True)
+        self.edit_btn.setToolTip("Edit goal")
+        self.edit_btn.setAccessibleName(f"Edit goal {self.todo_task.name}")
+        self.edit_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none;"
+            f" color: {t.get('TEXT_DIMMED', '#6F7D90')}; font-size: 13px; border-radius: 5px; }}"
+            f"QPushButton:hover {{ color: {t.get('TEXT_PRIMARY', '#FFFFFF')};"
+            f" background: {t.get('BG_TERTIARY', 'rgba(255,255,255,0.06)')}; }}"
+        )
+        self.edit_btn.clicked.connect(
+            lambda: self.edit_requested.emit(self.todo_task.id)
+            if self.todo_task.id is not None
+            else None
+        )
+        layout.addWidget(self.edit_btn, 0, Qt.AlignVCenter)
+
     def install_shortcut_badge(self) -> None:
         """Create the keycap only after the card is owned by its list."""
         if self._shortcut_number is None or self._shortcut_badge is not None:
@@ -289,13 +313,17 @@ class TodoTaskItemWidget(QFrame):
                 if total > 0 else "Completed"
             )
             color = t["ACCENT_GREEN"]
+            self.progress_lbl.setText(text)
+            self.progress_lbl.show()
         elif total > 0:
-            text = f"✓ {done}/{total} milestones"
+            text = f"{done}/{total} milestones"
             color = t["ACCENT_GREEN"] if done == total else t["TEXT_SECONDARY"]
+            self.progress_lbl.setText(text)
+            self.progress_lbl.show()
         else:
-            text = "No milestones — complete manually"
             color = t["TEXT_DIMMED"]
-        self.progress_lbl.setText(text)
+            self.progress_lbl.setText("")
+            self.progress_lbl.hide()
         self.progress_lbl.setStyleSheet(
             f"font-size: 11px; font-weight: 600; color: {color}; background: transparent;"
         )

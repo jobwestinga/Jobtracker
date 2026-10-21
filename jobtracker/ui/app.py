@@ -401,8 +401,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._layered.setCurrentWidget(content)
 
         root = QHBoxLayout(content)
-        root.setContentsMargins(14, 14, 16, 14)
-        root.setSpacing(14)
+        root.setContentsMargins(12, 12, 14, 12)
+        root.setSpacing(12)
 
         self._sidebar = self._build_left_sidebar(content)
         root.addWidget(self._sidebar, 0)
@@ -437,11 +437,11 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def _build_left_sidebar(self, parent: QWidget) -> QFrame:
         bar = QFrame(parent)
         bar.setObjectName("leftSidebar")
-        bar.setFixedWidth(156)
+        bar.setFixedWidth(142)
 
         nav = QVBoxLayout(bar)
-        nav.setContentsMargins(10, 12, 10, 10)
-        nav.setSpacing(6)
+        nav.setContentsMargins(9, 12, 9, 10)
+        nav.setSpacing(5)
 
         brand_row = QHBoxLayout()
         brand_row.setContentsMargins(4, 0, 0, 2)

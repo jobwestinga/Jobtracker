@@ -233,7 +233,7 @@ class _GraphCanvas(QWidget):
                 p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(bar_rect, 7, 7)
 
-            # Crisp tabular total hours label above the bar (no blurry multi-offset halo)
+            # Total hours label with dynamic magnitude size and colour contour
             if bar_width > 20 and total_seconds > 0:
                 total_h = total_seconds / 3600.0
                 intensity_seconds = day_data.get(
@@ -242,14 +242,27 @@ class _GraphCanvas(QWidget):
                 c_hex, s, strong = _intensity_style(intensity_seconds)
 
                 text = f"{total_h:.1f}h"
-                base_font_size = 10
-                scaled_size = max(9, min(13, int(base_font_size * min(1.22, s))))
-                weight = QFont.Bold if strong else QFont.DemiBold
+                base_font_size = 11
+                scaled_size = max(8, int(base_font_size * s))
+                weight = QFont.Black if strong else QFont.Bold
                 p.setFont(QFont("SF Pro Text", scaled_size, weight))
 
-                text_rect = QRectF(x - 24, chart.top() - 24, bar_width + 48, 20)
-                label_color = QColor(t["TEXT_PRIMARY"]) if strong else QColor(t["TEXT_SECONDARY"])
-                p.setPen(label_color)
+                text_rect = QRectF(x - 28, chart.top() - 28, bar_width + 56, 24)
+
+                # Strong days get a wide soft halo behind the contour so big
+                # totals visibly pop, especially fullscreen. No dark stroke:
+                # it read as an ugly black outline.
+                if strong:
+                    p.setPen(QPen(_with_alpha(c_hex, 80), 1))
+                    for ox, oy in [(-2, -2), (2, -2), (-2, 2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]:
+                        p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
+
+                # Shiny coloured contour (multi-offset outer stroke)
+                p.setPen(QPen(_with_alpha(c_hex, 220), 1))
+                for ox, oy in [(-1, -1), (1, -1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
+
+                p.setPen(QColor(t["TEXT_PRIMARY"]))
                 p.drawText(text_rect, Qt.AlignCenter, text)
 
             # Day label

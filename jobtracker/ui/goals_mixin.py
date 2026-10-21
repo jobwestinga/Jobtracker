@@ -31,36 +31,35 @@ class GoalsMixin:
         lay.setSpacing(12)
 
         header = QHBoxLayout()
+        header.setSpacing(8)
         self._goals_title = QLabel("Goals")
         self._goals_title.setObjectName("title")
         header.addWidget(self._goals_title)
         header.addStretch()
 
+        templates_btn = QPushButton("Templates")
+        templates_btn.setCursor(Qt.PointingHandCursor)
+        templates_btn.setMinimumHeight(32)
+        templates_btn.setToolTip("Recurring goal templates (daily/weekly/monthly)")
+        templates_btn.clicked.connect(self._open_templates)
+        header.addWidget(templates_btn)
+
+        self._show_completed_btn = QPushButton("Completed")
+        self._show_completed_btn.setCursor(Qt.PointingHandCursor)
+        self._show_completed_btn.setMinimumHeight(32)
+        self._show_completed_btn.clicked.connect(
+            lambda: self._queue_ui_action(self._toggle_completed_goals)
+        )
+        header.addWidget(self._show_completed_btn)
+
         add_btn = QPushButton("+ Goal")
         add_btn.setObjectName("primaryBtn")
-        add_btn.setMinimumHeight(34)
+        add_btn.setMinimumHeight(32)
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.clicked.connect(self._new_goal)
         header.addWidget(add_btn)
 
         lay.addLayout(header)
-
-        tools = QHBoxLayout()
-        templates_btn = QPushButton("Templates")
-        templates_btn.setCursor(Qt.PointingHandCursor)
-        templates_btn.setMinimumHeight(30)
-        templates_btn.setToolTip("Recurring goal templates (daily/weekly/monthly)")
-        templates_btn.clicked.connect(self._open_templates)
-        tools.addWidget(templates_btn)
-        tools.addStretch()
-        self._show_completed_btn = QPushButton("Completed")
-        self._show_completed_btn.setCursor(Qt.PointingHandCursor)
-        self._show_completed_btn.setMinimumHeight(30)
-        self._show_completed_btn.clicked.connect(
-            lambda: self._queue_ui_action(self._toggle_completed_goals)
-        )
-        tools.addWidget(self._show_completed_btn)
-        lay.addLayout(tools)
 
         self._todo_empty = QLabel("No goals yet — click + Goal to add one.")
         self._todo_empty.setStyleSheet(
