@@ -482,7 +482,7 @@ class WeightView(QWidget):
                 row = rows[idx]
                 prev_kg = rows[idx - 1]["weight_kg"] if idx > 0 else None
                 diff = (row["weight_kg"] - prev_kg) if prev_kg is not None else None
-                diff_txt = f"{diff:+.1f} kg" if diff is not None else "—"
+                diff_txt = f"{diff:+.2f} kg" if diff is not None else "—"
                 item = QTreeWidgetItem([
                     row["measured_at"][:10],
                     _weight_text(row["weight_kg"]),
@@ -490,9 +490,9 @@ class WeightView(QWidget):
                     row.get("source", "manual"),
                 ])
                 if diff is not None:
-                    if diff < -0.04:
+                    if diff < -0.005:
                         item.setForeground(2, QColor("#38BDF8"))
-                    elif diff > 0.04:
+                    elif diff > 0.005:
                         item.setForeground(2, QColor("#F87171"))
                 item.setData(0, Qt.UserRole, row["uid"])
                 self._history.addTopLevelItem(item)
@@ -517,45 +517,36 @@ class WeightView(QWidget):
         self._chart.set_data(points, weight_plot.trend_for(points, mode, self._span.value()))
         if points:
             range_delta = points[-1].y - points[0].y
-            # Compute 30-day delta relative to the latest measurement so the badge
-            # shows recent change rather than an uncontextualized multi-year total.
-            latest_day_str = points[-1].row.get("measured_at", "")[:10]
-            latest_qdate = QDate.fromString(latest_day_str, Qt.ISODate)
-            cutoff_str = latest_qdate.addDays(-30).toString(Qt.ISODate) if latest_qdate.isValid() else ""
-            ref_30d = next(
-                (r for r in reversed(self._rows) if r.get("measured_at", "")[:10] <= cutoff_str),
-                None,
-            ) if cutoff_str else None
-            if ref_30d is not None:
-                badge_delta = points[-1].y - ref_30d["weight_kg"]
-                badge_prefix = "30d"
-            else:
-                badge_delta = range_delta
-                badge_prefix = {"30": "30d", "90": "90d", "365": "1Y"}.get(str(choice), "Δ")
-
             summary_parts = [
                 f"{len(points)} readings",
                 f"latest {_weight_text(points[-1].y)} kg",
                 f"change {range_delta:+.2f} kg",
             ]
-            if ref_30d is not None and choice == "all":
-                summary_parts.append(f"30d {badge_delta:+.1f} kg")
             self._summary.setText(" · ".join(summary_parts))
-
-            # Blue / Red contrast badge for delta (D5-A user preference)
-            badge_color = "#38BDF8" if badge_delta <= 0 else "#F87171"
-            badge_bg = "rgba(56, 189, 248, 0.14)" if badge_delta <= 0 else "rgba(248, 113, 113, 0.14)"
-            self._delta_badge.setText(f"{badge_prefix} {badge_delta:+.1f} kg")
-            self._delta_badge.setToolTip(
-                f"Change over {badge_prefix}: {badge_delta:+.2f} kg (visible range change: {range_delta:+.2f} kg)"
+            # Compare actual readings inside the latest reading's trailing
+            # 30-calendar-day window, using the chart's historic filter. A
+            # years-old baseline must never masquerade as a 30-day change.
+            latest_day = timeutils.parse_iso(points[-1].row["measured_at"]).date()
+            recent = weight_plot.points_for(
+                self._rows, start=weight_plot.range_start(latest_day, 30),
+                end=latest_day, historic=self._historic.isChecked(),
             )
-            self._delta_badge.setStyleSheet(
-                f"color: {badge_color}; background: {badge_bg};"
-                f" border: 1px solid {badge_color}; border-radius: 6px;"
-                " padding: 2px 7px; font-size: 11px; font-weight: 700;"
-                " font-family: 'SF Mono', 'Menlo', monospace;"
-            )
-            self._delta_badge.show()
+            self._delta_badge.setVisible(len(recent) >= 2)
+            if len(recent) >= 2:
+                badge_delta = round(recent[-1].y - recent[0].y, 1) or 0.0
+                badge_color = "#38BDF8" if badge_delta < 0 else "#F87171" if badge_delta > 0 else self._tokens["TEXT_SECONDARY"]
+                self._delta_badge.setText(f"30d {badge_delta:+.1f} kg")
+                self._delta_badge.setToolTip(
+                    f"Change between {recent[0].row['measured_at'][:10]} and "
+                    f"{recent[-1].row['measured_at'][:10]} within the latest reading's "
+                    f"30-day window: {recent[-1].y - recent[0].y:+.2f} kg"
+                )
+                self._delta_badge.setStyleSheet(
+                    f"color: {badge_color}; background: {self._tokens['BG_PRIMARY']};"
+                    f" border: 1px solid {badge_color}; border-radius: 6px;"
+                    " padding: 2px 7px; font-size: 11px; font-weight: 700;"
+                    " font-family: 'SF Mono', 'Menlo', monospace;"
+                )
         else:
             self._summary.setText("Save a reading to start your chart. Click a dot or a history row to edit.")
             self._delta_badge.hide()

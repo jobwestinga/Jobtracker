@@ -57,6 +57,12 @@ temporarily hiding the sidebar, picker and history. Escape or page navigation
 restores them without clearing the draft. Show dots remains a local preference;
 dense histories use smaller dots behind the trend line.
 
+The native `30d` badge compares the first and last eligible readings within the
+latest reading's trailing 30 calendar days. Its tooltip gives the actual dates;
+it stays hidden with fewer than two readings and respects Historic readings.
+The summary separately labels the visible range's change. History row changes
+compare consecutive readings, retaining hundredth-kilogram differences.
+
 ## Phone shell and home screen
 
 `python3 scripts/dev.py context mobile.shell` covers navigation and caching.

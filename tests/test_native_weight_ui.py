@@ -174,6 +174,44 @@ def test_refresh_preserves_unsaved_selection_and_does_not_refit_unchanged_chart(
     assert calls == [1] and view._value() == 80.7
 
 
+def test_recent_delta_never_uses_old_or_hidden_historic_readings(view, service):
+    today = QDate.currentDate()
+    service.upsert_weight(today.addDays(-100).toString(Qt.ISODate), 60)
+    service.upsert_weight(day(), 80)
+    view._range.setCurrentIndex(view._range.findData("all"))
+    view.refresh()
+    assert not view._delta_badge.isVisible()
+    assert "change +20.00 kg" in view._summary.text()
+
+    WeightService(service.db).import_rows([{
+        "measured_at": today.addDays(-29).toString(Qt.ISODate),
+        "weight_kg": 90, "source": "historic",
+    }])
+    view.refresh()
+    assert not view._delta_badge.isVisible()
+    view._historic.setChecked(True)
+    assert view._delta_badge.text() == "30d -10.0 kg"
+    view._historic.setChecked(False)
+    assert not view._delta_badge.isVisible()
+
+    service.upsert_weight(today.addDays(-5).toString(Qt.ISODate), 79.5)
+    view.refresh()
+    assert view._delta_badge.isVisible()
+    assert view._delta_badge.text() == "30d +0.5 kg"
+    assert today.addDays(-5).toString(Qt.ISODate) in view._delta_badge.toolTip()
+    assert day() in view._delta_badge.toolTip()
+
+
+def test_history_delta_keeps_imported_hundredth_precision(view, service):
+    WeightService(service.db).import_rows([
+        {"measured_at": "2026-01-01", "weight_kg": 80, "source": "scale"},
+        {"measured_at": "2026-01-02", "weight_kg": 79.96, "source": "scale"},
+    ])
+    view.refresh()
+    assert view._history.topLevelItem(0).text(2) == "-0.04 kg"
+    assert view._history.topLevelItem(1).text(2) == "—"
+
+
 def test_options_are_local_persistent_and_chart_handles_historic_only(view, service):
     view._density.setCurrentIndex(view._density.findData("compact"))
     view._contrast.setChecked(True)
