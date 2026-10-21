@@ -147,7 +147,7 @@ class _CheckButton(QPushButton):
         self.setStyleSheet(
             "QPushButton { background-color: transparent; border: 1.4px solid "
             f"{idle}; border-radius: 11px; color: {idle}; font-weight: 800;"
-            " font-size: 11px; }"
+            " font-size: 11px; padding: 0; }"
             f"QPushButton:hover {{ border-color: {done}; color: {done}; }}"
             f"QPushButton:focus {{ border: 2px solid {tokens.get('BORDER_FOCUS', done)}; }}"
         )
@@ -269,7 +269,7 @@ class TodoTaskItemWidget(QFrame):
         self.edit_btn.setAccessibleName(f"Edit goal {self.todo_task.name}")
         self.edit_btn.setStyleSheet(
             "QPushButton { background: transparent; border: none;"
-            f" color: {t.get('TEXT_DIMMED', '#6F7D90')}; font-size: 13px; border-radius: 5px; }}"
+            f" color: {t['TEXT_SECONDARY']}; font-size: 13px; border-radius: 5px; padding: 0; }}"
             f"QPushButton:hover {{ color: {t.get('TEXT_PRIMARY', '#FFFFFF')};"
             f" background: {t.get('BG_TERTIARY', 'rgba(255,255,255,0.06)')}; }}"
         )
@@ -414,9 +414,9 @@ class TodoTaskItemWidget(QFrame):
             "Remove from this week's focus" if focused else "Focus on this goal this week"
         )
         self.focus_btn.setAccessibleName(f"{'Remove weekly focus from' if focused else 'Focus this week on'} goal {self.todo_task.name}")
-        color = accent if focused else t.get("TEXT_DIMMED", "#6F7D90")
+        color = accent if focused else t.get("TEXT_SECONDARY", "#6F7D90")
         self.focus_btn.setStyleSheet(
-            "QPushButton { background-color: transparent; border: none; "
+            "QPushButton { background-color: transparent; border: none; padding: 0; "
             f"color: {color}; font-size: 15px; font-weight: 600; "
             "} QPushButton:hover { "
             f"color: {accent}; "

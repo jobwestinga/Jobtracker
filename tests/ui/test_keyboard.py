@@ -381,3 +381,37 @@ def test_graph_number_shortcuts_cover_only_the_two_views(database, monkeypatch):
         window._heartbeat_timer.stop()
         window.close()
 
+
+def test_weight_fullscreen_escape_and_navigation_restore_draft_and_sidebar(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        window._switch_page(3)
+        view = window._weight_view
+        view._select_whole(80)
+        view._select_decimal(6)
+        view._options_button.setChecked(True)
+        view._options.show()
+        window.activateWindow()
+        for focus in (view._fullscreen_btn, view._span):
+            view._fullscreen_btn.setChecked(True)
+            focus.setFocus()
+            qt_app.processEvents()
+            assert not window._sidebar.isVisible()
+            assert not view._entry.isVisible()
+            QTest.keyClick(focus, Qt.Key_Escape)
+            qt_app.processEvents()
+            assert not view._fullscreen_btn.isChecked()
+            assert window._sidebar.isVisible()
+            assert view._entry.isVisible() and view._options.isVisible()
+            assert view._value() == 80.6
+        view._fullscreen_btn.setChecked(True)
+        window._switch_page(1)
+        qt_app.processEvents()
+        assert window._sidebar.isVisible()
+        window._switch_page(3)
+        assert view._entry.isVisible() and not view._fullscreen_btn.isChecked()
+        assert view._value() == 80.6
+    finally:
+        window.close()
+        qt_app.processEvents()
+

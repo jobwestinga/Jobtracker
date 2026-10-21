@@ -209,7 +209,7 @@ Source: [jobtracker/ui/app.py](../../jobtracker/ui/app.py).
 | `MainWindow._build_left_sidebar` | `QPushButton.hide`, `QPushButton.setAccessibleName`, `QPushButton.setCursor`, `QPushButton.setMinimumHeight`, `QPushButton.setToolTip` |
 | `MainWindow._switch_page` | `QGraphicsOpacityEffect.setOpacity`, `QLabel.raise_`, `QLabel.setGeometry`, `QLabel.setPixmap`, `QLabel.show`, `QStackedWidget.currentIndex`, `QStackedWidget.currentWidget`, `QStackedWidget.height`, `QStackedWidget.rect`, `QStackedWidget.setCurrentIndex`, `QStackedWidget.width`, `QVariantAnimation.start`, `QVariantAnimation.stop`, `WeightView.refresh` |
 | `MainWindow._sync_active_session_indicator` | `QPushButton.setStyleSheet`, `QPushButton.setVisible`, `QStackedWidget.currentIndex`, `QTimer.isActive`, `QTimer.start`, `QTimer.stop`, `get_tokens.get` |
-| `MainWindow._update_active_session_indicator` | `QPushButton.setText`, `QPushButton.setToolTip` |
+| `MainWindow._update_active_session_indicator` | `QPushButton.fontMetrics`, `QPushButton.setText`, `QPushButton.setToolTip`, `QPushButton.width` |
 | `MainWindow._apply_theme` | `FxBackgroundWidget.apply_theme`, `FxBackgroundWidget.set_animating`, `SyncStatusWidget.apply_tokens`, `SyncedTrackerService.get_setting`, `WeightView.set_tokens` |
 | `MainWindow._reload` | `WeightView.refresh`, `WindowSyncController.refresh_status` |
 | `MainWindow._open_settings` | Facade / direct adapter |

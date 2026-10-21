@@ -429,6 +429,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._build_subjects_page()
         self._build_graphs_page()
         self._weight_view = WeightView(self.service)
+        self._weight_view._fullscreen_btn.toggled.connect(
+            lambda expanded: self._sidebar.setVisible(not expanded)
+        )
         self._weight_view.changed.connect(self.sync_now)
         self._pages.addWidget(self._weight_view)
 
@@ -510,6 +513,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
 
     def _switch_page(self, index: int) -> None:
         prev_index = self._pages.currentIndex()
+        if prev_index == 3 and index != 3:
+            self._weight_view._fullscreen_btn.setChecked(False)
         can_animate = (
             prev_index != index
             and self.isVisible()
@@ -518,7 +523,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             and self._pages.height() > 0
         )
         if can_animate:
-            current_widget = self._pages. currentWidget()
+            current_widget = self._pages.currentWidget()
             if current_widget is not None:
                 snap = current_widget.grab()
                 if not snap.isNull():
@@ -583,8 +588,12 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         elapsed = timeutils.duration_seconds(started, datetime.now())
         hours, remainder = divmod(elapsed, 3600)
         minutes, seconds = divmod(remainder, 60)
+        name = self._active_session_indicator.fontMetrics().elidedText(
+            subject.name, Qt.ElideRight,
+            max(1, self._active_session_indicator.width() - 34),
+        )
         self._active_session_indicator.setText(
-            f"● {subject.name}\n"
+            f"● {name}\n"
             f"{hours:02d}:{minutes:02d}:{seconds:02d}  ›"
         )
         self._active_session_indicator.setToolTip(

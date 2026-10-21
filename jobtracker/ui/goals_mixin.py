@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from .widgets.goal_dialog import GoalDetailDialog, GoalDialog, apply_goal_edits
+from .widgets.labels import ElidedLabel
 from .widgets.dialog_utils import open_dialog, question, warning
 from .widgets.reorderable_list import ReorderableCardList
 from .widgets.template_dialog import TemplateManagerDialog
@@ -32,7 +33,7 @@ class GoalsMixin:
 
         header = QHBoxLayout()
         header.setSpacing(8)
-        self._goals_title = QLabel("Goals")
+        self._goals_title = ElidedLabel("Goals")
         self._goals_title.setObjectName("title")
         header.addWidget(self._goals_title)
         header.addStretch()

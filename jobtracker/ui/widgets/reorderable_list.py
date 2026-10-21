@@ -101,13 +101,15 @@ class ReorderableCardList(QListWidget):
         for badge in widget.findChildren(QLabel):
             if badge.property("_jt_shortcut_badge"):
                 badge.hide()
-        item.setSizeHint(widget.sizeHint())
+        # The row takes the viewport width. A card's preferred text width must
+        # not leave its trailing actions outside a narrow, non-scrolling list.
+        item.setSizeHint(QSize(0, widget.sizeHint().height()))
         self.setItemWidget(item, widget)
         widget.setProperty("_jt_item_id", int(item.data(Qt.UserRole)))
         install_badge = getattr(widget, "install_shortcut_badge", None)
         if install_badge is not None:
             install_badge()
-            item.setSizeHint(widget.sizeHint())
+            item.setSizeHint(QSize(0, widget.sizeHint().height()))
         self._install_drag_filters(widget)
 
     def sync_cards(self, ids, signatures, make_card, update_card) -> None:

@@ -307,14 +307,12 @@ class WeightView(QWidget):
             self._entry.hide()
             self._options.hide()
             self._history_card.hide()
-            self._chart.setMinimumHeight(460)
             self._fullscreen_btn.setText("✕ Exit Fullscreen")
         else:
             self._header_widget.show()
             self._entry.show()
             self._options.setVisible(self._options_button.isChecked())
             self._history_card.show()
-            self._chart.setMinimumHeight(195)
             self._fullscreen_btn.setText("⛶ Fullscreen")
         self._chart.update()
 

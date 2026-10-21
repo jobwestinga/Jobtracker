@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from ..accessibility import reduced_motion
+from .labels import ElidedLabel
 
 def dialog_owner(dialog: QWidget) -> QWidget | None:
     """Return the parent supplied by the caller before inline reparenting."""
@@ -191,10 +192,10 @@ class _InlineDialogLayer(QWidget):
 
         header = QHBoxLayout()
         header.setContentsMargins(16, 0, 8, 4)
-        title = QLabel(dialog.windowTitle() or "JobTracker")
+        title = ElidedLabel(dialog.windowTitle() or "JobTracker")
+        title.setToolTip(dialog.windowTitle())
         title.setObjectName("jtInlineDialogTitle")
-        header.addWidget(title)
-        header.addStretch(1)
+        header.addWidget(title, 1)
         close = QPushButton("×")
         close.setObjectName("jtInlineDialogClose")
         close.setFixedSize(32, 30)

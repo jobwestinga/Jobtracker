@@ -251,10 +251,6 @@ class SessionDialog(InlineDialog):
         layout.setContentsMargins(24, 20, 24, 18)
         layout.setSpacing(10)
 
-        heading = QLabel(self.windowTitle())
-        heading.setStyleSheet("font-size: 18px; font-weight: 800;")
-        layout.addWidget(heading)
-
         # ── Subject (edit only): move the session to another subject ─────
         if show_subject_picker:
             lbl_subject = QLabel("Subject")

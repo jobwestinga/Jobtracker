@@ -1,9 +1,9 @@
 """
 Timer area widget — always visible.
 
-Idle state:  motivational message, dashed border
-Active state: live clock, subject name, stop button
-Uses QStackedWidget and a fixed height so switching states never shifts the layout.
+Idle state: recent subject resume and today's tracked time.
+Active state: live clock, elided subject name and stop button.
+The stacked pages share a compact width and animate between fixed heights.
 """
 
 from PySide6.QtWidgets import (
@@ -15,6 +15,7 @@ from datetime import datetime
 from ...core.models import Session, Subject
 from ...core import timeutils
 from ..accessibility import reduced_motion
+from .labels import ElidedLabel
 
 
 IDLE_MESSAGE = "Ready to track"
@@ -87,14 +88,14 @@ class ActiveTimerWidget(QFrame):
         idle_text_col.setContentsMargins(0, 0, 0, 0)
         idle_text_col.setSpacing(1)
 
-        self._idle_label = QLabel(IDLE_MESSAGE)
+        self._idle_label = ElidedLabel(IDLE_MESSAGE)
         self._idle_label.setObjectName("idleMessage")
         self._idle_label.setStyleSheet(
             "font-size: 13px; font-weight: 650; background: transparent;"
         )
         idle_text_col.addWidget(self._idle_label)
 
-        self._idle_hint = QLabel("Click any subject card or press 1–9 to start")
+        self._idle_hint = ElidedLabel("Click a subject or press 1–9 to start")
         self._idle_hint.setObjectName("idleHint")
         self._idle_hint.setStyleSheet(
             "font-size: 11px; font-weight: 500; background: transparent;"
@@ -104,9 +105,9 @@ class ActiveTimerWidget(QFrame):
 
         self._today_lbl = QLabel("")
         self._today_lbl.setObjectName("idleTodayStat")
-        self._today_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._today_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._today_lbl.hide()
-        idle_lay.addWidget(self._today_lbl, 0, Qt.AlignVCenter)
+        idle_text_col.addWidget(self._today_lbl)
 
         self._resume_btn = QPushButton("↺ Resume")
         self._resume_btn.setObjectName("resumeBtn")
@@ -131,12 +132,12 @@ class ActiveTimerWidget(QFrame):
         left_col.setSpacing(3)
         left_col.addStretch(1)
 
-        header = QLabel("CURRENTLY TRACKING")
+        header = ElidedLabel("CURRENTLY TRACKING")
         header.setObjectName("subtitle")
         header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         left_col.addWidget(header)
 
-        self._name = QLabel()
+        self._name = ElidedLabel()
         self._name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._name.setStyleSheet("font-size: 18px; font-weight: 700; background: transparent;")
         left_col.addWidget(self._name)
@@ -153,9 +154,9 @@ class ActiveTimerWidget(QFrame):
         )
         active_lay.addWidget(self._clock, 0, Qt.AlignVCenter)
 
-        self._stop_btn = QPushButton("■  Stop Tracking")
+        self._stop_btn = QPushButton("■  Stop")
         self._stop_btn.setObjectName("stopBtn")
-        self._stop_btn.setMinimumWidth(148)
+        self._stop_btn.setMinimumWidth(88)
         self._stop_btn.setMinimumHeight(40)
         self._stop_btn.setCursor(Qt.PointingHandCursor)
         self._stop_btn.setFocusPolicy(Qt.StrongFocus)
@@ -224,6 +225,7 @@ class ActiveTimerWidget(QFrame):
         self.session = session
         self._last_subject = subject
         self._name.setText(subject.name)
+        self._name.setToolTip(subject.name)
         self._name.setAccessibleName(f"Tracking subject: {subject.name}")
         self._clock.setAccessibleName("Elapsed tracking time")
         self._apply_active_style()
@@ -291,6 +293,7 @@ class ActiveTimerWidget(QFrame):
         self._stack.setCurrentIndex(0)
 
     def _refresh_idle_controls(self) -> None:
+        self._idle_hint.setVisible(self._today_seconds == 0)
         if self._today_seconds > 0:
             self._today_lbl.setText(f"Today: {_format_short_duration(self._today_seconds)}")
             self._today_lbl.show()
@@ -339,8 +342,7 @@ class ActiveTimerWidget(QFrame):
         )
         self._today_lbl.setStyleSheet(
             f"font-size: 11px; font-weight: 600; color: {t['TEXT_SECONDARY']};"
-            f" background: {t['BG_PRIMARY']}; border: 1px solid {t['BORDER_COLOR']};"
-            " border-radius: 6px; padding: 4px 8px;"
+            " background: transparent; border: none;"
         )
         accent = self._last_subject.color if self._last_subject else t["ACCENT"]
         self._resume_btn.setStyleSheet(

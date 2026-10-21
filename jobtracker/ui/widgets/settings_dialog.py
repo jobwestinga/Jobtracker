@@ -74,10 +74,6 @@ class SettingsDialog(InlineDialog):
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(12)
 
-        heading = QLabel("Settings")
-        heading.setStyleSheet("font-size: 18px; font-weight: 800;")
-        layout.addWidget(heading)
-
         # ── FX Style ─────────────────────────────────────────────────────
         fx_lbl = QLabel("Theme FX")
         fx_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")

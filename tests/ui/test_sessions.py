@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtCore import (QEvent, Qt)
 from PySide6.QtGui import (QKeyEvent)
 from PySide6.QtTest import (QTest)
-from PySide6.QtWidgets import (QMessageBox)
+from PySide6.QtWidgets import (QMessageBox, QPushButton)
 from tests.support.native import (_application, _day_with_two_sessions)
 
 def test_session_dialog_subject_picker_only_when_editing(service):
@@ -997,4 +997,39 @@ def test_every_session_list_edit_path_can_delete(service, monkeypatch):
     qt_app.processEvents()
     assert service.get_session(second.id) is None
     day_dialog.close()
+
+
+def test_compact_session_presets_keep_exact_session_and_fit_half_screen(database, monkeypatch):
+    from jobtracker.ui.widgets.manage_sessions_dialog import ManageSessionsDialog
+    from jobtracker.ui.widgets.dialog_utils import open_dialog
+    from tests.support.native import _window
+
+    app, window = _window(database, monkeypatch)
+    try:
+        window.resize(600, 760)
+        subject = window.service.add_subject("Subject with a long title " * 5, "#38BDF8", "")
+        manager = ManageSessionsDialog(subject.id, window.service, window)
+        open_dialog(manager)
+        app.processEvents()
+        assert not manager._quick_panel.isVisible()
+        assert not manager._move_panel.isVisible()
+        manager._quick_toggle.click()
+        app.processEvents()
+        preset = next(button for button in manager.findChildren(QPushButton) if button.text() == "15m")
+        preset.click()
+        app.processEvents()
+        session = window.service.get_sessions_for_subject(subject.id)[0]
+        assert session.duration_seconds == 900
+        assert manager._list.selected_session()["session_id"] == session.id
+        manager._move_toggle.click()
+        app.processEvents()
+        for panel in (manager._quick_panel, manager._move_panel):
+            assert panel.isVisible()
+            assert panel.minimumSizeHint().width() <= panel.width()
+        assert manager.mapTo(window, manager.rect().bottomRight()).x() < window.width()
+        assert manager.mapTo(window, manager.rect().bottomRight()).y() < window.height()
+        manager.reject()
+    finally:
+        window.close()
+        app.processEvents()
 

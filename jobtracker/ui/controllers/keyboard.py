@@ -276,6 +276,18 @@ class KeyboardController:
 
     def _handle_escape_shortcut(self) -> None:
         window = self.window
+        # The window shortcut consumes Escape before WeightView.keyPressEvent.
+        # Dismiss the plot even when one of its option fields has focus; inline
+        # editors and combo popups still own their own first Escape.
+        if (
+            window._pages.currentIndex() == 3
+            and window._weight_view._fullscreen_btn.isChecked()
+            and not int(window.property("_jt_inline_dialog_count") or 0)
+            and QApplication.activePopupWidget() is None
+            and QApplication.activeModalWidget() is None
+        ):
+            window._weight_view._fullscreen_btn.setChecked(False)
+            return
         if not window._shortcut_focus_allows_navigation():
             return
         if window._pages.currentIndex() == 0 and window._showing_completed_goals:

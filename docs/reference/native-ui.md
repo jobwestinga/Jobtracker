@@ -37,12 +37,16 @@ gated on `_shortcut_focus_allows_navigation()` (no inline dialog, popup, modal,
 or text-entry widget focused):
 
 - `←` / `→` — move between the pages in stack order.
+- `⌘1`–`⌘4` — open Goals, Subjects, Graphs or Weight directly.
 - `1`–`9` — act on that row of the current page: open the goal (Goals page) or
   start/switch to that subject (Subjects page). Kept as **per-digit**
   `QShortcut`s so the switch-confirm prompt can disable the one conflicting key
   while it is open (two live shortcuts on one key are ambiguous to Qt and
   neither fires). Badges renumber with the list order.
 - `Esc` — leave the Completed-goals or Archived-subjects view.
+- In the expanded Weight plot, `Esc` restores the sidebar, entry and history,
+  including an unfinished weight draft. An open inline editor or combo popup
+  receives Escape first. Navigating to another page also leaves plot fullscreen.
 - `W` / `M` / `Y` / `A` — graph range presets (Graphs page only); they write
   `graph_range` and clear any custom range.
 - `Ctrl+Z` / `⌘Z` — the undo.
@@ -170,7 +174,11 @@ Current conventions:
 - Subject/goal rows carry colour only in the dot and the left border; body text
   stays neutral. Chart fills keep full colour.
 - Row heights are a deliberate middle ground: subject cards 68px, goal cards
-  72px. Neither the old airy 78px+hint-text nor the 58px crush.
+  start at 56px and grow for notes, deadlines or milestones. Card-list rows take
+  the viewport width so trailing actions remain reachable in half-screen windows.
+- The shared inline layer supplies each dialog's visible title and close button;
+  avoid repeating that heading inside its content. Subject history keeps Quick
+  Add and move presets behind disclosures, leaving the selected session visible.
 - Daily axis labels read `Mon 03` (weekday + day). No gridlines on the bar chart
   by choice — the two edge labels are the whole axis.
 - Agenda blocks are a neutral base + ~35% subject tint + a 3px saturated left

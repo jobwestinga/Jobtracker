@@ -42,19 +42,10 @@ class SubjectDialog(InlineDialog):
             self.selected_color = self._suggested_colors[0]
         self._build_ui()
 
-    def setWindowTitle(self, title: str) -> None:  # noqa: N802
-        super().setWindowTitle(title)
-        if hasattr(self, "_heading_lbl"):
-            self._heading_lbl.setText(title)
-
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(12)
-
-        self._heading_lbl = QLabel(self.windowTitle() or "New Subject")
-        self._heading_lbl.setStyleSheet("font-size: 18px; font-weight: 800;")
-        layout.addWidget(self._heading_lbl)
 
         # ── Name ─────────────────────────────────────────────────────────
         lbl = QLabel("Subject Name")

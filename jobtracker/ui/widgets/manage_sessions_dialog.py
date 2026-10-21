@@ -9,7 +9,7 @@ per-day view are the same machinery with different data.
 from datetime import datetime, time, timedelta
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QWidget,
 )
 from PySide6.QtCore import Qt
 from ...services.tracker_service import TrackerService
@@ -65,20 +65,6 @@ class ManageSessionsDialog(InlineDialog):
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
 
-        header_row = QHBoxLayout()
-        header_row.setSpacing(8)
-        if self._subject and getattr(self._subject, "color", None):
-            dot = QLabel()
-            dot.setFixedSize(10, 10)
-            dot.setStyleSheet(
-                f"background-color: {self._subject.color}; border-radius: 5px;"
-            )
-            header_row.addWidget(dot, 0, Qt.AlignVCenter)
-        title_lbl = QLabel(self.windowTitle())
-        title_lbl.setStyleSheet("font-size: 17px; font-weight: 750;")
-        header_row.addWidget(title_lbl, 1)
-        layout.addLayout(header_row)
-
         self._empty_lbl = QLabel(
             'No sessions recorded yet.\nClick "+ Add Session" to create one.'
         )
@@ -95,20 +81,32 @@ class ManageSessionsDialog(InlineDialog):
         layout.addWidget(self._list, 1)
 
         # ── Quick add: duration ending now ────────────────────────────────
-        quick_label = QLabel("Quick Add (ending now):")
-        quick_label.setStyleSheet("font-weight: 600; font-size: 12px;")
-        layout.addWidget(quick_label)
+        self._quick_toggle = QPushButton("Quick Add")
+        self._quick_toggle.setCheckable(True)
+        self._quick_toggle.setAccessibleName("Show quick session presets")
+        layout.addWidget(self._quick_toggle)
+        self._quick_panel = QWidget(self)
+        quick_layout = QVBoxLayout(self._quick_panel)
+        quick_layout.setContentsMargins(0, 0, 0, 0)
+        quick_layout.setSpacing(8)
+        self._quick_toggle.toggled.connect(self._quick_panel.setVisible)
+        self._quick_panel.hide()
+        layout.addWidget(self._quick_panel)
 
-        quick_row = QHBoxLayout()
+        quick_label = QLabel("Ending now:")
+        quick_label.setStyleSheet("font-weight: 600; font-size: 12px;")
+        quick_layout.addWidget(quick_label)
+
+        quick_row = QGridLayout()
         quick_row.setSpacing(4)
-        for label, minutes in QUICK_DURATIONS:
+        for index, (label, minutes) in enumerate(QUICK_DURATIONS):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
             btn.setObjectName("primaryBtn")
             btn.setStyleSheet("font-size: 12px; padding: 6px 6px;")
             btn.clicked.connect(lambda _checked=False, m=minutes: self._quick_add(m))
-            quick_row.addWidget(btn)
+            quick_row.addWidget(btn, index // 4, index % 4)
 
         custom_btn = QPushButton("Custom…")
         custom_btn.setCursor(Qt.PointingHandCursor)
@@ -116,13 +114,13 @@ class ManageSessionsDialog(InlineDialog):
         custom_btn.setStyleSheet("font-size: 12px; padding: 6px 6px;")
         custom_btn.setToolTip("Enter any duration (hours and minutes)")
         custom_btn.clicked.connect(self._custom_duration)
-        quick_row.addWidget(custom_btn)
-        layout.addLayout(quick_row)
+        quick_row.addWidget(custom_btn, 1, 2, 1, 2)
+        quick_layout.addLayout(quick_row)
 
         # ── Quick add: fixed slots today ──────────────────────────────────
-        slot_label = QLabel("Quick Add (time slot, today):")
+        slot_label = QLabel("Time slot, today:")
         slot_label.setStyleSheet("font-weight: 600; font-size: 12px;")
-        layout.addWidget(slot_label)
+        quick_layout.addWidget(slot_label)
 
         slot_row = QHBoxLayout()
         slot_row.setSpacing(6)
@@ -135,19 +133,20 @@ class ManageSessionsDialog(InlineDialog):
                 lambda _checked=False, sh=start_h, eh=end_h: self._quick_add_slot(sh, eh)
             )
             slot_row.addWidget(btn)
-        layout.addLayout(slot_row)
+        quick_layout.addLayout(slot_row)
 
         # ── Move the selected session ─────────────────────────────────────
-        move_label = QLabel("Move selected session:")
-        move_label.setStyleSheet("font-weight: 600; font-size: 12px;")
-        layout.addWidget(move_label)
-        layout.addLayout(build_move_row(self._shift_selected))
+        self._move_toggle = QPushButton("Move selected session")
+        self._move_toggle.setCheckable(True)
+        layout.addWidget(self._move_toggle)
+        self._move_panel = QWidget(self)
+        self._move_panel.setLayout(build_move_row(self._shift_selected))
+        self._move_panel.layout().setContentsMargins(0, 0, 0, 0)
+        self._move_toggle.toggled.connect(self._move_panel.setVisible)
+        self._move_panel.hide()
+        layout.addWidget(self._move_panel)
 
         # ── Actions ───────────────────────────────────────────────────────
-        actions_label = QLabel("Session actions:")
-        actions_label.setStyleSheet("font-weight: 600; font-size: 12px;")
-        layout.addWidget(actions_label)
-
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
@@ -166,7 +165,8 @@ class ManageSessionsDialog(InlineDialog):
         dup_btn.setCursor(Qt.PointingHandCursor)
         dup_btn.setToolTip("Copy this session to today at the same clock time")
         dup_btn.clicked.connect(lambda: self._duplicate("today"))
-        btn_row.addWidget(dup_btn)
+        duplicate_row = QHBoxLayout()
+        duplicate_row.addWidget(dup_btn)
 
         dup_next_btn = QPushButton("⧉ +1 Day")
         dup_next_btn.setCursor(Qt.PointingHandCursor)
@@ -175,7 +175,7 @@ class ManageSessionsDialog(InlineDialog):
             "clicking again walks forward day by day."
         )
         dup_next_btn.clicked.connect(lambda: self._duplicate("next_day"))
-        btn_row.addWidget(dup_next_btn)
+        duplicate_row.addWidget(dup_next_btn)
 
         del_btn = QPushButton("✕ Delete")
         del_btn.setObjectName("dangerBtn")
@@ -184,6 +184,7 @@ class ManageSessionsDialog(InlineDialog):
         btn_row.addWidget(del_btn)
 
         layout.addLayout(btn_row)
+        layout.addLayout(duplicate_row)
 
         close_btn = QPushButton("Close")
         close_btn.setMinimumHeight(36)

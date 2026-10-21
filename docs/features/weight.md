@@ -52,6 +52,11 @@ theme accent trend is drawn above them. The phone canvas uses the matching dark
 `screen` palette. **Save plot** draws the original light `print` figure
 off-screen at the plot's current size.
 
+The native plot's Fullscreen button expands it within the existing Mac window,
+temporarily hiding the sidebar, picker and history. Escape or page navigation
+restores them without clearing the draft. Show dots remains a local preference;
+dense histories use smaller dots behind the trend line.
+
 ## Phone shell and home screen
 
 `python3 scripts/dev.py context mobile.shell` covers navigation and caching.
