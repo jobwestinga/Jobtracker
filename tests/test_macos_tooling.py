@@ -244,6 +244,9 @@ def test_build_rejects_staging_inside_repository(tmp_path):
 
 
 def test_icns_chunks_have_correct_sizes_and_all_original_resolutions():
+    assert (install_macos.PROJECT_ROOT / "assets/icon.png").read_bytes() == (
+        install_macos.PROJECT_ROOT / "web/icons/cutout.png"
+    ).read_bytes()
     images = {size: b"synthetic PNG" + str(size).encode() for _, size in ICON_SIZES}
     data = encode_icns(images)
     assert data[:4] == b"icns"
