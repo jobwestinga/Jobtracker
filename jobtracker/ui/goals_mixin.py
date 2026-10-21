@@ -43,15 +43,6 @@ class GoalsMixin:
         add_btn.clicked.connect(self._new_goal)
         header.addWidget(add_btn)
 
-        gear_btn = QPushButton("⚙")
-        gear_btn.setObjectName("gearBtn")
-        gear_btn.setMinimumHeight(34)
-        gear_btn.setCursor(Qt.PointingHandCursor)
-        gear_btn.setToolTip("Settings")
-        gear_btn.setAccessibleName("Settings")
-        gear_btn.clicked.connect(self._open_settings)
-        header.addWidget(gear_btn)
-
         lay.addLayout(header)
 
         tools = QHBoxLayout()

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from ..accessibility import reduced_motion
 
 def dialog_owner(dialog: QWidget) -> QWidget | None:
     """Return the parent supplied by the caller before inline reparenting."""
@@ -244,6 +245,19 @@ class _InlineDialogLayer(QWidget):
         self.dialog.raise_()
         self.dialog._install_key_filter()
         self.dialog.focusNextChild()
+        if not reduced_motion(self._host):
+            anim = QVariantAnimation(self)
+            anim.setDuration(140)
+            anim.setStartValue(0)
+            anim.setEndValue(120)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.valueChanged.connect(
+                lambda a: self.setStyleSheet(
+                    f"QWidget#jtInlineDialogLayer {{ background-color: rgba(0, 0, 0, {int(a)}); }}"
+                )
+            )
+            self._backdrop_anim = anim
+            anim.start()
 
 
 class _InlineMessageDialog(InlineDialog):

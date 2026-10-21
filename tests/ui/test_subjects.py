@@ -264,3 +264,41 @@ def test_switch_prompt_ignores_a_stale_premise(database, monkeypatch):
         window.close()
         qt_app.processEvents()
 
+
+def test_sidebar_shortcuts_and_timer_resume_and_discard_notice(
+    database, monkeypatch
+):
+    """D1-B sidebar page shortcuts, D2-A idle resume button, and L3-A <30s discard notice."""
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        subject = window.service.add_subject("Deep Work", "#38BDF8", "")
+        window._reload_subjects()
+        qt_app.processEvents()
+
+        # Sidebar page navigation (⌘1–⌘4) keeps Goals first (0), Subjects (1), Graphs (2), Weight (3).
+        window._navigate_to_page(1)
+        assert window._pages.currentIndex() == 1
+        assert window._nav_buttons[1].isChecked()
+
+        # Idle bar shows Resume button for the available subject.
+        assert not window._timer._resume_btn.isHidden()
+        assert "Deep Work" in window._timer._resume_btn.text()
+
+        # Clicking Resume starts tracking that subject.
+        window._timer._resume_btn.click()
+        qt_app.processEvents()
+        assert window.service.active_subject is not None
+        assert window.service.active_subject.id == subject.id
+
+        # Stopping a session under 30s discards it and shows the L3-A transient notice.
+        window._stop_tracking()
+        qt_app.processEvents()
+        assert window.service.active_session is None
+        assert "30s" in window._timer._idle_label.text()
+    finally:
+        window._graph_live_timer.stop()
+        window._heartbeat_timer.stop()
+        window.close()
+        qt_app.processEvents()
+
+

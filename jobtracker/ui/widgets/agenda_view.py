@@ -312,22 +312,52 @@ class _AgendaCanvas(QWidget):
                     p.setBrush(base)
                     p.drawRect(QRectF(rect.left(), rect.top(), 3.0, rect.height()))
 
-                    if sh > 14 and col_width > 24:
-                        text_rect = rect.adjusted(7, 1, -3, -1)
+                    if sh > 13 and col_width > 24:
+                        text_rect = rect.adjusted(7, 2, -3, -2)
                         p.save()
                         # Clip so the label can never paint outside its block.
                         p.setClipRect(text_rect)
+                        dur_s = sr.get("duration_seconds", 0)
+                        dur_txt = (
+                            f"{dur_s / 3600:.1f}h"
+                            if dur_s >= 3600
+                            else f"{max(1, int(round(dur_s / 60)))}m"
+                        )
                         p.setFont(QFont("SF Pro Text", 8, QFont.DemiBold))
                         metrics = p.fontMetrics()
-                        label = metrics.elidedText(
-                            sr["name"], Qt.ElideRight, int(text_rect.width())
-                        )
-                        p.setPen(QColor(t["TEXT_PRIMARY"]))
-                        p.drawText(
-                            text_rect,
-                            Qt.AlignLeft | Qt.AlignTop,
-                            label,
-                        )
+                        if sh >= 28 and col_width >= 42:
+                            title_line = metrics.elidedText(
+                                sr["name"], Qt.ElideRight, int(text_rect.width())
+                            )
+                            p.setPen(QColor(t["TEXT_PRIMARY"]))
+                            p.drawText(
+                                text_rect,
+                                Qt.AlignLeft | Qt.AlignTop,
+                                title_line,
+                            )
+                            p.setFont(QFont("SF Pro Text", 7, QFont.Medium))
+                            p.setPen(QColor(t["TEXT_SECONDARY"]))
+                            sub_rect = text_rect.adjusted(0, metrics.height(), 0, 0)
+                            p.drawText(
+                                sub_rect,
+                                Qt.AlignLeft | Qt.AlignTop,
+                                dur_txt,
+                            )
+                        else:
+                            combined = (
+                                f"{sr['name']} · {dur_txt}"
+                                if col_width >= 64
+                                else sr["name"]
+                            )
+                            label = metrics.elidedText(
+                                combined, Qt.ElideRight, int(text_rect.width())
+                            )
+                            p.setPen(QColor(t["TEXT_PRIMARY"]))
+                            p.drawText(
+                                text_rect,
+                                Qt.AlignLeft | Qt.AlignTop,
+                                label,
+                            )
                         p.restore()
                 p.restore()
 

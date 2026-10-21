@@ -8,6 +8,8 @@ window: ``self.service``, ``self._tokens``, ``self._pages``, ``self._reload_grap
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from ..core import timeutils
 from .widgets.active_timer import ActiveTimerWidget
 from .widgets.delete_subject_dialog import (
     DeleteSubjectDialog, RESULT_ARCHIVE, RESULT_DELETE,
@@ -54,19 +57,12 @@ class SubjectsMixin:
         )
         header.addWidget(self._archive_toggle_btn)
 
-        gear_btn = QPushButton("⚙")
-        gear_btn.setObjectName("gearBtn")
-        gear_btn.setMinimumHeight(34)
-        gear_btn.setCursor(Qt.PointingHandCursor)
-        gear_btn.setToolTip("Settings")
-        gear_btn.setAccessibleName("Settings")
-        gear_btn.clicked.connect(self._open_settings)
-        header.addWidget(gear_btn)
-
         lay.addLayout(header)
 
         self._timer = ActiveTimerWidget()
         self._timer.stop_requested.connect(self._stop_tracking)
+        self._timer.resume_requested.connect(self._start_tracking)
+        self._last_tracked_subject_id: int | None = None
         lay.addWidget(self._timer)
 
         stats_hdr = QHBoxLayout()
@@ -107,6 +103,32 @@ class SubjectsMixin:
 
         self._pages.addWidget(page)
 
+    def _refresh_timer_idle_context(self, active_subjects: list | None = None) -> None:
+        if active_subjects is None:
+            active_subjects = self.service.get_all_subjects(archived=False)
+        by_id = {s.id: s for s in active_subjects if s.id is not None}
+        last_subj = None
+        last_id = getattr(self, "_last_tracked_subject_id", None)
+        if last_id is not None and last_id in by_id:
+            last_subj = by_id[last_id]
+        elif by_id:
+            try:
+                row = self.service.db.connection.execute(
+                    "SELECT subject_id FROM sessions ORDER BY start_time DESC LIMIT 1"
+                ).fetchone()
+                if row and row[0] in by_id:
+                    last_subj = by_id[row[0]]
+            except Exception:
+                pass
+            if last_subj is None:
+                last_subj = active_subjects[0]
+        try:
+            today_map = self.service.get_subject_stats_map("Today")
+            today_seconds = sum(today_map.values())
+        except Exception:
+            today_seconds = 0
+        self._timer.set_idle_context(last_subject=last_subj, today_seconds=today_seconds)
+
     def _reload_subjects(self) -> None:
         self._sync_coordinator.refresh_status()
         rendered_view = getattr(
@@ -118,13 +140,24 @@ class SubjectsMixin:
         restore_state = self._subject_view_states.get(self._showing_archived)
         self._subjects_rendered_view = self._showing_archived
 
+        active_subjects_for_idle = (
+            self.service.get_all_subjects(archived=False)
+            if not self._showing_archived
+            else None
+        )
         is_tracking = self.service.active_session is not None
         if is_tracking and self.service.active_subject:
+            self._last_tracked_subject_id = self.service.active_subject.id
             self._timer.set_active(self.service.active_subject, self.service.active_session)
         else:
+            self._refresh_timer_idle_context(active_subjects_for_idle)
             self._timer.clear()
 
-        subjects = self.service.get_all_subjects(archived=self._showing_archived)
+        subjects = (
+            active_subjects_for_idle
+            if active_subjects_for_idle is not None
+            else self.service.get_all_subjects(archived=self._showing_archived)
+        )
         if not subjects:
             self._subjects_list.clear_cards()
             self._subjects_empty.show()
@@ -462,7 +495,21 @@ class SubjectsMixin:
             )
 
     def _stop_tracking(self) -> None:
+        session = self.service.active_session
+        subject = self.service.active_subject
+        discarded_short = False
+        if session is not None:
+            started_at = timeutils.parse_iso(session.start_time)
+            if (
+                started_at is not None
+                and timeutils.duration_seconds(started_at, datetime.now()) < 30
+            ):
+                discarded_short = True
+        if subject is not None and subject.id is not None:
+            self._last_tracked_subject_id = subject.id
         self.service.stop_active_subject()
+        if discarded_short:
+            self._timer.show_transient_notice("Session under 30s discarded")
         self._pending_tracking_feedback_id = None
         # The Stop button sits on the timer page that the refresh hides. Defer
         # that page switch until its click event has returned to Qt.
@@ -491,8 +538,10 @@ class SubjectsMixin:
         is_tracking = self.service.active_session is not None
         active = self.service.active_subject
         if is_tracking and active:
+            self._last_tracked_subject_id = active.id
             self._timer.set_active(active, self.service.active_session)
         else:
+            self._refresh_timer_idle_context(subjects)
             self._timer.clear()
 
         stats_map = self.service.get_subject_stats_map(self._filter.currentText())

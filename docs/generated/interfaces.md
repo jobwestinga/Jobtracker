@@ -193,6 +193,7 @@ Source: [jobtracker/ui/app.py](../../jobtracker/ui/app.py).
 | `MainWindow._install_shortcuts` | `KeyboardController._install_shortcuts` |
 | `MainWindow._shortcut_focus_allows_navigation` | `KeyboardController._shortcut_focus_allows_navigation` |
 | `MainWindow._navigate_pages` | `KeyboardController._navigate_pages` |
+| `MainWindow._navigate_to_page` | `KeyboardController._navigate_to_page` |
 | `MainWindow._handle_number_shortcut` | `KeyboardController._handle_number_shortcut` |
 | `MainWindow._open_goal_after_shortcut_feedback` | `KeyboardController._open_goal_after_shortcut_feedback` |
 | `MainWindow._handle_escape_shortcut` | `KeyboardController._handle_escape_shortcut` |
@@ -204,11 +205,11 @@ Source: [jobtracker/ui/app.py](../../jobtracker/ui/app.py).
 | `MainWindow._heartbeat` | `QStackedWidget.currentIndex`, `SyncedTrackerService.heartbeat_active_session` |
 | `MainWindow._schedule_recurring_boundary` | `QTimer.start`, `SyncedTrackerService.get_day_start` |
 | `MainWindow._on_recurring_boundary` | Facade / direct adapter |
-| `MainWindow._build_ui` | `QPushButton.hide`, `QPushButton.setAccessibleName`, `QPushButton.setCursor`, `QPushButton.setMinimumHeight`, `QPushButton.setToolTip`, `QStackedLayout.addWidget`, `QStackedLayout.setContentsMargins`, `QStackedLayout.setCurrentWidget`, `QStackedLayout.setStackingMode`, `QStackedWidget.addWidget` |
-| `MainWindow._build_bottom_nav` | Facade / direct adapter |
-| `MainWindow._switch_page` | `QStackedWidget.setCurrentIndex`, `WeightView.refresh` |
+| `MainWindow._build_ui` | `QGraphicsOpacityEffect.setOpacity`, `QLabel.hide`, `QLabel.setAttribute`, `QLabel.setGraphicsEffect`, `QStackedLayout.addWidget`, `QStackedLayout.setContentsMargins`, `QStackedLayout.setCurrentWidget`, `QStackedLayout.setStackingMode`, `QStackedWidget.addWidget`, `QVariantAnimation.setDuration`, `QVariantAnimation.setEasingCurve`, `QVariantAnimation.setEndValue`, `QVariantAnimation.setStartValue` |
+| `MainWindow._build_left_sidebar` | `QPushButton.hide`, `QPushButton.setAccessibleName`, `QPushButton.setCursor`, `QPushButton.setMinimumHeight`, `QPushButton.setToolTip` |
+| `MainWindow._switch_page` | `QGraphicsOpacityEffect.setOpacity`, `QLabel.raise_`, `QLabel.setGeometry`, `QLabel.setPixmap`, `QLabel.show`, `QStackedWidget.currentIndex`, `QStackedWidget.currentWidget`, `QStackedWidget.height`, `QStackedWidget.rect`, `QStackedWidget.setCurrentIndex`, `QStackedWidget.width`, `QVariantAnimation.start`, `QVariantAnimation.stop`, `WeightView.refresh` |
 | `MainWindow._sync_active_session_indicator` | `QPushButton.setStyleSheet`, `QPushButton.setVisible`, `QStackedWidget.currentIndex`, `QTimer.isActive`, `QTimer.start`, `QTimer.stop`, `get_tokens.get` |
-| `MainWindow._update_active_session_indicator` | `QPushButton.setText` |
+| `MainWindow._update_active_session_indicator` | `QPushButton.setText`, `QPushButton.setToolTip` |
 | `MainWindow._apply_theme` | `FxBackgroundWidget.apply_theme`, `FxBackgroundWidget.set_animating`, `SyncStatusWidget.apply_tokens`, `SyncedTrackerService.get_setting`, `WeightView.set_tokens` |
 | `MainWindow._reload` | `WeightView.refresh`, `WindowSyncController.refresh_status` |
 | `MainWindow._open_settings` | Facade / direct adapter |

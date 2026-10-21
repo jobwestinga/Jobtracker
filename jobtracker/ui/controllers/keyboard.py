@@ -146,6 +146,10 @@ class KeyboardController:
         for sequence, callback in (
             ("Left", lambda: window._navigate_pages(-1)),
             ("Right", lambda: window._navigate_pages(1)),
+            ("Ctrl+1", lambda: window._navigate_to_page(0)),
+            ("Ctrl+2", lambda: window._navigate_to_page(1)),
+            ("Ctrl+3", lambda: window._navigate_to_page(2)),
+            ("Ctrl+4", lambda: window._navigate_to_page(3)),
             ("Escape", window._handle_escape_shortcut),
             ("W", lambda: window._handle_graph_range_shortcut("weeks")),
             ("M", lambda: window._handle_graph_range_shortcut("months")),
@@ -214,6 +218,13 @@ class KeyboardController:
         target = max(0, min(window._pages.count() - 1, current + int(delta)))
         if target != current:
             window._switch_page(target)
+
+    def _navigate_to_page(self, index: int) -> None:
+        window = self.window
+        if not window._shortcut_focus_allows_navigation():
+            return
+        if 0 <= index < window._pages.count() and index != window._pages.currentIndex():
+            window._switch_page(index)
 
     def _handle_number_shortcut(self, number: int) -> None:
         window = self.window

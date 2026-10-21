@@ -277,7 +277,7 @@ class TodoTaskItemWidget(QFrame):
             f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
             f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
         )
-        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignTop)
+        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignVCenter)
         self._shortcut_badge = shortcut
 
     def _apply_progress_label(self) -> None:
@@ -343,21 +343,20 @@ class TodoTaskItemWidget(QFrame):
         self.setAccessibleDescription("Use Enter or Space to open the goal. Tab reaches completion and weekly focus.")
         self.check_btn.setAccessibleName(f"Complete goal {self.todo_task.name}")
         self.check_btn.setAccessibleDescription("Finish all milestones before completing." if not self._can_complete() else "All milestones are finished; this goal can be completed.")
-        radius = t.get("TASK_RADIUS", "6px")
+        radius = t.get("TASK_RADIUS", "10px")
         card_bg = t.get("CARD_BG", t["BG_SECONDARY"])
         if self._is_focused():
-            # Weekly-focus emphasis: theme-accent outline + left bar. Clear
-            # contrast against normal cards without shouting.
+            # Weekly-focus emphasis: uniform theme-accent outline without
+            # asymmetric border-left crescent artifacts.
             accent = t.get("ACCENT", "#3B82F6")
             self.setStyleSheet(
                 f"""
                 QFrame#todoTaskCard {{
                     background-color: {card_bg};
                     border: 1.6px solid {accent};
-                    border-left: 4px solid {accent};
                     border-radius: {radius};
                 }}
-                QFrame#todoTaskCard:focus {{ border: 2px dashed {t.get('BORDER_FOCUS', accent)}; }}
+                QFrame#todoTaskCard:focus {{ border: 2px solid {t.get('BORDER_FOCUS', accent)}; }}
                 """
             )
             return
@@ -368,7 +367,7 @@ class TodoTaskItemWidget(QFrame):
                 border: 1px solid {t["BORDER_COLOR"]};
                 border-radius: {radius};
             }}
-            QFrame#todoTaskCard:focus {{ border: 2px dashed {t.get('BORDER_FOCUS', t['BORDER_COLOR'])}; }}
+            QFrame#todoTaskCard:focus {{ border: 2px solid {t.get('BORDER_FOCUS', t['BORDER_COLOR'])}; }}
             """
         )
 

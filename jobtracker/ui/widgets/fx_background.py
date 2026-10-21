@@ -92,68 +92,39 @@ class FxBackgroundWidget(QWidget):
         p.fillRect(self.rect(), side)
 
     def _paint_glow(self, p: QPainter, w: int, h: int, t: dict) -> None:
-        # Rich atmosphere: full gradient base + drifting soft glows.
-        base = QLinearGradient(0, 0, w, h)
+        # Refined monochrome elevation with a subtle top-edge ambient glow.
+        base = QLinearGradient(0, 0, 0, h)
         base.setColorAt(0.0, QColor(t["BG_PRIMARY"]))
-        base.setColorAt(0.35, QColor(t["BG_SECONDARY"]))
-        base.setColorAt(1.0, QColor(t["BG_TERTIARY"]))
+        base.setColorAt(1.0, QColor(t["BG_SECONDARY"]).darker(115))
         p.fillRect(self.rect(), base)
 
-        cx1 = w * (0.22 + 0.08 * math.sin(self._phase))
-        cy1 = h * (0.24 + 0.06 * math.cos(self._phase * 0.8))
-        g1 = QRadialGradient(cx1, cy1, min(w, h) * 0.58)
-        g1.setColorAt(0.0, _with_alpha(t["ACCENT"], 90))
-        g1.setColorAt(0.45, _with_alpha(t["ACCENT"], 34))
+        cx1 = w * (0.52 + 0.04 * math.sin(self._phase * 0.6))
+        cy1 = h * (0.08 + 0.02 * math.cos(self._phase * 0.5))
+        g1 = QRadialGradient(cx1, cy1, max(w, h) * 0.55)
+        g1.setColorAt(0.0, _with_alpha(t["ACCENT"], 26))
+        g1.setColorAt(0.5, _with_alpha(t["ACCENT"], 9))
         g1.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.fillRect(self.rect(), g1)
 
-        cx2 = w * (0.78 + 0.07 * math.cos(self._phase * 1.1))
-        cy2 = h * (0.78 + 0.05 * math.sin(self._phase * 1.2))
-        g2 = QRadialGradient(cx2, cy2, min(w, h) * 0.45)
-        g2.setColorAt(0.0, _with_alpha(t["ACCENT_GREEN"], 60))
-        g2.setColorAt(0.5, _with_alpha(t["ACCENT_GREEN"], 20))
-        g2.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), g2)
-
     def _paint_space(self, p: QPainter, w: int, h: int, t: dict) -> None:
-        # Deep space background.
+        # Deep OLED midnight canvas with a calm upper horizon aura.
         base = QLinearGradient(0, 0, 0, h)
-        base.setColorAt(0.0, QColor(t["BG_PRIMARY"]).darker(150))
-        base.setColorAt(1.0, QColor(t["BG_SECONDARY"]).darker(120))
+        base.setColorAt(0.0, QColor(t["BG_PRIMARY"]).darker(135))
+        base.setColorAt(1.0, QColor(t["BG_PRIMARY"]))
         p.fillRect(self.rect(), base)
 
-        # Pseudo-random stars
-        p.setPen(Qt.NoPen)
-        for i in range(150):
-            x_hash = (i * 12345) % w
-            y_hash = (i * 54321) % h
-            size = (i * 13) % 3 + 1
-            
-            twinkle = (math.sin(self._phase * 2.0 + i) + 1.0) / 2.0
-            alpha = int(40 + 160 * twinkle)
-            p.setBrush(_with_alpha(t["TEXT_PRIMARY"], alpha))
-            p.drawEllipse(int(x_hash), int(y_hash), size, size)
-
-        # Cool light/nebula effects
-        cx = w * (0.5 + 0.3 * math.sin(self._phase * 0.5))
-        cy = h * (0.5 + 0.3 * math.cos(self._phase * 0.4))
-        g1 = QRadialGradient(cx, cy, max(w, h) * 0.7)
-        g1.setColorAt(0.0, _with_alpha(t["ACCENT"], 40))
-        g1.setColorAt(0.5, _with_alpha(t["ACCENT_GREEN"], 15))
+        cx = w * (0.5 + 0.05 * math.sin(self._phase * 0.4))
+        cy = h * (0.18 + 0.03 * math.cos(self._phase * 0.35))
+        g1 = QRadialGradient(cx, cy, max(w, h) * 0.62)
+        g1.setColorAt(0.0, _with_alpha(t["ACCENT"], 22))
+        g1.setColorAt(0.55, _with_alpha(t["ACCENT"], 6))
         g1.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.fillRect(self.rect(), g1)
 
     def _paint_checkerboard(self, p: QPainter, w: int, h: int, t: dict) -> None:
+        # Matte monochrome surface (Minimal preset).
         p.fillRect(self.rect(), QColor(t["BG_PRIMARY"]))
-        
-        square_size = 24
-        p.setPen(Qt.NoPen)
-        p.setBrush(_with_alpha(t["BORDER_COLOR"], 60))
-        
-        cols = w // square_size + 2
-        rows = h // square_size + 2
-        
-        for row in range(rows):
-            for col in range(cols):
-                if (row + col) % 2 == 0:
-                    p.drawRect(col * square_size, row * square_size, square_size, square_size)
+        top_sheen = QLinearGradient(0, 0, 0, min(140, h))
+        top_sheen.setColorAt(0.0, _with_alpha(t["TEXT_PRIMARY"], 6))
+        top_sheen.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, min(140, h), top_sheen)

@@ -95,8 +95,8 @@ class WeightView(QWidget):
 
         self._entry = QFrame(); self._entry.setObjectName("weightCard")
         entry = QVBoxLayout(self._entry)
-        entry.setContentsMargins(12, 12, 12, 12)
-        entry.setSpacing(8)
+        entry.setContentsMargins(10, 10, 10, 10)
+        entry.setSpacing(6)
         date_row = QHBoxLayout()
         date_row.addWidget(QLabel("Date"))
         self._date = QDateEdit(_current_date())
@@ -112,6 +112,10 @@ class WeightView(QWidget):
         preview_row = QHBoxLayout()
         self._preview = QLabel("Choose kg and decimal"); self._preview.setObjectName("weightPreview")
         preview_row.addWidget(self._preview, 1)
+        self._delta_badge = QLabel("")
+        self._delta_badge.setObjectName("weightDeltaBadge")
+        self._delta_badge.hide()
+        preview_row.addWidget(self._delta_badge, 0, Qt.AlignVCenter)
         self._save_button = QPushButton("Save weight")
         self._save_button.setObjectName("primaryBtn")
         self._save_button.clicked.connect(self._save)
@@ -257,23 +261,24 @@ class WeightView(QWidget):
         compact = self._density.currentData() == "compact"
         t = tokens
         self.setStyleSheet(f"""
-            QWidget#weightBody, QScrollArea#weightScroll {{ background: {t['BG_PRIMARY']}; }}
-            QFrame#weightCard {{ background: {t['BG_SECONDARY']}; border: 1px solid {t['TEXT_PRIMARY'] if contrast else t['BORDER_COLOR']}; border-radius: 8px; }}
-            QLabel#weightTitle {{ font-size: 24px; font-weight: 700; }}
-            QLabel#weightPreview {{ font-size: 22px; font-weight: 600; }}
-            QLabel#weightHint {{ color: {t['TEXT_PRIMARY'] if contrast else t['TEXT_SECONDARY']}; }}
-            QPushButton#weightTile {{ padding: 3px 0; font-size: {'14' if compact else '16'}px; min-width: 26px; border: 1px solid {t['TEXT_PRIMARY'] if contrast else t['BORDER_COLOR']}; }}
-            QPushButton#weightTile:checked {{ background: {t['ACCENT']}; color: {'#111111' if QColor(t['ACCENT']).lightness() > 155 else '#ffffff'}; border: 2px solid {t['TEXT_PRIMARY']}; font-weight: 700; }}
-            QPushButton#weightShift {{ padding: 3px 0; min-width: 18px; max-width: 22px; }}
+            QWidget#weightBody, QScrollArea#weightScroll {{ background: transparent; }}
+            QFrame#weightCard {{ background: {t['BG_SECONDARY']}; border: 1px solid {t['TEXT_PRIMARY'] if contrast else t['BORDER_COLOR']}; border-radius: 10px; }}
+            QLabel#weightTitle {{ font-size: 22px; font-weight: 700; }}
+            QLabel#weightPreview {{ font-size: 20px; font-weight: 700; font-family: 'SF Mono', 'Menlo', monospace; }}
+            QLabel#weightHint {{ color: {t['TEXT_PRIMARY'] if contrast else t['TEXT_SECONDARY']}; font-size: 12px; }}
+            QPushButton#weightTile {{ padding: 2px 0; font-size: {'13' if compact else '15'}px; min-width: 24px; border-radius: 7px; border: 1px solid {t['TEXT_PRIMARY'] if contrast else t['BORDER_COLOR']}; background: {t['BG_PRIMARY']}; }}
+            QPushButton#weightTile:hover {{ border-color: {t['ACCENT']}; background: {t['BG_TERTIARY']}; }}
+            QPushButton#weightTile:checked {{ background: {t['ACCENT']}; color: {'#111111' if QColor(t['ACCENT']).lightness() > 155 else '#ffffff'}; border: 1.8px solid {t['TEXT_PRIMARY']}; font-weight: 700; }}
+            QPushButton#weightShift {{ padding: 2px 0; min-width: 18px; max-width: 22px; border-radius: 7px; }}
             QTreeWidget {{ background: {t['BG_SECONDARY']}; border: none; }}
-            QTreeWidget::item {{ min-height: {'24' if compact else '32'}px; }}
+            QTreeWidget::item {{ min-height: {'24' if compact else '28'}px; }}
             QHeaderView::section {{ background: {t['BG_TERTIARY']}; color: {t['TEXT_PRIMARY'] if contrast else t['TEXT_SECONDARY']}; border: none; padding: 4px; }}
-            QDoubleSpinBox {{ background: {t['BG_PRIMARY']}; color: {t['TEXT_PRIMARY']}; border: 1px solid {t['BORDER_COLOR']}; border-radius: 4px; padding: 4px; }}
+            QDoubleSpinBox {{ background: {t['BG_PRIMARY']}; color: {t['TEXT_PRIMARY']}; border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px; padding: 4px; }}
             QDoubleSpinBox:disabled {{ color: {t['TEXT_DIMMED']}; }}
         """)
         for button in self._whole_buttons + self._decimal_buttons:
-            button.setMinimumHeight(33 if compact else 43)
-        self._layout.setSpacing(8 if compact else 12)
+            button.setMinimumHeight(30 if compact else 36)
+        self._layout.setSpacing(6 if compact else 8)
         self._chart.set_tokens(tokens, contrast)
 
     def _appearance_changed(self, *_args):
@@ -455,7 +460,25 @@ class WeightView(QWidget):
         points = weight_plot.points_for(self._rows, start=start, end=end if start else None, historic=self._historic.isChecked())
         self._span.setEnabled(mode == "loess")
         self._chart.set_data(points, weight_plot.trend_for(points, mode, self._span.value()))
-        self._summary.setText(f"{len(points)} readings · latest {_weight_text(points[-1].y)} kg · change {points[-1].y - points[0].y:+.2f} kg" if points else "Save a reading to start your chart. Click a dot or a history row to edit.")
+        if points:
+            delta = points[-1].y - points[0].y
+            self._summary.setText(
+                f"{len(points)} readings · latest {_weight_text(points[-1].y)} kg · change {delta:+.2f} kg"
+            )
+            # Blue / Red contrast badge for delta (D5-A user preference)
+            badge_color = "#38BDF8" if delta <= 0 else "#F87171"
+            badge_bg = "rgba(56, 189, 248, 0.14)" if delta <= 0 else "rgba(248, 113, 113, 0.14)"
+            self._delta_badge.setText(f"{delta:+.1f} kg")
+            self._delta_badge.setStyleSheet(
+                f"color: {badge_color}; background: {badge_bg};"
+                f" border: 1px solid {badge_color}; border-radius: 6px;"
+                " padding: 2px 7px; font-size: 11px; font-weight: 700;"
+                " font-family: 'SF Mono', 'Menlo', monospace;"
+            )
+            self._delta_badge.show()
+        else:
+            self._summary.setText("Save a reading to start your chart. Click a dot or a history row to edit.")
+            self._delta_badge.hide()
 
     def _save(self):
         self._check_day()

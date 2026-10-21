@@ -537,13 +537,14 @@ class ReorderableCardList(QListWidget):
         widget.hide()
 
         self._scale_anim = QVariantAnimation(self)
-        self._scale_anim.setDuration(105)
+        self._scale_anim.setDuration(115)
         self._scale_anim.setStartValue(1.0)
-        self._scale_anim.setEndValue(0.965)
+        self._scale_anim.setEndValue(0.985 if not reduced_motion(self) else 1.0)
         self._scale_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._scale_anim.valueChanged.connect(self._set_drag_scale)
         self._scale_anim.start()
-        self._wobble_timer.start()
+        if not reduced_motion(self):
+            self._wobble_timer.start()
         self._auto_scroll_timer.start()
         self._update_drag(global_pos)
 
@@ -591,12 +592,11 @@ class ReorderableCardList(QListWidget):
         self._drag_overlay.raise_()
 
     def _tick_wobble(self) -> None:
-        if self._drag_id is None:
+        if self._drag_id is None or reduced_motion(self):
+            self._wobble_offset = 0
             self._wobble_timer.stop()
             return
-        self._wobble_offset = self._wobble_phase
-        self._wobble_phase *= -1
-        self._position_drag_overlay()
+        self._wobble_offset = 0
 
     def _tick_auto_scroll(self) -> None:
         if self._drag_id is None:

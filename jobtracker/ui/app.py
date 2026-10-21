@@ -14,16 +14,29 @@ import logging
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import (
+    QEasingCurve,
     QEvent,
+    QPointF,
+    QRectF,
     QTimer,
     QVariantAnimation,
     Qt,
+)
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QPushButton,
     QStackedLayout,
@@ -39,9 +52,10 @@ from ..core.themes import get_tokens
 from ..services.tracker_service import TrackerService
 from ..sync import settings as sync_settings
 from ..sync.service import SyncedTrackerService
+from .accessibility import reduced_motion
 from .controllers.keyboard import KeyboardController
 from .controllers.sync import WindowSyncController
-from .styles import build_stylesheet
+from .styles import build_stylesheet, _contrast_text
 from .graphs_mixin import GraphsMixin
 from .goals_mixin import GoalsMixin
 from .subjects_mixin import SubjectsMixin
@@ -54,6 +68,93 @@ from .widgets.sync_status import SyncStatusWidget
 from .widgets.weight_view import WeightView
 
 logger = logging.getLogger("jobtracker")
+
+
+class _SidebarNavButton(QPushButton):
+    """Left-sidebar navigation button with custom vector icon and shortcut hint.
+
+    Preserves ``button.text() == label`` for accessibility and test contracts.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        icon_kind: str,
+        shortcut_hint: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(label, parent)
+        self._icon_kind = icon_kind
+        self._shortcut_hint = shortcut_hint
+        self._tokens: dict = {}
+        self.setMinimumHeight(38)
+
+    def set_tokens(self, tokens: dict) -> None:
+        self._tokens = tokens
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        t = self._tokens
+        checked = self.isChecked()
+        if checked:
+            fg = QColor(_contrast_text(t.get("ACCENT", "#3B82F6")))
+            hint_fg = QColor(fg)
+            hint_fg.setAlpha(190)
+        else:
+            fg = QColor(t.get("TEXT_SECONDARY", "#94A3B8"))
+            hint_fg = QColor(t.get("TEXT_DIMMED", "#526277"))
+
+        cy = self.height() / 2.0
+        cx = 19.0
+        pen = QPen(fg, 1.55, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+
+        if self._icon_kind == "goals":
+            p.drawEllipse(QPointF(cx, cy), 6.2, 6.2)
+            check = QPainterPath()
+            check.moveTo(cx - 2.6, cy + 0.2)
+            check.lineTo(cx - 0.6, cy + 2.2)
+            check.lineTo(cx + 3.0, cy - 1.8)
+            p.drawPath(check)
+        elif self._icon_kind == "subjects":
+            p.drawEllipse(QPointF(cx, cy), 6.2, 6.2)
+            tri = QPolygonF(
+                [
+                    QPointF(cx - 1.6, cy - 2.6),
+                    QPointF(cx - 1.6, cy + 2.6),
+                    QPointF(cx + 2.8, cy),
+                ]
+            )
+            p.setPen(Qt.NoPen)
+            p.setBrush(fg)
+            p.drawPolygon(tri)
+        elif self._icon_kind == "graphs":
+            p.setPen(Qt.NoPen)
+            p.setBrush(fg)
+            p.drawRoundedRect(QRectF(cx - 6.0, cy - 0.5, 2.8, 6.5), 1.0, 1.0)
+            p.drawRoundedRect(QRectF(cx - 1.4, cy - 5.2, 2.8, 11.2), 1.0, 1.0)
+            p.drawRoundedRect(QRectF(cx + 3.2, cy - 2.8, 2.8, 8.8), 1.0, 1.0)
+        elif self._icon_kind == "weight":
+            trend = QPainterPath()
+            trend.moveTo(cx - 6.0, cy + 3.2)
+            trend.lineTo(cx - 2.0, cy - 1.0)
+            trend.lineTo(cx + 1.6, cy + 1.4)
+            trend.lineTo(cx + 5.5, cy - 3.4)
+            p.drawPath(trend)
+            p.setPen(Qt.NoPen)
+            p.setBrush(fg)
+            p.drawEllipse(QPointF(cx + 5.5, cy - 3.4), 2.0, 2.0)
+
+        if self._shortcut_hint:
+            p.setPen(hint_fg)
+            p.setFont(QFont("SF Pro Text", 9, QFont.DemiBold))
+            hint_rect = QRectF(self.width() - 28, cy - 8, 22, 16)
+            p.drawText(hint_rect, Qt.AlignRight | Qt.AlignVCenter, self._shortcut_hint)
+        p.end()
 
 
 
@@ -222,6 +323,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
     def _navigate_pages(self, delta: int) -> None:
         return self._keyboard._navigate_pages(delta)
 
+    def _navigate_to_page(self, index: int) -> None:
+        return self._keyboard._navigate_to_page(index)
+
     def _handle_number_shortcut(self, number: int) -> None:
         return self._keyboard._handle_number_shortcut(number)
 
@@ -296,16 +400,30 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         # Keep app content above the animated FX background.
         self._layered.setCurrentWidget(content)
 
-        root = QVBoxLayout(content)
-        root.setContentsMargins(18, 16, 18, 12)
-        root.setSpacing(10)
+        root = QHBoxLayout(content)
+        root.setContentsMargins(14, 14, 16, 14)
+        root.setSpacing(14)
 
-        self._sync_status = SyncStatusWidget(content)
-        self._sync_status.action_requested.connect(self._sync_coordinator.status_action)
-        root.addWidget(self._sync_status)
+        self._sidebar = self._build_left_sidebar(content)
+        root.addWidget(self._sidebar, 0)
 
         self._pages = QStackedWidget()
         root.addWidget(self._pages, 1)
+
+        self._page_fade_overlay = QLabel(self._pages)
+        self._page_fade_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._page_fade_overlay.hide()
+        self._page_fade_effect = QGraphicsOpacityEffect(self._page_fade_overlay)
+        self._page_fade_overlay.setGraphicsEffect(self._page_fade_effect)
+        self._page_fade_anim = QVariantAnimation(self)
+        self._page_fade_anim.setDuration(130)
+        self._page_fade_anim.setStartValue(0.32)
+        self._page_fade_anim.setEndValue(0.0)
+        self._page_fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._page_fade_anim.valueChanged.connect(
+            lambda val: self._page_fade_effect.setOpacity(float(val))
+        )
+        self._page_fade_anim.finished.connect(self._page_fade_overlay.hide)
 
         self._build_tasks_page()
         self._build_subjects_page()
@@ -314,8 +432,69 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._weight_view.changed.connect(self.sync_now)
         self._pages.addWidget(self._weight_view)
 
-        self._active_session_indicator = QPushButton()
-        self._active_session_indicator.setMinimumHeight(38)
+        self._switch_page(1)
+
+    def _build_left_sidebar(self, parent: QWidget) -> QFrame:
+        bar = QFrame(parent)
+        bar.setObjectName("leftSidebar")
+        bar.setFixedWidth(156)
+
+        nav = QVBoxLayout(bar)
+        nav.setContentsMargins(10, 12, 10, 10)
+        nav.setSpacing(6)
+
+        brand_row = QHBoxLayout()
+        brand_row.setContentsMargins(4, 0, 0, 2)
+        brand_row.setSpacing(4)
+        brand_lbl = QLabel("JobTracker")
+        brand_lbl.setObjectName("sidebarBrand")
+        brand_row.addWidget(brand_lbl)
+        brand_row.addStretch(1)
+
+        gear_btn = QPushButton("⚙")
+        gear_btn.setObjectName("gearBtn")
+        gear_btn.setFixedSize(30, 30)
+        gear_btn.setCursor(Qt.PointingHandCursor)
+        gear_btn.setToolTip("Settings")
+        gear_btn.setAccessibleName("Settings")
+        gear_btn.clicked.connect(self._open_settings)
+        brand_row.addWidget(gear_btn)
+        nav.addLayout(brand_row)
+
+        self._sync_status = SyncStatusWidget(bar)
+        self._sync_status.action_requested.connect(self._sync_coordinator.status_action)
+        nav.addWidget(self._sync_status)
+
+        nav.addSpacing(4)
+
+        specs = [
+            ("Goals", "goals", "⌘1"),
+            ("Subjects", "subjects", "⌘2"),
+            ("Graphs", "graphs", "⌘3"),
+            ("Weight", "weight", "⌘4"),
+        ]
+        self._nav_buttons: list[QPushButton] = []
+
+        for idx, (label, icon_kind, hint) in enumerate(specs):
+            btn = _SidebarNavButton(label, icon_kind, hint, bar)
+            btn.setObjectName("navBtn")
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.StrongFocus)
+            btn.setAccessibleName(f"{label} tab")
+            btn.setToolTip(f"{label} ({hint} or Left/Right arrows)")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(
+                lambda _checked=False, i=idx: self._queue_ui_action(
+                    self._switch_page, i
+                )
+            )
+            nav.addWidget(btn)
+            self._nav_buttons.append(btn)
+
+        nav.addStretch(1)
+
+        self._active_session_indicator = QPushButton(bar)
+        self._active_session_indicator.setMinimumHeight(46)
         self._active_session_indicator.setCursor(Qt.PointingHandCursor)
         self._active_session_indicator.setToolTip(
             "Return to Subjects. This does not stop tracking."
@@ -325,41 +504,31 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             lambda: self._queue_ui_action(self._switch_page, 1)
         )
         self._active_session_indicator.hide()
-        root.addWidget(self._active_session_indicator)
-
-        root.addWidget(self._build_bottom_nav())
-        self._switch_page(1)
-
-    def _build_bottom_nav(self) -> QFrame:
-        bar = QFrame()
-        bar.setObjectName("bottomNav")
-        bar.setFixedHeight(54)
-
-        nav = QHBoxLayout(bar)
-        nav.setContentsMargins(0, 0, 0, 0)
-        nav.setSpacing(0)
-
-        labels = ["Goals", "Subjects", "Graphs", "Weight"]
-        self._nav_buttons: list[QPushButton] = []
-
-        for idx, label in enumerate(labels):
-            btn = QPushButton(label)
-            btn.setObjectName("navBtn")
-            btn.setCheckable(True)
-            btn.setFocusPolicy(Qt.StrongFocus)
-            btn.setAccessibleName(f"{label} tab")
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(
-                lambda _checked=False, i=idx: self._queue_ui_action(
-                    self._switch_page, i
-                )
-            )
-            nav.addWidget(btn, 1)
-            self._nav_buttons.append(btn)
+        nav.addWidget(self._active_session_indicator)
 
         return bar
 
     def _switch_page(self, index: int) -> None:
+        prev_index = self._pages.currentIndex()
+        can_animate = (
+            prev_index != index
+            and self.isVisible()
+            and not reduced_motion(self)
+            and self._pages.width() > 0
+            and self._pages.height() > 0
+        )
+        if can_animate:
+            current_widget = self._pages. currentWidget()
+            if current_widget is not None:
+                snap = current_widget.grab()
+                if not snap.isNull():
+                    self._page_fade_anim.stop()
+                    self._page_fade_overlay.setPixmap(snap)
+                    self._page_fade_overlay.setGeometry(self._pages.rect())
+                    self._page_fade_effect.setOpacity(0.32)
+                    self._page_fade_overlay.show()
+                    self._page_fade_overlay.raise_()
+                    self._page_fade_anim.start()
         self._pages.setCurrentIndex(index)
         for i, btn in enumerate(self._nav_buttons):
             btn.setChecked(i == index)
@@ -390,12 +559,12 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         subject = self.service.active_subject
         color = subject.color
         self._active_session_indicator.setStyleSheet(
-            f"QPushButton {{ background: {self._tokens.get('CARD_BG', self._tokens['BG_SECONDARY'])};"
-            f" border: 1.4px solid {color}; border-left: 5px solid {color};"
-            f" border-radius: 10px; color: {self._tokens['TEXT_PRIMARY']};"
-            " font-size: 12px; font-weight: 700; text-align: left;"
-            " padding: 7px 12px; }"
-            f"QPushButton:hover {{ background: {self._tokens.get('CARD_HOVER_BG', self._tokens['BG_TERTIARY'])}; }}"
+            f"QPushButton {{ background: {self._tokens.get('BG_PRIMARY', self._tokens['BG_SECONDARY'])};"
+            f" border: 1.5px solid {color};"
+            f" border-radius: 9px; color: {self._tokens['TEXT_PRIMARY']};"
+            " font-size: 11px; font-weight: 700; text-align: left;"
+            " padding: 6px 9px; }"
+            f"QPushButton:hover {{ background: {self._tokens.get('BG_TERTIARY', self._tokens['BG_SECONDARY'])}; }}"
         )
         self._update_active_session_indicator()
         if (
@@ -415,8 +584,11 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         hours, remainder = divmod(elapsed, 3600)
         minutes, seconds = divmod(remainder, 60)
         self._active_session_indicator.setText(
-            f"●  Tracking: {subject.name}  ·  "
-            f"{hours:02d}:{minutes:02d}:{seconds:02d}   ›"
+            f"● {subject.name}\n"
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}  ›"
+        )
+        self._active_session_indicator.setToolTip(
+            f"Tracking: {subject.name} ({hours:02d}:{minutes:02d}:{seconds:02d}) — Return to Subjects"
         )
 
     # ═══════════════════════════════════════════════════════════════════
@@ -434,6 +606,9 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._fx_bg.apply_theme(self._tokens, self._fx)
         self._fx_bg.set_animating(self._presentation_active and not self._reduce_motion)
         self._sync_status.apply_tokens(self._tokens)
+        for btn in getattr(self, "_nav_buttons", []):
+            if hasattr(btn, "set_tokens"):
+                btn.set_tokens(self._tokens)
         self._sync_active_session_indicator()
 
     def _reload(self) -> None:

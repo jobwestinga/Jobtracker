@@ -13,9 +13,9 @@ class SyncStatusWidget(QFrame):
         self._status_key = None
         self._tokens = {}
         self._problem = False
-        row = QHBoxLayout(self)
-        row.setContentsMargins(10, 5, 8, 5)
-        row.setSpacing(8)
+        col = QVBoxLayout(self)
+        col.setContentsMargins(10, 8, 10, 8)
+        col.setSpacing(6)
         text = QVBoxLayout()
         text.setSpacing(2)
         self.label = QLabel("Local only · Sync off", self)
@@ -27,13 +27,13 @@ class SyncStatusWidget(QFrame):
         self.error_label.setWordWrap(True)
         self.error_label.hide()
         text.addWidget(self.error_label)
-        row.addLayout(text, 1)
+        col.addLayout(text)
         self.action = QPushButton("Settings", self)
-        self.action.setMinimumHeight(36)
+        self.action.setMinimumHeight(28)
         self.action.setCursor(Qt.PointingHandCursor)
         self.action.setFocusPolicy(Qt.StrongFocus)
         self.action.clicked.connect(self.action_requested.emit)
-        row.addWidget(self.action)
+        col.addWidget(self.action)
 
     def set_status(self, title, detail, *, action="Settings", busy=False, error=""):
         key = (title, detail, action, busy, error)
@@ -63,8 +63,14 @@ class SyncStatusWidget(QFrame):
         foreground = tokens["ACCENT_RED"] if self._problem else tokens["TEXT_SECONDARY"]
         self.setStyleSheet(
             "QFrame#syncStatusPanel {"
-            f"background: {tokens.get('CARD_BG', tokens['BG_SECONDARY'])};"
-            f"border: 1px solid {tokens['BORDER_COLOR']}; border-radius: 6px; }}"
+            f"background: {tokens.get('BG_PRIMARY', tokens['BG_SECONDARY'])};"
+            f"border: 1px solid {tokens['BORDER_COLOR']}; border-radius: 8px; }}"
         )
-        self.label.setStyleSheet(f"font-size: 12px; color: {foreground}; border: none; background: transparent;")
-        self.error_label.setStyleSheet(f"font-size: 12px; color: {tokens['ACCENT_RED']}; border: none; background: transparent;")
+        self.label.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {foreground}; border: none; background: transparent;")
+        self.error_label.setStyleSheet(f"font-size: 11px; color: {tokens['ACCENT_RED']}; border: none; background: transparent;")
+        self.action.setStyleSheet(
+            f"QPushButton {{ background: {tokens['BG_SECONDARY']}; border: 1px solid {tokens['BORDER_COLOR']};"
+            f" border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; color: {tokens['TEXT_PRIMARY']}; }}"
+            f"QPushButton:hover {{ background: {tokens['BG_TERTIARY']}; border-color: {tokens['ACCENT']}; }}"
+            f"QPushButton:focus {{ border: 2px solid {tokens['BORDER_FOCUS']}; }}"
+        )

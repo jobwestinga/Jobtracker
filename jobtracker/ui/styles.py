@@ -106,24 +106,28 @@ QPushButton#dangerBtn:hover {{
 }}
 QPushButton#gearBtn {{
     background-color: transparent;
-    border: none;
-    font-size: 18px;
-    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    font-size: 16px;
+    padding: 3px 7px;
     color: {t['TEXT_SECONDARY']};
 }}
 QPushButton#gearBtn:hover {{
-    color: {t['ACCENT']};
+    background-color: {t['BG_TERTIARY']};
+    border-color: {t['BORDER_COLOR']};
+    color: {t['TEXT_PRIMARY']};
 }}
 QPushButton#navBtn {{
-    border: none;
-    border-radius: 12px;
-    margin: 4px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    margin: 1px 0;
+    padding: 8px 26px 8px 34px;
     background-color: transparent;
     color: {t['TEXT_SECONDARY']};
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    letter-spacing: 0.1px;
 }}
 QPushButton#navBtn:hover {{
     background-color: {t['BG_TERTIARY']};
@@ -131,12 +135,19 @@ QPushButton#navBtn:hover {{
 }}
 QPushButton#navBtn:checked {{
     background-color: {t['ACCENT']};
-    color: white;
+    color: {_contrast_text(t['ACCENT'])};
 }}
-QFrame#bottomNav {{
+QFrame#leftSidebar, QFrame#bottomNav {{
     border: 1px solid {t['BORDER_COLOR']};
-    border-radius: 16px;
+    border-radius: 12px;
     background-color: {t['BG_SECONDARY']};
+}}
+QLabel#sidebarBrand {{
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: {t['TEXT_PRIMARY']};
+    background: transparent;
 }}
 
 /* ── Title ─────────────────────────────────────────────────────── */

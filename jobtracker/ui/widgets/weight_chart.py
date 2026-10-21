@@ -6,7 +6,7 @@ See docs/features/weight.md for entry, data, styling and verification owners.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 from ...core import weight_plot
@@ -18,12 +18,13 @@ class WeightChart(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(220)
+        self.setMinimumHeight(195)
         self.setMouseTracking(True)
         self._tokens = DEFAULT_TOKENS
         self._points = []
         self._trend = []
         self._positions = []
+        self._hovered_point = None
         self._contrast = False
 
     def set_tokens(self, tokens, contrast=False):
@@ -33,6 +34,7 @@ class WeightChart(QWidget):
     def set_data(self, points, trend):
         self._points, self._trend = points, trend
         self._positions = []
+        self._hovered_point = None
         self.setToolTip("")
         self.update()
 
@@ -45,7 +47,7 @@ class WeightChart(QWidget):
         if not self._points:
             painter.drawText(self.rect(), Qt.AlignCenter, "No measurements in this range")
             return
-        rect = QRectF(48, 16, max(1, self.width() - 64), max(1, self.height() - 66))
+        rect = QRectF(48, 16, max(1, self.width() - 64), max(1, self.height() - 62))
         xs = [point.x for point in self._points]
         ys = [point.y for point in self._points + self._trend]
         first, last = min(xs), max(xs)
@@ -60,7 +62,7 @@ class WeightChart(QWidget):
                            rect.bottom() - (point.y - low) / (high - low) * rect.height())
 
         grid = QColor(t["TEXT_SECONDARY"])
-        grid.setAlpha(130 if self._contrast else 45)
+        grid.setAlpha(130 if self._contrast else 40)
         for fraction in (0, 0.5, 1):
             y = rect.bottom() - fraction * rect.height()
             painter.setPen(QPen(grid, 1))
@@ -68,9 +70,9 @@ class WeightChart(QWidget):
             painter.setPen(QColor(t["TEXT_PRIMARY"] if self._contrast else t["TEXT_SECONDARY"]))
             painter.drawText(QRectF(0, y - 10, 42, 20), Qt.AlignRight | Qt.AlignVCenter,
                              f"{low + (high - low) * fraction:.1f}")
-        painter.drawText(QRectF(rect.left(), rect.bottom() + 8, rect.width() / 2, 20),
+        painter.drawText(QRectF(rect.left(), rect.bottom() + 6, rect.width() / 2, 18),
                          Qt.AlignLeft, weight_plot.date_label(min(xs), "%d %b"))
-        painter.drawText(QRectF(rect.center().x(), rect.bottom() + 8, rect.width() / 2, 20),
+        painter.drawText(QRectF(rect.center().x(), rect.bottom() + 6, rect.width() / 2, 18),
                          Qt.AlignRight, weight_plot.date_label(max(xs), "%d %b"))
         years = weight_plot.year_ticks(first, last)
         label_right = float("-inf")
@@ -83,45 +85,107 @@ class WeightChart(QWidget):
             if center - width / 2 < label_right + 10:
                 continue
             painter.setPen(QColor(t["TEXT_PRIMARY"] if self._contrast else t["TEXT_SECONDARY"]))
-            painter.drawText(QRectF(center - width / 2, rect.bottom() + 27, width, 20), Qt.AlignCenter, str(year))
+            painter.drawText(QRectF(center - width / 2, rect.bottom() + 24, width, 18), Qt.AlignCenter, str(year))
             label_right = center + width / 2
         if not years:
-            painter.drawText(QRectF(rect.left(), rect.bottom() + 27, rect.width(), 20),
+            painter.drawText(QRectF(rect.left(), rect.bottom() + 24, rect.width(), 18),
                              Qt.AlignLeft, weight_plot.date_label(min(xs), "%Y"))
         painter.save()
         painter.setClipRect(rect.adjusted(-4, -4, 4, 4))
-        self._positions = []
-        painter.setPen(Qt.NoPen)
-        color = QColor(t["TEXT_PRIMARY"] if self._contrast else t["TEXT_SECONDARY"])
-        color.setAlpha(230 if self._contrast else 170)
-        painter.setBrush(color)
-        for point in self._points:
-            position = project(point)
-            self._positions.append((position, point))
-            painter.drawEllipse(position, 2.1, 2.1)
-        # Keep the themed trend legible above dense, neutral measurements.
+
+        accent_color = QColor(t.get("ACCENT", "#38BDF8"))
+        # Draw translucent vertical area-gradient fill under the trend curve (D5-A)
+        if len(self._trend) >= 2:
+            trend_pts = [project(point) for point in self._trend]
+            area = QPainterPath()
+            area.moveTo(trend_pts[0].x(), rect.bottom())
+            for pt in trend_pts:
+                area.lineTo(pt)
+            area.lineTo(trend_pts[-1].x(), rect.bottom())
+            area.closeSubpath()
+            grad = QLinearGradient(0, rect.top(), 0, rect.bottom())
+            top_fill = QColor(accent_color)
+            top_fill.setAlpha(68 if not self._contrast else 90)
+            bot_fill = QColor(accent_color)
+            bot_fill.setAlpha(0)
+            grad.setColorAt(0.0, top_fill)
+            grad.setColorAt(1.0, bot_fill)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(grad)
+            painter.drawPath(area)
+
+        # Trend line
         if self._trend:
             path = QPainterPath()
             path.moveTo(project(self._trend[0]))
             for point in self._trend[1:]:
                 path.lineTo(project(point))
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(t["ACCENT"]), 3 if self._contrast else 2.2))
+            painter.setPen(QPen(accent_color, 3.0 if self._contrast else 2.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawPath(path)
+
+        # Measurement dots (clear visible dots on the curve/points)
+        self._positions = []
+        dot_fill = QColor(t["TEXT_PRIMARY"] if self._contrast else "#E2E8F0")
+        dot_fill.setAlpha(245 if self._contrast else 225)
+        ring_pen = QPen(QColor(t["BG_SECONDARY"]), 1.2)
+        for point in self._points:
+            position = project(point)
+            self._positions.append((position, point))
+            is_hovered = self._hovered_point is point
+            radius = 4.4 if is_hovered else 3.0
+            painter.setPen(ring_pen)
+            painter.setBrush(accent_color if is_hovered else dot_fill)
+            painter.drawEllipse(position, radius, radius)
+
+        # Interactive hover crosshair + inspection pill
+        if self._hovered_point is not None:
+            hp = project(self._hovered_point)
+            cross_pen = QPen(accent_color, 1.0, Qt.DashLine)
+            painter.setPen(cross_pen)
+            painter.drawLine(QPointF(hp.x(), rect.top()), QPointF(hp.x(), rect.bottom()))
+
         painter.restore()
+
+        if self._hovered_point is not None:
+            hp = project(self._hovered_point)
+            date_txt = self._hovered_point.row.get("measured_at", "")[:10]
+            val_txt = f"{str(self._hovered_point.y).removesuffix('.0')} kg"
+            label_txt = f"{date_txt} · {val_txt}"
+            painter.setFont(QFont("SF Pro Text", 10, QFont.DemiBold))
+            fm = painter.fontMetrics()
+            pill_w = fm.horizontalAdvance(label_txt) + 16
+            pill_h = 22
+            pill_x = max(rect.left(), min(rect.right() - pill_w, hp.x() - pill_w / 2))
+            pill_y = max(4.0, hp.y() - pill_h - 8)
+            pill_rect = QRectF(pill_x, pill_y, pill_w, pill_h)
+            painter.setPen(QPen(accent_color, 1.2))
+            painter.setBrush(QColor(t["BG_PRIMARY"]))
+            painter.drawRoundedRect(pill_rect, 6, 6)
+            painter.setPen(QColor(t["TEXT_PRIMARY"]))
+            painter.drawText(pill_rect, Qt.AlignCenter, label_txt)
 
     def _near(self, position):
         if not self._positions:
             return None
         distance, point = min((((position.x() - xy.x()) ** 2 + (position.y() - xy.y()) ** 2, point)
                                for xy, point in self._positions), key=lambda item: item[0])
-        return point if distance <= 144 else None
+        return point if distance <= 169 else None
 
     def mouseMoveEvent(self, event):  # noqa: N802
         point = self._near(event.position())
+        if point is not self._hovered_point:
+            self._hovered_point = point
+            self.update()
         self.setCursor(Qt.PointingHandCursor if point else Qt.ArrowCursor)
         self.setToolTip(f"{point.row['measured_at'][:10]}\n{str(point.y).removesuffix('.0')} kg" if point else "")
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802
+        if self._hovered_point is not None:
+            self._hovered_point = None
+            self.update()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):  # noqa: N802
         point = self._near(event.position())

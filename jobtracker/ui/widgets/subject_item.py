@@ -121,20 +121,20 @@ class SubjectItemWidget(QFrame):
         self._apply_normal_style()
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 11, 12, 11)
+        layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
         self._root_layout = layout
         self._shortcut_badge = None
 
         dot = QLabel()
-        dot.setFixedSize(10, 10)
+        dot.setFixedSize(4, 34)
         dot.setStyleSheet(
-            f"background-color: {self.subject.color}; border-radius: 5px; border: none;"
+            f"background-color: {self.subject.color}; border-radius: 2px; border: none;"
         )
-        layout.addWidget(dot, 0, Qt.AlignTop | Qt.AlignLeft)
+        layout.addWidget(dot, 0, Qt.AlignVCenter)
 
         info = QVBoxLayout()
-        info.setSpacing(3)
+        info.setSpacing(2)
 
         self._name_lbl = ElidedLabel(self.subject.name)
         self._name_lbl.setStyleSheet(
@@ -158,8 +158,7 @@ class SubjectItemWidget(QFrame):
             )
             info.addWidget(notes_lbl)
 
-        layout.addLayout(info)
-        layout.addStretch()
+        layout.addLayout(info, 1)
 
         # ── Inline action buttons (right side) ────────────────────────────
         self._action_buttons: list[QPushButton] = []
@@ -202,7 +201,7 @@ class SubjectItemWidget(QFrame):
             f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
             f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
         )
-        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignTop)
+        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignVCenter)
         self._shortcut_badge = shortcut
 
         # Keep a stable size hint so active border style changes do not shift
@@ -215,27 +214,28 @@ class SubjectItemWidget(QFrame):
         btn.setCursor(Qt.PointingHandCursor)
         btn.setFocusPolicy(Qt.StrongFocus)
         btn.setAccessibleName(f"{text} subject {self.subject.name}")
-        btn.setMinimumHeight(30)
+        btn.setMinimumHeight(28)
         # Don't let the reorderable list treat a button press as a drag handle.
         btn.setProperty("no_drag", True)
         accent = t["ACCENT_RED"] if danger else self.subject.color
         btn.setStyleSheet(
             f"""
             QPushButton {{
-                background-color: {_hex_to_rgba(accent, 28)};
-                border: 1.2px solid {_hex_to_rgba(accent, 150)};
-                border-radius: 9px;
-                padding: 5px 14px;
+                background-color: {_hex_to_rgba(accent, 18)};
+                border: 1px solid {_hex_to_rgba(accent, 95)};
+                border-radius: 7px;
+                padding: 4px 10px;
                 font-size: 11px;
                 font-weight: 600;
-                color: {t['TEXT_PRIMARY']};
+                color: {t['TEXT_SECONDARY'] if not danger else t['TEXT_PRIMARY']};
             }}
             QPushButton:hover {{
-                background-color: {_hex_to_rgba(accent, 70)};
+                background-color: {_hex_to_rgba(accent, 55)};
                 border-color: {accent};
+                color: {t['TEXT_PRIMARY']};
             }}
             QPushButton:pressed {{
-                background-color: {_hex_to_rgba(accent, 110)};
+                background-color: {_hex_to_rgba(accent, 95)};
             }}
             QPushButton:focus {{ border: 2px solid {t.get('BORDER_FOCUS', accent)}; }}
             """
@@ -248,70 +248,62 @@ class SubjectItemWidget(QFrame):
     def _apply_normal_style(self) -> None:
         t = self._t
         card_bg = t.get("CARD_BG", t["BG_SECONDARY"])
-        card_border_color = _hex_to_rgba(self.subject.color, 135)
-        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "12px"))
+        card_border_color = t.get("BORDER_COLOR", _hex_to_rgba(self.subject.color, 90))
+        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "11px"))
         self.setStyleSheet(
             f"""
             SubjectItemWidget {{
                 background-color: {card_bg};
-                border: 1.4px solid {card_border_color};
-                border-left: 5px solid {self.subject.color};
+                border: 1px solid {card_border_color};
                 border-radius: {radius};
             }}
-            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
+            SubjectItemWidget:focus {{ border: 1.5px solid {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
     def _apply_active_style(self) -> None:
         t = self._t
-        card_bg = t.get("CARD_BG", t["BG_SECONDARY"])
-        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "12px"))
+        card_bg = _hex_to_rgba(self.subject.color, 22)
+        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "11px"))
         self.setStyleSheet(
             f"""
             SubjectItemWidget {{
                 background-color: {card_bg};
-                border: 5px solid {self.subject.color};
-                border-left: 5px solid {self.subject.color};
+                border: 2px solid {self.subject.color};
                 border-radius: {radius};
             }}
-            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
+            SubjectItemWidget:focus {{ border: 2px solid {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
     def _apply_hover_style(self) -> None:
         t = self._t
         hover_bg = t.get("CARD_HOVER_BG", t["BG_TERTIARY"])
-        hover_border = t.get(
-            "CARD_HOVER_BORDER",
-            f"1px solid {_hex_to_rgba(self.subject.color, 64)}",
-        )
-        hover_border_color = _extract_border_color(hover_border, t.get("BORDER_COLOR", self.subject.color))
-        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "12px"))
+        hover_border_color = _hex_to_rgba(self.subject.color, 175)
+        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "11px"))
         self.setStyleSheet(
             f"""
             SubjectItemWidget {{
                 background-color: {hover_bg};
-                border: 1.8px solid {hover_border_color};
-                border-left: 5px solid {self.subject.color};
+                border: 1.4px solid {hover_border_color};
                 border-radius: {radius};
             }}
-            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
+            SubjectItemWidget:focus {{ border: 1.5px solid {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 
     def _apply_dimmed_style(self) -> None:
         t = self._t
-        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "12px"))
+        radius = t.get("SUBJECT_RADIUS", t.get("RADIUS_MD", "11px"))
         dim_bg = t.get("BG_PRIMARY_A205", t["BG_PRIMARY"])
         self.setStyleSheet(
             f"""
             SubjectItemWidget {{
                 background-color: {dim_bg};
                 border: 1px solid {t['BORDER_COLOR']};
-                border-left: 5px solid {t['TEXT_DIMMED']};
                 border-radius: {radius};
             }}
-            SubjectItemWidget:focus {{ border-color: {t.get('BORDER_FOCUS', self.subject.color)}; }}
+            SubjectItemWidget:focus {{ border: 1.5px solid {t.get('BORDER_FOCUS', self.subject.color)}; }}
             """
         )
 

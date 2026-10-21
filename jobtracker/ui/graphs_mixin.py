@@ -80,15 +80,6 @@ class GraphsMixin:
         header.addWidget(title)
         header.addStretch()
 
-        gear_btn = QPushButton("⚙")
-        gear_btn.setObjectName("gearBtn")
-        gear_btn.setMinimumHeight(34)
-        gear_btn.setCursor(Qt.PointingHandCursor)
-        gear_btn.setToolTip("Settings")
-        gear_btn.setAccessibleName("Settings")
-        gear_btn.clicked.connect(self._open_settings)
-        header.addWidget(gear_btn)
-
         lay.addLayout(header)
 
         view_controls = QHBoxLayout()
@@ -206,10 +197,10 @@ class GraphsMixin:
         self._graph_legend.show()
         if seen:
             parts = [
-                f"<span style='color:{color};'>■</span> {escape(name)}"
+                f"<span style='white-space: nowrap;'><span style='color:{color};'>●</span>&nbsp;{escape(name)}</span>"
                 for name, color in seen.items()
             ]
-            self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
+            self._graph_legend.setText("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;".join(parts))
         else:
             self._graph_legend.setText("No tracked sessions in the displayed range.")
 
