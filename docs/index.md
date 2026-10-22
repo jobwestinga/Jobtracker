@@ -46,6 +46,12 @@ are split by domain so unrelated implementation history stays out of a task.
   each app, reinstall cleanly, sync, exports and rollback.
 - [Privacy](privacy.md): local data, public source, commit guards and history.
 
+## Design proposals
+
+- [UI foundations and future options](proposals/ui-foundations-and-future-options.md):
+  unselected visual, workflow and frontend architecture choices accompanying the
+  separate Visual options v2 review.
+
 ## Architecture
 
 - [Module boundaries and compatibility](architecture/boundaries.md): layers,
