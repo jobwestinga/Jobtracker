@@ -67,9 +67,13 @@ def install(connection: sqlite3.Connection, *, backup_dir: Optional[Path] = None
     if table_exists(connection):
         return None
     backup_path = None
-    has_data = connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
-    ).fetchone() is not None and connection.execute("SELECT 1 FROM tasks LIMIT 1").fetchone() is not None
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    # Weight, Goals and local setup are independent of Subjects. An existing
+    # store with no subject rows still needs a pre-migration safety copy.
+    data_tables = ("tasks", "sessions", "todo_tasks", "milestones", "goal_templates",
+                   "weight_measurements", "weight_uid_aliases", "settings", "sync_outbox")
+    has_data = any(table in tables and connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+                   for table in data_tables)
     if backup_dir is not None and has_data:
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

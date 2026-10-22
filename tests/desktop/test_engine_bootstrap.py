@@ -89,3 +89,19 @@ def test_a_crashed_owner_leaves_no_live_lock(tmp_path):
         if holder.poll() is None:
             holder.kill()
         holder.stdout.close()
+
+
+def test_qt_entry_does_not_open_the_database_before_its_store_lock(tmp_path, monkeypatch):
+    store = tmp_path / "locked.db"
+    locks = tmp_path / "locks"
+    monkeypatch.setenv("JOBTRACKER_LOCK_DIR", str(locks))
+    env = dict(os.environ, JOBTRACKER_DB_PATH=str(store))
+    with StoreLock(store, role="native-engine"):
+        result = subprocess.run(
+            [sys.executable, "-c", "import sys; import main; "
+             "assert 'jobtracker.core.database' not in sys.modules; "
+             "main.acquire_store_lock()"],
+            env=env, capture_output=True, text=True, timeout=20,
+        )
+    assert result.returncode != 0 and "StoreInUse" in result.stderr, result.stderr
+    assert not store.exists(), "a refused Qt owner must not initialize/migrate SQLite"
