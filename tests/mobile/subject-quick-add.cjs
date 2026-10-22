@@ -117,6 +117,8 @@ const minutesOf = (entry) => (Date.parse(`${entry.params.end_time}Z`) - Date.par
   assert.equal(await page.locator('#sheet select').count(), 0);
   const targets = await page.locator('.session-quick-presets button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height));
   assert.ok(targets.every((height) => height >= 44));
+  assert.deepEqual(await page.locator('.session-quick-presets button').evaluateAll((buttons) => buttons.map((button) => Number(button.dataset.minutes))),
+    [15, 30, 60, 75, 90, 120]);
   await page.evaluate(() => { const quick = document.querySelector('.session-quick-presets [data-minutes="90"]'); quick.click(); quick.click(); document.querySelector('.session-quick-presets [data-minutes="15"]').click(); });
   await waitSaved();
   let writes = await page.evaluate(() => writes); assert.equal(writes.length, 1); assert.equal(minutesOf(writes[0]), 90);
@@ -206,6 +208,21 @@ const minutesOf = (entry) => (Date.parse(`${entry.params.end_time}Z`) - Date.par
   await page.evaluate(() => { now = '2026-10-13T03:20:00'; lastOutcome = null; messages.length = 0; });
   await open(); await page.locator('.session-quick-presets [data-minutes="60"]').click();
   assert.equal(await receipt(), 'Added 1h 00m to Work with a longer subject name · 02:20–03:20 · tracking day: Yesterday');
+
+  // The 75-minute preset follows the same captured, single-write path across
+  // midnight as the desktop and preserves the subject's active timer.
+  const before75 = await page.evaluate(() => writes.length);
+  await page.evaluate(() => { now = '2026-10-13T00:30:37'; lastOutcome = null; });
+  await open();
+  await page.getByRole('button', { name: 'Add 75 minutes, ending now', exact: true }).click();
+  await waitSaved();
+  const saved75 = await page.evaluate(() => writes.at(-1));
+  assert.equal(await page.evaluate(() => writes.length), before75 + 1);
+  assert.equal(minutesOf(saved75), 75);
+  assert.equal(saved75.params.start_time, '2026-10-12T23:15:37');
+  assert.equal(saved75.params.end_time, '2026-10-13T00:30:37');
+  assert.equal(saved75.params.subject_uid, 'work');
+  await activeUnchanged();
   await page.evaluate(() => { now = '2026-10-12T16:40:37'; messages.length = 0; });
 
   // Subject edits keep their draft when saving fails before persistence, and a
@@ -232,7 +249,7 @@ const minutesOf = (entry) => (Date.parse(`${entry.params.end_time}Z`) - Date.par
   await page.screenshot({ path: path.join(output, 'subject-quick-add-390.png') });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ subjectQuickAdd: 'passed', viewports: ['320x740', '390x844'], covered: [
-    'direct keyboard/preset/custom entry', 'stable170m and90m naive timestamps', 'live timer preserved',
+    'direct keyboard/preset/custom entry', 'stable170m,90m and75m naive timestamps', 'live timer preserved',
     'initial storage failure draft/retry', 'durable ACK failure/replay', 'offline reload stable identity',
     'duplicate and dismissed controls', 'archived history/exact editor', '44px controls and no overflow',
     'saved range and tracking-day receipt', 'subject edit draft retry',

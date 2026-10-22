@@ -1,7 +1,7 @@
 import { localIso } from "../../shared/time.js";
 
 export const QUICK_DURATIONS = Object.freeze([
-  ["15m", 15], ["30m", 30], ["45m", 45], ["1h", 60], ["1h30", 90], ["2h", 120],
+  ["15m", 15], ["30m", 30], ["1h", 60], ["1h 15m", 75], ["1h 30m", 90], ["2h", 120],
 ]);
 
 export const CUSTOM_DURATION_CHUNKS = Object.freeze([

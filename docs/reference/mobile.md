@@ -56,6 +56,9 @@ them does.
 - **Bars are summed per SUBJECT before drawing.** The API returns one segment per
   *session*. Summing first avoids a minimum block height inflating long buckets
   until every bar reaches the ceiling.
+- Quick add matches the Mac: **15m, 30m, 1h, 1h 15m, 1h 30m and 2h**, with
+  custom duration chunks below. Presets stay visible in the add-time sheet;
+  whole-session move presets stay visible in the session editor.
 - Filled stacks use the bucket-to-peak height, with each subject occupying its
   share of that bucket. Rounded caps and gentle shading leave segments
   contiguous. Hour labels retain daily intensity tiers; the API supplies the

@@ -9,8 +9,10 @@ const naiveDate = (year, month, day, hour, minute, second = 0) => ({
 });
 const duration = ({ start_time, end_time }) => (Date.parse(`${end_time}Z`) - Date.parse(`${start_time}Z`)) / 60000;
 
-test('quick presets include 90 minutes and custom chunks support the requested 170-minute combination', () => {
-  assert.ok(QUICK_DURATIONS.some(([, minutes]) => minutes === 90));
+test('quick presets match desktop choices and custom chunks support the requested 170-minute combination', () => {
+  assert.deepEqual(QUICK_DURATIONS, [
+    ['15m', 15], ['30m', 30], ['1h', 60], ['1h 15m', 75], ['1h 30m', 90], ['2h', 120],
+  ]);
   assert.deepEqual(CUSTOM_DURATION_CHUNKS.map(([, minutes]) => minutes), [240, 120, 60, 30, 15, 10, 5]);
   const chosen = [120, 30, 15, 5];
   assert.equal(duration(endingNowRange(chosen.reduce((sum, minutes) => sum + minutes), naiveDate(2026, 10, 10, 9, 35, 27))), 170);
@@ -18,6 +20,7 @@ test('quick presets include 90 minutes and custom chunks support the requested 1
 
 test('ending-now captures seconds and rolls across calendar, month, leap and year boundaries', () => {
   const cases = [
+    [75, naiveDate(2026, 10, 13, 0, 30, 37), '2026-10-12T23:15:37', '2026-10-13T00:30:37'],
     [90, naiveDate(2026, 10, 10, 9, 35, 27), '2026-10-10T08:05:27', '2026-10-10T09:35:27'],
     [170, naiveDate(2026, 1, 1, 0, 30), '2025-12-31T21:40:00', '2026-01-01T00:30:00'],
     [90, naiveDate(2024, 3, 1, 0, 30), '2024-02-29T23:00:00', '2024-03-01T00:30:00'],
