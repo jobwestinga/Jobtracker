@@ -33,7 +33,7 @@ final class KeyRouter {
 
     /// Returns true when the event was consumed.
     func handle(_ event: NSEvent) -> Bool {
-        guard let model, event.window === window else { return false }
+        guard let model, let window, event.window === window || event.windowNumber == window.windowNumber else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .control, .option])
         if !modifiers.isEmpty { return false }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
@@ -41,7 +41,7 @@ final class KeyRouter {
         if event.keyCode == 53 {  // Escape
             if event.isARepeat { return true }
             if textInputFocused && model.panels.isEmpty {
-                window?.makeFirstResponder(nil)
+                window.makeFirstResponder(nil)
                 return true
             }
             model.escape()

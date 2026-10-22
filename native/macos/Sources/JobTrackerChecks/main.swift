@@ -30,6 +30,14 @@ let checks: [(String, () throws -> Void)] = [
     ("EngineIntegrationTests.journaledRequestIsReplayedAfterRestart", { try EngineIntegrationTests().journaledRequestIsReplayedAfterRestart() }),
     ("EngineIntegrationTests.crashedEngineRestartsWithNewInstance", { try EngineIntegrationTests().crashedEngineRestartsWithNewInstance() }),
     ("EngineIntegrationTests.secondOwnerIsRefused", { try EngineIntegrationTests().secondOwnerIsRefused() }),
+    ("FeatureStateTests.trackingStopResumeAndSwitchFollowTheEngine", { try FeatureStateTests().trackingStopResumeAndSwitchFollowTheEngine() }),
+    ("FeatureStateTests.foreignTimerIsVisibleAndRespected", { try FeatureStateTests().foreignTimerIsVisibleAndRespected() }),
+    ("FeatureStateTests.archiveRegistersOneUndoStep", { try FeatureStateTests().archiveRegistersOneUndoStep() }),
+    ("FeatureStateTests.sessionPanelKeepsCommandsAndSelectionDistinct", { try FeatureStateTests().sessionPanelKeepsCommandsAndSelectionDistinct() }),
+    ("FeatureStateTests.agendaBlockOpensThatExactSession", { try FeatureStateTests().agendaBlockOpensThatExactSession() }),
+    ("FeatureStateTests.goalDigitsOpenRowsAndToggleMilestones", { try FeatureStateTests().goalDigitsOpenRowsAndToggleMilestones() }),
+    ("FeatureStateTests.themePreviewRollsBackOnCancel", { try FeatureStateTests().themePreviewRollsBackOnCancel() }),
+    ("FeatureStateTests.keyRoutingFollowsPageAndPanelOwnership", { try FeatureStateTests().keyRoutingFollowsPageAndPanelOwnership() }),
 ]
 
 exit(runChecks(checks))
