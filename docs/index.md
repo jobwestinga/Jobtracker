@@ -50,8 +50,8 @@ are split by domain so unrelated implementation history stays out of a task.
 
 - [A4 native Mac overhaul guide](guides/a4-native-mac-overhaul.md): complete
   staged implementation plan, selected designs, recent fixes to preserve,
-  feature parity, validation and guarded cutover. Guide only; migration has not
-  started.
+  feature parity, validation and guarded cutover. Progress and results are in
+  the [A4 evidence record](guides/a4-evidence.md).
 - [UI foundations and future options](proposals/ui-foundations-and-future-options.md):
   unselected visual, workflow and frontend architecture choices accompanying the
   separate Visual options v2 review.

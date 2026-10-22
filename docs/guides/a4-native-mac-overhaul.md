@@ -1,8 +1,8 @@
 # A4 native Mac overhaul: complete implementation guide
 
-Status: implementation guide, 22 October 2026. **The overhaul has not started.**
-This document specifies the proposed work; it does not claim that a native
-frontend, bridge, new test runner or revised installer already exists.
+Status: implementation in progress since 22 October 2026. The
+[evidence record](a4-evidence.md) states which phases have actually run and
+with what result; this guide still describes the complete target.
 
 The user's direction is a strict improvement to the existing JobTracker:
 retain its setup, data, workflows and recent fixes while improving the Mac
