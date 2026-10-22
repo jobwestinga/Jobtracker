@@ -17,7 +17,7 @@ import zipfile
 from typing import Optional
 
 from ...services.tracker_service import TrackerService
-from ...core.themes import get_tokens
+from ...core.themes import THEME_DESCRIPTIONS, THEME_PRESETS, get_tokens
 from ...core import export_bundle
 from ...core.timeutils import parse_day_start
 from ...sync import settings as sync_settings
@@ -31,24 +31,6 @@ from .dialog_utils import (
 )
 
 logger = logging.getLogger("jobtracker")
-
-THEME_PRESETS = {
-    "OLED Midnight": ("Clean", "Obsidian"),
-    "Carbon Dark": ("Clean", "Dark"),
-    "Ocean": ("Clean", "Ocean"),
-    "Slate": ("Clean", "Slate"),
-    "Ocean Aura": ("Glow", "Ocean"),
-    "Violet Space": ("Space", "Violet"),
-}
-THEME_DESCRIPTIONS = {
-    "OLED Midnight": "Deep black surfaces with a cool blue accent.",
-    "Carbon Dark": "Layered charcoal surfaces with a blue accent.",
-    "Ocean": "Quiet navy surfaces and clear blue highlights.",
-    "Slate": "Neutral graphite surfaces and soft silver highlights.",
-    "Ocean Aura": "Ocean colours with a softly animated background.",
-    "Violet Space": "Deep violet surfaces with a subtle starfield.",
-}
-
 
 class _SettingsComboBox(QComboBox):
     """Keep the disclosure legible and sharp on dark and Retina surfaces."""

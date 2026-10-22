@@ -257,6 +257,25 @@ FX_STYLES: Dict[str, Dict[str, str]] = {
 PALETTE_NAMES = list(PALETTES.keys())
 FX_NAMES = list(FX_STYLES.keys())
 
+# Named complete appearances offered by every frontend: (FX style, palette).
+# A saved pair outside this table is a legacy appearance and stays as it is.
+THEME_PRESETS = {
+    "OLED Midnight": ("Clean", "Obsidian"),
+    "Carbon Dark": ("Clean", "Dark"),
+    "Ocean": ("Clean", "Ocean"),
+    "Slate": ("Clean", "Slate"),
+    "Ocean Aura": ("Glow", "Ocean"),
+    "Violet Space": ("Space", "Violet"),
+}
+THEME_DESCRIPTIONS = {
+    "OLED Midnight": "Deep black surfaces with a cool blue accent.",
+    "Carbon Dark": "Layered charcoal surfaces with a blue accent.",
+    "Ocean": "Quiet navy surfaces and clear blue highlights.",
+    "Slate": "Neutral graphite surfaces and soft silver highlights.",
+    "Ocean Aura": "Ocean colours with a softly animated background.",
+    "Violet Space": "Deep violet surfaces with a subtle starfield.",
+}
+
 # ── Token resolver ───────────────────────────────────────────────────────────
 
 def get_tokens(fx_name: str = "Glow", palette_name: str = "Ocean") -> dict:

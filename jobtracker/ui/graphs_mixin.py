@@ -9,8 +9,7 @@ state (``self._graph_*``).
 from __future__ import annotations
 
 import logging
-import math
-from datetime import date, datetime
+from datetime import date
 from html import escape
 
 from PySide6.QtCore import Qt
@@ -19,17 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.timeutils import (
-    agenda_hour,
-    agenda_hour_label,
-    graph_preset_window,
-    GROUPING_CHOICES,
-    grouping_for_preset,
-    grouping_for_span,
-    resolve_grouping,
-    logical_day,
-    parse_iso,
-)
+from ..core.timeutils import agenda_hour_label
+from ..services import graph_window
 from .widgets.agenda_view import AgendaViewWidget
 from .widgets.day_sessions_dialog import DaySessionsDialog
 from .widgets.dialog_utils import open_dialog
@@ -43,29 +33,14 @@ logger = logging.getLogger("jobtracker")
 class GraphsMixin:
     # ── persisted-setting loaders (used by MainWindow.__init__) ─────────
     def _load_graph_range_preset(self) -> str:
-        raw = self.service.get_setting("graph_range", "weeks")
-        legacy_ranges = {"7": "weeks", "14": "weeks", "30": "months"}
-        resolved = legacy_ranges.get(raw, raw)
-        return resolved if resolved in {"weeks", "months", "year", "all"} else "weeks"
+        return graph_window.load_range_preset(self.service.get_setting)
 
     def _load_custom_range(self) -> tuple[date, date] | None:
-        start_raw = self.service.get_setting("graph_custom_start", "")
-        end_raw = self.service.get_setting("graph_custom_end", "")
-        if (
-            self.service.get_setting("graph_range", "weeks") != "custom"
-            or not start_raw
-            or not end_raw
-        ):
-            return None
-        try:
-            return date.fromisoformat(start_raw), date.fromisoformat(end_raw)
-        except ValueError:
-            return None
+        return graph_window.load_custom_range(self.service.get_setting)
 
     def _load_graph_grouping(self) -> str:
         """Persisted bucket-size override; "auto" means follow the range."""
-        value = self.service.get_setting("graph_grouping", "auto")
-        return value if value in GROUPING_CHOICES else "auto"
+        return graph_window.load_grouping(self.service.get_setting)
 
     # ── page ────────────────────────────────────────────────────────────
     def _build_graphs_page(self) -> None:
@@ -156,39 +131,23 @@ class GraphsMixin:
             button.style().unpolish(button)
             button.style().polish(button)
 
+    def _graph_preferences(self) -> graph_window.GraphPreferences:
+        return graph_window.GraphPreferences(
+            preset=self._graph_range_preset,
+            custom_range=self._graph_custom_range,
+            grouping=getattr(self, "_graph_grouping", "auto"),
+            hour_start=self._graph_hour_start,
+            hour_end=self._graph_hour_end,
+            autofit_hours=self.service.get_setting("graph_autofit_hours", "0") == "1",
+        )
+
     def _window_and_grouping(self) -> tuple[date | None, date | None, str]:
         """(start_date, end_date, grouping). Dates are None for all-history; the
         grouping (daily/weekly/monthly) is derived from the chosen range."""
-        override = getattr(self, "_graph_grouping", "auto")
-        if self._graph_custom_range:
-            start_day, end_day = self._graph_custom_range
-            return start_day, end_day, resolve_grouping(
-                grouping_for_span(start_day, end_day), override
-            )
-        day_start = self.service.get_day_start()
-        # Anchor the preset on the real today, then stretch only the END so
-        # sessions scheduled ahead are visible. Anchoring on a future day would
-        # slide the whole window forward and hide real past days.
-        today = logical_day(datetime.now(), day_start)
-        window = graph_preset_window(self._graph_range_preset, today)
-        grouping = resolve_grouping(
-            grouping_for_preset(self._graph_range_preset), override
-        )
-        if window is not None:
-            end_day = max(window[1], self.service.graph_end_day(day_start))
-            return window[0], end_day, grouping
-        return None, None, grouping
+        return graph_window.window_and_grouping(self.service, self._graph_preferences())
 
     def _range_label(self) -> str:
-        if self._graph_custom_range:
-            start_day, end_day = self._graph_custom_range
-            return f"{start_day.isoformat()} → {end_day.isoformat()}"
-        return {
-            "weeks": "Weeks",
-            "months": "Months",
-            "year": "Year",
-            "all": "All Time",
-        }.get(self._graph_range_preset, "Weeks")
+        return graph_window.range_label(self._graph_preferences())
 
     def _set_legend(self, seen: dict[str, str]) -> None:
         self._graph_legend.show()
@@ -228,38 +187,13 @@ class GraphsMixin:
     def _reload_agenda(self) -> None:
         self._graph_stack.setCurrentIndex(1)
 
-        day_start = self.service.get_day_start()
-        today = logical_day(datetime.now(), day_start)
-
-        start_day, end_day, _grouping = self._window_and_grouping()
-        if start_day is None or end_day is None:
-            earliest_iso = self.service.get_earliest_session_date()
-            parsed = parse_iso(earliest_iso) if earliest_iso else None
-            last_day = self.service.graph_end_day(day_start)
-            start_day = logical_day(parsed, day_start) if parsed else last_day
-            end_day = last_day
-
-        day_keys, sessions = self.service.get_agenda_data(start_day, end_day, day_start)
-
-        # Auto-fit the visible hour band to actual work (in agenda-hour space, so
-        # late-night work can push the bottom edge past 24 -> "(+1)").
-        hour_start = self._graph_hour_start
-        hour_end = self._graph_hour_end
-        if self.service.get_setting("graph_autofit_hours", "0") == "1" and sessions:
-            try:
-                min_h = math.floor(min(s["start_h"] for s in sessions))
-                max_h = math.ceil(max(s["end_h"] for s in sessions))
-                if min_h < max_h:
-                    hour_start = max(0, min_h)
-                    hour_end = min(27, max(max_h, hour_start + 1))
-            except Exception:
-                logger.exception("Agenda auto-fit failed; using configured hours")
+        agenda = graph_window.agenda_window(self.service, self._graph_preferences())
+        day_keys, sessions = agenda.day_keys, agenda.sessions
+        hour_start, hour_end = agenda.hour_start, agenda.hour_end
 
         fit_width = self.service.get_setting("graph_fit_horizontal", "1") == "1"
-        now = datetime.now()
-        now_marker = (today.isoformat(), agenda_hour(now, day_start))
         self._agenda_view.set_data(
-            sessions, day_keys, hour_start, hour_end, fit_width, now_marker=now_marker
+            sessions, day_keys, hour_start, hour_end, fit_width, now_marker=agenda.now_marker
         )
 
         total_seconds = sum(s.get("duration_seconds", 0) for s in sessions)

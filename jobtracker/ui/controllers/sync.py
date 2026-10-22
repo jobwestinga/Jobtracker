@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from PySide6.QtCore import QTimer
-from ...core import timeutils
+from ...sync.presentation import describe_status
 from ...sync import settings as sync_settings
 from ...sync import state
 logger = logging.getLogger("jobtracker")
@@ -166,48 +166,16 @@ class WindowSyncController:
     def _paint_status(self) -> None:
         window = self.window
         enabled, url, token = self._config
-        pending = f" · {self._pending} waiting" if self._pending else ""
-        stamp = ""
-        if self._last_sync_at:
-            try:
-                parsed = timeutils.parse_iso(self._last_sync_at)
-                if parsed is not None:
-                    stamp = parsed.strftime(" · Last sync %d %b %H:%M")
-            except (TypeError, ValueError):
-                pass
         busy = self._syncing or bool(window._sync_controller and window._sync_controller.busy)
-        result = self._result
-        error = self._status_error
-        if error:
-            title, detail, action = f"Sync status unavailable{pending}", "Sync bookkeeping could not be read. Open Settings to retry.", "Settings"
-        elif not enabled:
-            title, detail, action = f"Local only · Sync off{pending}", "Changes are saved on this Mac. Open Settings to enable sync.", "Settings"
-        elif not url or not token:
-            title, detail, action = f"Sync not connected{pending}", "Set the server address and access token in Settings.", "Settings"
-        elif not window._sync_on or window._sync_controller is None:
-            title, detail, action = f"Restart to enable sync{pending}", "Sync preferences changed. Restart JobTracker when the timer is stopped to connect.", "Settings"
-        elif busy:
-            title, detail, action = f"Syncing{pending}{stamp}", "Synchronizing with your server. Your local data remains available.", "Sync"
-        elif result is not None and result.offline:
-            title, detail, action = f"Offline{pending}{stamp}", "Changes remain saved here and retry automatically.", "Retry"
-            error = result.error or "The server is unreachable."
-        elif result is not None and not result.ok:
-            title, detail, action = f"Sync blocked{pending}{stamp}", "Queued changes remain on this Mac. Open Settings if retry does not resolve the issue.", "Retry"
-            error = result.blocked_reason or result.error or "Synchronization did not finish."
-        elif self._last_error and result is None:
-            title, detail, action = f"Sync needs attention{pending}{stamp}", "The last sync did not finish. Retry or open Settings.", "Retry"
-            error = self._last_error
-        else:
-            title = f"Changes waiting{pending}{stamp}" if self._pending else f"Up to date{stamp}" if stamp else "Ready to sync"
-            detail, action = "Sync retries automatically, on returning to the app, and when you press Sync.", "Sync"
-        if error and token:
-            error = str(error).replace(token, "[redacted]")
-        if error:
-            detail += f"\n{error}"
-        if stamp:
-            detail += f"\nLast successful sync: {self._last_sync_at}"
-        self._displayed_action = action
-        window._sync_status.set_status(title, detail, action=action, busy=busy and enabled, error=error)
+        text = describe_status(
+            enabled=enabled, url=url, token=token, pending=self._pending,
+            last_sync_at=self._last_sync_at, last_error=self._last_error,
+            result=self._result, busy=busy,
+            connected=bool(window._sync_on and window._sync_controller is not None),
+            status_error=self._status_error,
+        )
+        self._displayed_action = text.action
+        window._sync_status.set_status(text.title, text.detail, action=text.action, busy=busy and enabled, error=text.error)
 
     def status_action(self) -> None:
         if self._displayed_action == "Settings":
