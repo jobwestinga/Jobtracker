@@ -22,6 +22,11 @@ These selections take precedence over the original package recommendations
 below. The PDFs remain unchanged review references; this record does not mean
 the selected designs have shipped.
 
+The subsequent request is to prepare the complete A4 guide first, retaining the
+current setup and recent improvements. See the [A4 implementation guide](../guides/a4-native-mac-overhaul.md)
+for ordered work, preservation requirements and validation gates. Writing that
+guide does not begin the frontend migration.
+
 ## Choices at a glance
 
 Effort is relative implementation scope, not a time estimate. Visual benefits
