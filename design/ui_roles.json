@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "note": "F1 semantic roles shared by the native Mac frontend and phone styles. Colours come from jobtracker/core/themes.py; run scripts/generate_ui_tokens.py after editing.",
+  "typography": {
+    "page_title": {"size": 22, "weight": "bold"},
+    "section": {"size": 15, "weight": "bold"},
+    "card_title": {"size": 15, "weight": "semibold"},
+    "body": {"size": 13, "weight": "regular"},
+    "secondary": {"size": 12, "weight": "regular"},
+    "caption": {"size": 11, "weight": "medium"},
+    "control": {"size": 13, "weight": "medium"},
+    "duration": {"size": 34, "weight": "bold", "monospaced_digits": true},
+    "duration_compact": {"size": 13, "weight": "semibold", "monospaced_digits": true},
+    "chart_axis": {"size": 10, "weight": "regular"},
+    "chart_total": {"size": 14, "weight": "semibold", "strong_weight": "bold", "minimum": 9}
+  },
+  "spacing": {"xxs": 2, "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24},
+  "radius": {"chip": 6, "control": 8, "card": 11, "panel": 14, "chart": 12, "bar_max": 6, "agenda_group": 6},
+  "border": {"hairline": 1, "focus_ring": 2, "focus_gap": 2},
+  "density": {"subject_row_min": 68, "goal_row_min": 56, "control_min": 32, "sidebar_width": 142, "window_min_width": 560, "window_min_height": 600},
+  "actions": {
+    "primary": {"fill": "ACCENT", "text": "contrast:ACCENT", "border": "ACCENT"},
+    "secondary": {"fill": "BG_TERTIARY", "text": "TEXT_PRIMARY", "border": "BORDER_COLOR"},
+    "quiet": {"fill": "clear", "text": "TEXT_SECONDARY", "border": "BORDER_COLOR"},
+    "destructive": {"fill": "ACCENT_RED", "text": "#FFFFFF", "border": "ACCENT_RED"}
+  },
+  "subject_colors": ["#3B82F6", "#8B5CF6", "#EC4899", "#EF4444", "#F97316", "#EAB308", "#22C55E", "#06B6D4"],
+  "hour_tiers": {
+    "scale": {"base": 0.85, "cap_hours": 14, "divisor": 15},
+    "tiers": [
+      {"max_hours": 1.0, "color": "#94A3B8", "strong": false},
+      {"max_hours": 2.5, "color": "#86EFAC", "strong": false},
+      {"max_hours": 4.5, "color": "#60A5FA", "strong": false},
+      {"max_hours": 7.0, "color": "#A855F7", "strong": true},
+      {"max_hours": 10.0, "color": "#FB923C", "strong": true},
+      {"max_hours": null, "color": "#EF4444", "strong": true}
+    ],
+    "bloom": {
+      "strong_radius": 3.0, "strong_alpha": 0.55,
+      "peak_radius": 5.5, "peak_alpha": 0.85,
+      "peak_above_hours": 10
+    }
+  },
+  "session_presets": {
+    "durations_minutes": [15, 30, 60, 75, 90, 120],
+    "moves_seconds": [-86400, -3600, -900, 900, 3600, 86400],
+    "minimum_seconds": 30
+  },
+  "agenda": {
+    "adjacency_seconds": 30,
+    "bold_fill_mix": 0.78,
+    "edge_width": 3,
+    "minimum_text_contrast": 4.5
+  }
+}
