@@ -86,16 +86,20 @@ def test_framework_color_and_file_panels_remain_window_modal(service):
     parent.close()
 
 
-def test_dark_and_light_palette_swatches_are_black_and_white():
+def test_theme_picker_selects_one_complete_theme_and_keeps_legacy_preferences(service):
     qt_app = _application()
-    dialog = SettingsDialog()
+    service.set_setting("theme_fx", "Clean")
+    service.set_setting("theme_palette", "Light")
+    dialog = SettingsDialog(service=service)
     dialog.show()
     qt_app.processEvents()
-    styles = {
-        button.property("palette_name"): button.styleSheet()
-        for button in dialog._palette_btns
-    }
-    assert "background-color: #090B0F" in styles["Dark"]
-    assert "background-color: #FFFFFF" in styles["Light"]
+    assert dialog.theme_combo.currentData() == ("Clean", "Light")
+    dialog._select_preset("OLED Midnight")
+    assert dialog.theme_combo.currentText() == "OLED Midnight"
+    assert (dialog._fx, dialog._palette) == ("Clean", "Obsidian")
+    dialog._select_preset("Carbon Dark")
+    assert dialog.theme_combo.currentText() == "Carbon Dark"
+    assert (dialog._fx, dialog._palette) == ("Clean", "Dark")
+    assert service.get_setting("theme_palette") == "Light"
     dialog.close()
 

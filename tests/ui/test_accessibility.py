@@ -128,9 +128,10 @@ def test_editor_inputs_and_color_only_controls_have_names_and_buddies(service):
     settings = SettingsDialog(service=service)
     controls = [subject.name_input, subject.notes_input, goal.title_input, goal.desc_input,
                 duration.hours_input, duration.minutes_input, session.start_edit, session.end_edit,
-                settings.sync_url_input, settings.sync_token_input, settings.day_start_combo]
+                settings.sync_url_input, settings.sync_token_input, settings.day_start_combo,
+                settings.theme_combo]
     assert all(control.accessibleName() for control in controls)
-    assert all(button.accessibleName() for button in subject._swatch_btns + settings._palette_btns)
+    assert all(button.accessibleName() for button in subject._swatch_btns)
     assert all(button.accessibleName() for button in duration.chunk_buttons.values())
     assert any(label.buddy() is subject.name_input for label in subject.findChildren(type(subject.color_preview)))
     for editor in (subject, goal, duration, session, settings):
@@ -185,7 +186,7 @@ def test_motion_preference_is_not_queued_to_other_devices(database):
     assert service.get_setting("ui_reduce_motion") == "1"
 
 
-def test_settings_fits_small_owner_and_keyboard_scroll_keeps_save_reachable(accessible_window):
+def test_settings_fits_small_owner_and_keeps_save_reachable_in_footer(accessible_window):
     app, window = accessible_window
     window.resize(560, 760)
     editor = SettingsDialog(window, service=window.service)
@@ -202,10 +203,9 @@ def test_settings_fits_small_owner_and_keyboard_scroll_keeps_save_reachable(acce
         QTest.keyClick(app.focusWidget(), Qt.Key_Tab)
         app.processEvents()
     assert save.hasFocus()
-    assert editor.scroll_area.verticalScrollBar().value() > 0
-    viewport = editor.scroll_area.viewport()
-    focused_rect = save.rect().translated(save.mapTo(viewport, save.rect().topLeft()))
-    assert viewport.rect().contains(focused_rect)
+    focused_rect = save.rect().translated(save.mapTo(editor, save.rect().topLeft()))
+    assert editor.rect().contains(focused_rect)
+    assert not editor.scroll_area.isAncestorOf(save)
 
 
 def test_open_settings_tracks_owner_resize_and_preserves_draft(accessible_window):
@@ -229,13 +229,13 @@ def test_open_settings_tracks_owner_resize_and_preserves_draft(accessible_window
     assert viewport.rect().contains(focused_rect)
 
 
-@pytest.mark.parametrize("palette", ["Ocean", "Light"])
-def test_settings_scroll_background_follows_theme_preview(accessible_window, palette):
+@pytest.mark.parametrize("theme", ["Ocean", "OLED Midnight"])
+def test_settings_scroll_background_follows_theme_preview(accessible_window, theme):
     app, window = accessible_window
     editor = SettingsDialog(window, service=window.service)
     open_dialog(editor)
     app.processEvents()
-    editor._select_palette(palette)
+    editor._select_preset(theme)
     app.processEvents()
     image = editor.scroll_area.widget().grab().toImage()
-    assert image.pixelColor(5, 5).name().lower() == get_tokens(editor._fx, palette)["BG_SECONDARY"].lower()
+    assert image.pixelColor(5, 5).name().lower() == get_tokens(editor._fx, editor._palette)["BG_SECONDARY"].lower()

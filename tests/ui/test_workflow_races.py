@@ -116,7 +116,7 @@ def test_settings_rejection_always_reverts_theme_preview(native_window, dismissa
     editor = SettingsDialog(window, service=window.service)
     open_dialog(editor)
     app.processEvents()
-    editor._select_palette("Light" if editor._palette != "Light" else "Dark")
+    editor._select_preset("Carbon Dark" if editor.theme_combo.currentText() != "Carbon Dark" else "OLED Midnight")
     assert app.styleSheet() != original_style
     if dismissal == "escape":
         QTest.keyClick(editor.sync_url_input, Qt.Key_Escape)
@@ -126,8 +126,15 @@ def test_settings_rejection_always_reverts_theme_preview(native_window, dismissa
     assert app.styleSheet() == original_style
 
 
-@pytest.mark.parametrize("name,palette", [("OLED Midnight", "Obsidian"), ("Carbon Dark", "Dark")])
-def test_dark_theme_preset_preview_cancel_and_save_preserve_weight_draft(native_window, name, palette):
+@pytest.mark.parametrize("name,fx,palette", [
+    ("OLED Midnight", "Clean", "Obsidian"),
+    ("Carbon Dark", "Clean", "Dark"),
+    ("Ocean", "Clean", "Ocean"),
+    ("Slate", "Clean", "Slate"),
+    ("Ocean Aura", "Glow", "Ocean"),
+    ("Violet Space", "Space", "Violet"),
+])
+def test_dark_theme_preset_preview_cancel_and_save_preserve_weight_draft(native_window, name, fx, palette):
     from jobtracker.core.themes import get_tokens
 
     app, window = native_window
@@ -139,8 +146,10 @@ def test_dark_theme_preset_preview_cancel_and_save_preserve_weight_draft(native_
     editor = SettingsDialog(window, service=window.service)
     open_dialog(editor, window._finish_settings)
     app.processEvents()
-    editor._preset_btns[name].click()
-    tokens = get_tokens("Clean", palette)
+    editor.theme_combo.setCurrentIndex(editor.theme_combo.findText(name))
+    tokens = get_tokens(fx, palette)
+    assert editor._jt_inline_layer._tokens == tokens
+    assert tokens["BG_SECONDARY"] in editor._jt_inline_layer._panel.styleSheet()
     assert window._weight_view._chart._tokens == tokens
     assert all(button._tokens == tokens for button in window._nav_buttons)
     assert window.service.get_setting("theme_palette", "Ocean") == original_palette
@@ -153,13 +162,55 @@ def test_dark_theme_preset_preview_cancel_and_save_preserve_weight_draft(native_
     editor = SettingsDialog(window, service=window.service)
     open_dialog(editor, window._finish_settings)
     app.processEvents()
-    editor._preset_btns[name].click()
+    editor.theme_combo.setCurrentIndex(editor.theme_combo.findText(name))
     editor.accept()
     app.processEvents()
-    assert window.service.get_setting("theme_fx") == "Clean"
+    assert window.service.get_setting("theme_fx") == fx
     assert window.service.get_setting("theme_palette") == palette
     assert window._tokens == tokens
     assert window._weight_view._value() == 80.6
+
+
+@pytest.mark.parametrize("fx,palette", [("Base", "Rose"), ("Glow", "Light"), ("Checkerboard", "Emerald")])
+def test_legacy_appearance_survives_unrelated_settings_save(service, monkeypatch, fx, palette):
+    _application()
+    service.set_setting("theme_fx", fx)
+    service.set_setting("theme_palette", palette)
+    editor = SettingsDialog(service=service)
+    monkeypatch.setattr(editor, "_persist_sync_settings", lambda: None)
+    assert editor.theme_combo.currentText() == "Current appearance (kept)"
+    assert editor.theme_combo.count() == 7
+    editor.reduce_motion_check.setChecked(True)
+    settings = editor.get_settings()
+    assert (settings["theme_fx"], settings["theme_palette"]) == (fx, palette)
+    editor._select_preset("OLED Midnight")
+    editor.theme_combo.setCurrentIndex(0)
+    assert (editor._fx, editor._palette) == (fx, palette)
+    editor.reject()
+
+
+def test_settings_scrolls_in_small_owner_and_keeps_actions_visible(native_window):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QPushButton
+
+    app, window = native_window
+    window.setMinimumSize(560, 420)
+    window.resize(600, 500)
+    editor = SettingsDialog(window, service=window.service)
+    open_dialog(editor)
+    app.processEvents()
+    assert editor.scroll_area.verticalScrollBar().maximum() > 0
+    editor.sync_token_input.setFocus()
+    app.processEvents()
+    viewport = editor.scroll_area.viewport()
+    field = editor.sync_token_input
+    assert viewport.rect().contains(field.mapTo(viewport, QPoint(0, 0)))
+    assert viewport.rect().contains(field.mapTo(viewport, field.rect().bottomRight()))
+    for name in ("Save", "Cancel"):
+        button = next(b for b in editor.findChildren(QPushButton) if b.text() == name)
+        assert not editor.scroll_area.isAncestorOf(button)
+        assert window.rect().contains(button.mapTo(window, button.rect().bottomRight()))
+    editor.reject()
 
 
 @pytest.mark.parametrize("boundary", ["06:30", "23:45"])
@@ -233,7 +284,7 @@ def test_imported_theme_survives_settings_rejection(native_window, monkeypatch, 
     open_dialog(editor)
     app.processEvents()
     imported_palette = "Light" if editor._palette != "Light" else "Dark"
-    editor._select_palette(imported_palette)
+    editor._select_preset("OLED Midnight")
     backup = window.service.export_data()
     backup["settings"] = [row for row in backup["settings"] if row["key"] != "theme_palette"]
     backup["settings"].append({"key": "theme_palette", "value": imported_palette})

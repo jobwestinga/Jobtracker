@@ -169,23 +169,6 @@ class _InlineDialogLayer(QWidget):
         panel = QFrame(self)
         panel.setObjectName("jtInlineDialogPanel")
         tokens = getattr(dialog_owner(dialog), "_tokens", {}) or {}
-        panel_bg = tokens.get("BG_SECONDARY", "#171B24")
-        border = tokens.get("BORDER_COLOR", "#374151")
-        text = tokens.get("TEXT_PRIMARY", "#F9FAFB")
-        panel.setStyleSheet(
-            "QFrame#jtInlineDialogPanel {"
-            f" background-color: {panel_bg}; border: 1px solid {border};"
-            " border-radius: 12px;"
-            "}"
-            "QLabel#jtInlineDialogTitle {"
-            f" color: {text}; font-size: 15px; font-weight: 700;"
-            " background: transparent; border: none;"
-            "}"
-            "QPushButton#jtInlineDialogClose {"
-            f" color: {text}; background: transparent; border: none;"
-            " font-size: 20px; padding: 2px 8px;"
-            "}"
-        )
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(1, 8, 1, 1)
         panel_layout.setSpacing(0)
@@ -215,12 +198,34 @@ class _InlineDialogLayer(QWidget):
         outer.addWidget(panel, 0, Qt.AlignHCenter)
         outer.addStretch(1)
         self._panel = panel
+        self.apply_tokens(tokens)
 
         host.installEventFilter(self)
         count = int(host.property("_jt_inline_dialog_count") or 0)
         host.setProperty("_jt_inline_dialog_count", count + 1)
         self._host_released = False
         self.destroyed.connect(lambda: self._release_host())
+
+    def apply_tokens(self, tokens: dict) -> None:
+        """Keep the panel chrome in the same theme as its previewed content."""
+        self._tokens = tokens
+        panel_bg = tokens.get("BG_SECONDARY", "#171B24")
+        border = tokens.get("BORDER_COLOR", "#374151")
+        text = tokens.get("TEXT_PRIMARY", "#F9FAFB")
+        self._panel.setStyleSheet(
+            "QFrame#jtInlineDialogPanel {"
+            f" background-color: {panel_bg}; border: 1px solid {border};"
+            " border-radius: 12px;"
+            "}"
+            "QLabel#jtInlineDialogTitle {"
+            f" color: {text}; font-size: 15px; font-weight: 700;"
+            " background: transparent; border: none;"
+            "}"
+            "QPushButton#jtInlineDialogClose {"
+            f" color: {text}; background: transparent; border: none;"
+            " font-size: 20px; padding: 2px 8px;"
+            "}"
+        )
 
     def _release_host(self) -> None:
         if self._host_released:

@@ -1,22 +1,23 @@
 """
-Settings dialog — theme FX, colour palette, and data management.
+Settings dialog — appearance, preferences, and data management.
 """
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QMessageBox, QFileDialog, QComboBox,
     QCheckBox, QLineEdit,
     QScrollArea, QWidget,
     QApplication,
 )
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
+from PySide6.QtGui import QPainter, QPalette, QPen, QPolygonF
 import json
 import logging
 import zipfile
 from typing import Optional
 
 from ...services.tracker_service import TrackerService
-from ...core.themes import PALETTES, PALETTE_NAMES, FX_NAMES, get_tokens
+from ...core.themes import get_tokens
 from ...core import export_bundle
 from ...core.timeutils import parse_day_start
 from ...sync import settings as sync_settings
@@ -34,7 +35,35 @@ logger = logging.getLogger("jobtracker")
 THEME_PRESETS = {
     "OLED Midnight": ("Clean", "Obsidian"),
     "Carbon Dark": ("Clean", "Dark"),
+    "Ocean": ("Clean", "Ocean"),
+    "Slate": ("Clean", "Slate"),
+    "Ocean Aura": ("Glow", "Ocean"),
+    "Violet Space": ("Space", "Violet"),
 }
+THEME_DESCRIPTIONS = {
+    "OLED Midnight": "Deep black surfaces with a cool blue accent.",
+    "Carbon Dark": "Layered charcoal surfaces with a blue accent.",
+    "Ocean": "Quiet navy surfaces and clear blue highlights.",
+    "Slate": "Neutral graphite surfaces and soft silver highlights.",
+    "Ocean Aura": "Ocean colours with a softly animated background.",
+    "Violet Space": "Deep violet surfaces with a subtle starfield.",
+}
+
+
+class _SettingsComboBox(QComboBox):
+    """Keep the disclosure legible and sharp on dark and Retina surfaces."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setStyleSheet("QComboBox::down-arrow { image: none; }")
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(self.palette().color(QPalette.Text), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        x, y = self.width() - 17, self.height() / 2
+        painter.drawPolyline(QPolygonF([QPointF(x - 4, y - 2), QPointF(x, y + 2), QPointF(x + 4, y - 2)]))
 
 
 class SettingsDialog(InlineDialog):
@@ -79,78 +108,27 @@ class SettingsDialog(InlineDialog):
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(12)
 
-        theme_label = QLabel("Dark themes")
+        theme_label = QLabel("Theme")
         theme_label.setStyleSheet("font-size: 14px; font-weight: 700;")
         layout.addWidget(theme_label)
-        presets = QHBoxLayout()
-        self._preset_btns = {}
-        for name in THEME_PRESETS:
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setMinimumHeight(54)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setAccessibleName(f"Use {name} theme")
-            button.setToolTip("Layered dark surfaces with the Clean effect")
-            button.clicked.connect(lambda _checked=False, n=name: self._select_preset(n))
-            presets.addWidget(button, 1)
-            self._preset_btns[name] = button
-        layout.addLayout(presets)
-
-        # ── FX Style ─────────────────────────────────────────────────────
-        fx_lbl = QLabel("Theme FX")
-        fx_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
-        layout.addWidget(fx_lbl)
-
-        fx_row = QHBoxLayout()
-        fx_row.setSpacing(8)
-        self._fx_btns: list[QPushButton] = []
-        fx_labels = {
-            "Base": "Base",
-            "Clean": "Clean",
-            "Glow": "Aura",
-            "Space": "Space",
-            "Checkerboard": "Minimal",
-        }
-        for name in FX_NAMES:
-            btn = QPushButton(fx_labels.get(name, name))
-            btn.setAccessibleName(f"Theme effect {fx_labels.get(name, name)}")
-            btn.setFixedHeight(42)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setProperty("fx_name", name)
-            btn.clicked.connect(lambda checked, n=name: self._select_fx(n))
-            fx_row.addWidget(btn)
-            self._fx_btns.append(btn)
-        layout.addLayout(fx_row)
-
-        # ── Colour Palette ───────────────────────────────────────────────
-        palette_lbl = QLabel("Colour Palette")
-        palette_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
-        layout.addWidget(palette_lbl)
-
-        palette_grid = QGridLayout()
-        palette_grid.setContentsMargins(0, 2, 0, 2)
-        palette_grid.setHorizontalSpacing(8)
-        palette_grid.setVerticalSpacing(12)
-        self._palette_btns: list[QPushButton] = []
-        max_cols = 6
-        for idx, name in enumerate(PALETTE_NAMES):
-            btn = QPushButton()
-            btn.setFixedSize(48, 48)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setToolTip(name)
-            btn.setAccessibleName(f"Color palette {name}")
-            btn.setProperty("palette_name", name)
-            btn.clicked.connect(lambda checked, n=name: self._select_palette(n))
-            row, col = divmod(idx, max_cols)
-            palette_grid.addWidget(btn, row, col)
-            self._palette_btns.append(btn)
-        for row in range((len(PALETTE_NAMES) + max_cols - 1) // max_cols):
-            palette_grid.setRowMinimumHeight(row, 56)
-        layout.addLayout(palette_grid)
-
-        self._palette_name_lbl = QLabel(self._palette)
-        self._palette_name_lbl.setStyleSheet("font-size: 12px; font-weight: 500;")
-        layout.addWidget(self._palette_name_lbl)
+        self.theme_combo = _SettingsComboBox()
+        self.theme_combo.setAccessibleName("Appearance theme")
+        self.theme_combo.setAccessibleDescription("Choose one complete theme. Changes preview immediately; Save keeps them and Cancel restores your previous appearance.")
+        self.theme_combo.setMinimumHeight(38)
+        self.theme_combo.setCursor(Qt.PointingHandCursor)
+        theme_label.setBuddy(self.theme_combo)
+        for name, combination in THEME_PRESETS.items():
+            self.theme_combo.addItem(name, combination)
+        # Legacy combinations remain valid preferences. Represent the exact
+        # saved pair without silently replacing it with the closest new theme.
+        if (self._fx, self._palette) not in THEME_PRESETS.values():
+            self.theme_combo.insertItem(0, "Current appearance (kept)", (self._fx, self._palette))
+        self.theme_combo.currentIndexChanged.connect(self._select_theme)
+        layout.addWidget(self.theme_combo)
+        self._theme_hint = QLabel()
+        self._theme_hint.setWordWrap(True)
+        self._theme_hint.setStyleSheet("font-size: 12px;")
+        layout.addWidget(self._theme_hint)
 
         self.reduce_motion_check = QCheckBox("Reduce motion")
         self.reduce_motion_check.setChecked(self._svc.get_setting("ui_reduce_motion", "0") == "1")
@@ -159,8 +137,7 @@ class SettingsDialog(InlineDialog):
         self.reduce_motion_check.setAccessibleDescription(motion_hint)
         layout.addWidget(self.reduce_motion_check)
 
-        self._refresh_buttons()
-        QTimer.singleShot(0, self._refresh_buttons)
+        self._refresh_theme_selection()
 
         # ── Separator ────────────────────────────────────────────────────
         sep = QFrame()
@@ -174,7 +151,7 @@ class SettingsDialog(InlineDialog):
         layout.addWidget(day_lbl)
 
         day_row = QHBoxLayout()
-        self.day_start_combo = QComboBox()
+        self.day_start_combo = _SettingsComboBox()
         self.day_start_combo.setCursor(Qt.PointingHandCursor)
         for h in range(24):
             self.day_start_combo.addItem(f"{h:02d}:00", h)
@@ -281,6 +258,7 @@ class SettingsDialog(InlineDialog):
 
         # ── Actions ──────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(24, 0, 24, 18)
         btn_row.setSpacing(10)
 
         cancel_btn = QPushButton("Cancel")
@@ -296,7 +274,7 @@ class SettingsDialog(InlineDialog):
         save_btn.clicked.connect(self.accept)
         btn_row.addWidget(save_btn)
 
-        layout.addLayout(btn_row)
+        outer.addLayout(btn_row)
 
         for b in self.findChildren(QPushButton):
             b.setAutoDefault(False)
@@ -305,8 +283,8 @@ class SettingsDialog(InlineDialog):
         save_btn.setDefault(True)
 
     def _fit_owner_height(self) -> None:
-        available = self._settings_host.height() - 110 if self._settings_host is not None else 780
-        self.setFixedHeight(max(240, min(780, available)))
+        available = self._settings_host.height() - 110 if self._settings_host is not None else 640
+        self.setFixedHeight(max(240, min(640, available)))
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         if watched is self._settings_host and event.type() == QEvent.Resize:
@@ -324,74 +302,25 @@ class SettingsDialog(InlineDialog):
 
     # ── Selection ────────────────────────────────────────────────────────
     def _select_preset(self, name: str) -> None:
-        self._fx, self._palette = THEME_PRESETS[name]
-        self._palette_name_lbl.setText(self._palette)
-        self._apply_preview()
+        self.theme_combo.setCurrentIndex(self.theme_combo.findText(name))
 
-    def _select_fx(self, name: str) -> None:
-        self._fx = name
-        self._refresh_buttons()
-        self._apply_preview()
+    def _select_theme(self, index: int) -> None:
+        combination = self.theme_combo.itemData(index)
+        if combination is not None:
+            self._fx, self._palette = combination
+            self._apply_preview()
 
-    def _select_palette(self, name: str) -> None:
-        self._palette = name
-        self._palette_name_lbl.setText(name)
-        self._refresh_buttons()
-        self._apply_preview()
-
-    def _refresh_buttons(self) -> None:
-        tokens = get_tokens(self._fx, self._palette)
-        accent = tokens["ACCENT"]
-        bg = tokens["BG_SECONDARY"]
-        border = tokens["BORDER_COLOR"]
-        text = tokens["TEXT_PRIMARY"]
-        text_dim = tokens["TEXT_SECONDARY"]
-
-        for name, button in self._preset_btns.items():
-            fx, palette = THEME_PRESETS[name]
-            preview = get_tokens(fx, palette)
-            selected = (self._fx, self._palette) == (fx, palette)
-            button.setChecked(selected)
-            edge = preview["ACCENT"] if selected else preview["BORDER_COLOR"]
-            button.setStyleSheet(
-                f"QPushButton {{ background: {preview['BG_SECONDARY']}; color: {preview['TEXT_PRIMARY']};"
-                f" border: {2 if selected else 1}px solid {edge}; border-radius: 8px;"
-                " font-size: 12px; font-weight: 600; padding: 8px; }"
-                f" QPushButton:focus {{ border: 2px solid {preview['BORDER_FOCUS']}; }}"
-            )
-
-        for btn in self._fx_btns:
-            name = btn.property("fx_name")
-            if name == self._fx:
-                btn.setStyleSheet(
-                    f"background-color: {bg}; border: 2px solid {accent};"
-                    f" border-radius: 8px; color: {text}; font-size: 11px;"
-                    f" font-weight: 600; text-align: center;"
-                )
-            else:
-                btn.setStyleSheet(
-                    f"background-color: {bg}; border: 1px solid {border};"
-                    f" border-radius: 8px; color: {text_dim}; font-size: 11px;"
-                    f" text-align: center;"
-                )
-
-        for btn in self._palette_btns:
-            name = btn.property("palette_name")
-            pal = PALETTES[name]
-            if name == "Dark":
-                swatch = "#090B0F"
-            elif name == "Light":
-                swatch = "#FFFFFF"
-            else:
-                swatch = pal["ACCENT"]
-            ring = (
-                f"3px solid {text}"
-                if name == self._palette
-                else "1px solid #94A3B8"
-            )
-            btn.setStyleSheet(
-                f"background-color: {swatch}; border: {ring}; border-radius: 24px;"
-            )
+    def _refresh_theme_selection(self) -> None:
+        self.theme_combo.blockSignals(True)
+        for index in range(self.theme_combo.count()):
+            if tuple(self.theme_combo.itemData(index)) == (self._fx, self._palette):
+                self.theme_combo.setCurrentIndex(index)
+                break
+        self.theme_combo.blockSignals(False)
+        self._theme_hint.setText(THEME_DESCRIPTIONS.get(
+            self.theme_combo.currentText(),
+            "Your saved appearance stays in place until you choose another theme.",
+        ))
 
     def _apply_preview(self) -> None:
         """Live-preview the theme on the main window."""
@@ -409,8 +338,11 @@ class SettingsDialog(InlineDialog):
             main._graph_view.set_tokens(tokens)
         if main and hasattr(main, "_agenda_view"):
             main._agenda_view.set_tokens(tokens)
+        layer = getattr(self, "_jt_inline_layer", None)
+        if layer is not None:
+            layer.apply_tokens(tokens)
         self._preview_navigation_and_weight(main, tokens)
-        self._refresh_buttons()
+        self._refresh_theme_selection()
 
     def _preview_navigation_and_weight(self, main, tokens) -> None:
         if main and hasattr(main, "_weight_view"):
@@ -453,6 +385,9 @@ class SettingsDialog(InlineDialog):
                 main._graph_view.set_tokens(tokens)
             if main and hasattr(main, "_agenda_view"):
                 main._agenda_view.set_tokens(tokens)
+            layer = getattr(self, "_jt_inline_layer", None)
+            if layer is not None:
+                layer.apply_tokens(tokens)
             self._preview_navigation_and_weight(main, tokens)
         self._fx = self._original_fx
         self._palette = self._original_palette

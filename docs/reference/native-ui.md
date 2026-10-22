@@ -189,11 +189,14 @@ Current conventions:
   **Expanding** size policy, otherwise Qt spreads the row's slack evenly and
   pushes the badge and ✓ into mid-card.
 
-Settings offers **OLED Midnight** (`Clean` + `Obsidian`) and **Carbon Dark**
-(`Clean` + `Dark`) presets alongside the existing custom FX and palettes. Preview
-includes the sidebar and weight chart; Cancel/Escape restores the prior theme.
-Only Save persists a selected preset, and existing preferences remain selected
-until the user changes them.
+Settings has one complete-theme selector: **OLED Midnight**, **Carbon Dark**,
+**Ocean**, **Slate**, **Ocean Aura** and **Violet Space**. FX/palette pairs remain
+the storage format but are not separate user controls. Unmatched legacy pairs
+appear as a kept current appearance until the user selects a named theme.
+Preview includes panel chrome, sidebar and charts; Cancel/Escape restores the
+prior theme, while only Save persists a choice. Save/Cancel stay outside the
+scrolling settings body. Small checklist icons and combo chevrons use vector
+strokes so they stay sharp on Retina displays.
 
 Resume comes from actual timer history via `get_last_tracked_subject`, rather
 than subject order. Archived subjects and future history are not resume targets;
