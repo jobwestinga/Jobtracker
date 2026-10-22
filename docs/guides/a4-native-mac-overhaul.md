@@ -258,20 +258,23 @@ FEATURE_ID` for the current exact files and focused checks before editing.
 | Phone | [composition](../../web/app.js), [feature modules](../../web/features), [data layer](../../web/data), [shared UI](../../web/shared), [worker](../../web/sw.js) |
 | Release/checks | [developer CLI](../../scripts/dev.py), [build](../../scripts/build_macos.py), [installer](../../scripts/install_macos.py), [feature registry](../architecture/features.json), [contracts](../architecture/contracts.json) |
 
-Proposed additions below are names to establish during implementation, **not
-paths to run today**:
+The additions as implemented (see the [evidence record](a4-evidence.md)):
 
 ```text
-native/macos/                    Xcode app, native components and tests
-  JobTracker/                   shell, features, AppKit adapters, bridge client
-  JobTrackerTests/               decoding, feature state, formatting/layout tests
-  JobTrackerUITests/             real native keyboard/window/workflow tests
+native/macos/                    SwiftPM package (Command Line Tools suffice)
+  Sources/JobTrackerKit/         shell, features, AppKit adapters, bridge client
+  Sources/JobTracker/            app entry point
+  Sources/JobTrackerChecks/      macro-free checks: decoding, layouts, live engine, feature state
 jobtracker/desktop/              Qt-free engine host and local command adapter
 tests/desktop/                  protocol, receipt, lifecycle and concurrency tests
-tests/contracts/desktop_bridge/ shared synthetic request/result fixtures
+tests/contracts/desktop_bridge/ shared command fixture and live sample responses
 design/ui_roles.json             semantic type/spacing/surface/action roles
-scripts/generate_ui_tokens.py    checked generation for Swift/CSS/UI helpers
+scripts/generate_ui_tokens.py    checked generation for Swift and phone CSS roles
+scripts/build_native.py          signed bundle with the frozen engine (`dev.py build --native`)
 ```
+
+Native UI automation (XCUIAutomation) still needs full Xcode; it is not part
+of the current toolchain and remains a manual gate.
 
 Keep existing palette definitions in `core/themes.py` as the colour authority.
 Generate native theme data from those definitions plus the UI role data; do not
