@@ -75,6 +75,23 @@ class SubjectRepository:
         cur.execute("SELECT * FROM tasks ORDER BY sort_order ASC, created_at DESC")
         return [Subject(**dict(row)) for row in cur.fetchall()]
 
+    def get_last_tracked_subject(self, before: str) -> Optional[Subject]:
+        """Latest resumable work, independent of subject order or manual adds.
+
+        Device-owned sessions identify actual timers. Older imports may not
+        have an owner, so use their history only when no timed row is present.
+        Future history remains valid data but does not describe recent work.
+        """
+        row = self._database.connection.execute(
+            "SELECT t.* FROM tasks AS t JOIN sessions AS s ON s.task_id = t.id "
+            "WHERE t.is_archived = 0 AND s.start_time <= ? "
+            "AND COALESCE(s.end_time, s.last_active_at, s.start_time) <= ? "
+            "ORDER BY (s.device_id IS NOT NULL) DESC, "
+            "COALESCE(s.end_time, s.last_active_at, s.start_time) DESC, s.id DESC LIMIT 1",
+            (before, before),
+        ).fetchone()
+        return Subject(**dict(row)) if row else None
+
     def archive_subject(self, subject_id: int) -> None:
         cur = self._database.connection.cursor()
         cur.execute("UPDATE tasks SET is_archived = 1 WHERE id = ?", (subject_id,))

@@ -8,6 +8,37 @@ from jobtracker.sync import state
 from jobtracker.sync.service import SyncedTrackerService
 
 
+def test_resume_subject_follows_real_timer_history_not_row_order_or_manual_future(service):
+    first = service.add_subject("First in list", "#22C55E", "")
+    recent = service.add_subject("Last tracked", "#38BDF8", "")
+    assert service.get_last_tracked_subject() is None
+    now = datetime.now()
+    assert service.start_subject(recent.id, now - timedelta(minutes=20))
+    service.stop_active_subject(now - timedelta(minutes=5))
+    # A manual backfill or future slot does not represent a new timer action.
+    service.add_session(first.id, now - timedelta(minutes=4), now - timedelta(minutes=1))
+    service.add_session(first.id, now + timedelta(days=2), now + timedelta(days=2, hours=1))
+    service.set_subject_order([first.id, recent.id])
+    assert service.get_last_tracked_subject().uid == recent.uid
+    from jobtracker.services.tracker_service import TrackerService
+    reopened = TrackerService(service.db, recover=False)
+    assert reopened.get_last_tracked_subject().uid == recent.uid
+
+
+def test_resume_skips_archived_subject_and_keeps_legacy_history(service):
+    older = service.add_subject("Earlier work", "#22C55E", "")
+    latest = service.add_subject("Archived work", "#38BDF8", "")
+    now = datetime.now()
+    # Legacy imports do not have device owners, but still provide a fallback.
+    service.add_session(older.id, now - timedelta(hours=3), now - timedelta(hours=2))
+    service.add_session(latest.id, now - timedelta(hours=1), now - timedelta(minutes=10))
+    assert service.get_last_tracked_subject().id == latest.id
+    service.archive_subject(latest.id)
+    assert service.get_last_tracked_subject().id == older.id
+    service.archive_subject(older.id)
+    assert service.get_last_tracked_subject() is None
+
+
 def test_add_subject(service):
     s = service.add_subject("Maths", "#22C55E", "notes")
     assert s is not None

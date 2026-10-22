@@ -265,22 +265,27 @@ def test_switch_prompt_ignores_a_stale_premise(database, monkeypatch):
         qt_app.processEvents()
 
 
-def test_sidebar_shortcuts_and_timer_resume_and_discard_notice(
+def test_timer_resumes_actual_history_and_shows_short_discard_notice(
     database, monkeypatch
 ):
-    """D1-B sidebar page shortcuts, D2-A idle resume button, and L3-A <30s discard notice."""
+    """A new subject has no resume action until it has actually been tracked."""
     qt_app, window = _window(database, monkeypatch)
     try:
         subject = window.service.add_subject("Deep Work", "#38BDF8", "")
         window._reload_subjects()
+        assert window._timer._resume_btn.isHidden()
+        start = datetime.now() - timedelta(minutes=10)
+        window.service.start_subject(subject.id, start)
+        window.service.stop_active_subject(start + timedelta(minutes=5))
+        window._reload_subjects()
         qt_app.processEvents()
 
-        # Sidebar page navigation (⌘1–⌘4) keeps Goals first (0), Subjects (1), Graphs (2), Weight (3).
+        # The direct navigation adapter remains compatible without digit keys.
         window._navigate_to_page(1)
         assert window._pages.currentIndex() == 1
         assert window._nav_buttons[1].isChecked()
 
-        # Idle bar shows Resume button for the available subject.
+        # Idle bar shows Resume for the last subject actually tracked.
         assert not window._timer._resume_btn.isHidden()
         assert "Deep Work" in window._timer._resume_btn.text()
 

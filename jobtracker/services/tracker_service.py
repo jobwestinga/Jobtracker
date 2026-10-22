@@ -151,6 +151,9 @@ class TrackerService:
     def get_all_subjects(self, archived: bool = False) -> List[Subject]:
         return self._subjects.get_all_subjects(archived)
 
+    def get_last_tracked_subject(self) -> Optional[Subject]:
+        return self._subjects.get_last_tracked_subject()
+
     def get_all_subjects_including_archived(self) -> List[Subject]:
         return self._subjects.get_all_subjects_including_archived()
 

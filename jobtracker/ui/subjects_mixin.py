@@ -112,16 +112,7 @@ class SubjectsMixin:
         if last_id is not None and last_id in by_id:
             last_subj = by_id[last_id]
         elif by_id:
-            try:
-                row = self.service.db.connection.execute(
-                    "SELECT subject_id FROM sessions ORDER BY start_time DESC LIMIT 1"
-                ).fetchone()
-                if row and row[0] in by_id:
-                    last_subj = by_id[row[0]]
-            except Exception:
-                pass
-            if last_subj is None:
-                last_subj = active_subjects[0]
+            last_subj = self.service.get_last_tracked_subject()
         try:
             today_map = self.service.get_subject_stats_map("Today")
             today_seconds = sum(today_map.values())

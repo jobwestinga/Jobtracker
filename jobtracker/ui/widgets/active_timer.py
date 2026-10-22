@@ -189,13 +189,13 @@ class ActiveTimerWidget(QFrame):
         """Briefly show a feedback notice (e.g. '<30s session discarded') in the idle bar."""
         self._transient_notice = message
         self._idle_label.setText(message)
-        self._apply_idle_style()
+        self._refresh_idle_controls()
         self._notice_timer.start(max(500, int(duration_ms)))
 
     def _clear_transient_notice(self) -> None:
         self._transient_notice = ""
         self._idle_label.setText(IDLE_MESSAGE)
-        self._apply_idle_style()
+        self._refresh_idle_controls()
 
     def _on_resume_clicked(self) -> None:
         if self._last_subject is not None and self._last_subject.id is not None:
@@ -301,7 +301,7 @@ class ActiveTimerWidget(QFrame):
             self._today_lbl.hide()
 
         subj = self._last_subject
-        if subj is not None and subj.id is not None and not getattr(subj, "is_archived", False):
+        if subj is not None and subj.id is not None and not getattr(subj, "is_archived", False) and not self._transient_notice:
             short = subj.name if len(subj.name) <= 18 else subj.name[:17] + "…"
             self._resume_btn.setText(f"↺  Resume {short}")
             self._resume_btn.setToolTip(f"Resume tracking {subj.name}")

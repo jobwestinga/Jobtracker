@@ -194,3 +194,9 @@ Settings offers **OLED Midnight** (`Clean` + `Obsidian`) and **Carbon Dark**
 includes the sidebar and weight chart; Cancel/Escape restores the prior theme.
 Only Save persists a selected preset, and existing preferences remain selected
 until the user changes them.
+
+Resume comes from actual timer history via `get_last_tracked_subject`, rather
+than subject order. Archived subjects and future history are not resume targets;
+legacy history is a fallback when no device-owned timer is available. No history
+means no Resume action. A just-stopped subject remains resumable in the current
+window, including a short session discarded under the existing 30-second rule.

@@ -31,6 +31,7 @@ Source: [jobtracker/core/database.py](../../jobtracker/core/database.py).
 | `Database.get_subject` | `SubjectRepository.get_subject` |
 | `Database.get_subject_by_name` | `SubjectRepository.get_subject_by_name` |
 | `Database.get_all_subjects` | `SubjectRepository.get_all_subjects` |
+| `Database.get_last_tracked_subject` | `SubjectRepository.get_last_tracked_subject` |
 | `Database.get_all_subjects_including_archived` | `SubjectRepository.get_all_subjects_including_archived` |
 | `Database.archive_subject` | `SubjectRepository.archive_subject` |
 | `Database.unarchive_subject` | `SubjectRepository.unarchive_subject` |
@@ -110,6 +111,7 @@ Source: [jobtracker/services/tracker_service.py](../../jobtracker/services/track
 | `TrackerService.get_day_start` | Facade / direct adapter |
 | `TrackerService.set_day_start` | Facade / direct adapter |
 | `TrackerService.get_all_subjects` | `SubjectService.get_all_subjects` |
+| `TrackerService.get_last_tracked_subject` | `SubjectService.get_last_tracked_subject` |
 | `TrackerService.get_all_subjects_including_archived` | `SubjectService.get_all_subjects_including_archived` |
 | `TrackerService.add_subject` | `SubjectService.add_subject` |
 | `TrackerService.update_subject` | `SubjectService.update_subject` |

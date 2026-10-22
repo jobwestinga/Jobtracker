@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, Optional
 
 from ..core.models import Subject
@@ -18,6 +19,9 @@ class SubjectService:
 
     def get_all_subjects_including_archived(self) -> List[Subject]:
         return self._tracker.db.get_all_subjects_including_archived()
+
+    def get_last_tracked_subject(self) -> Optional[Subject]:
+        return self._tracker.db.get_last_tracked_subject(datetime.now().isoformat())
 
     def add_subject(self, name: str, color: str, notes: str) -> Optional[Subject]:
         normalized_name = (name or "").strip()
