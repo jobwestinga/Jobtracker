@@ -177,8 +177,9 @@ Current conventions:
   start at 56px and grow for notes, deadlines or milestones. Card-list rows take
   the viewport width so trailing actions remain reachable in half-screen windows.
 - The shared inline layer supplies each dialog's visible title and close button;
-  avoid repeating that heading inside its content. Subject history keeps Quick
-  Add and move presets behind disclosures, leaving the selected session visible.
+  avoid repeating that heading inside its content. Subject history always shows
+  duration/custom, fixed-slot and move presets in compact rows; no disclosure
+  click is required. Keep the session list and its exact selection visible.
 - Daily axis labels read `Mon 03` (weekday + day). No gridlines on the bar chart
   by choice — the two edge labels are the whole axis.
 - Agenda blocks are a neutral base + ~35% subject tint + a 3px saturated left

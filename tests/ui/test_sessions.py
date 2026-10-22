@@ -1011,23 +1011,28 @@ def test_compact_session_presets_keep_exact_session_and_fit_half_screen(database
         manager = ManageSessionsDialog(subject.id, window.service, window)
         open_dialog(manager)
         app.processEvents()
-        assert not manager._quick_panel.isVisible()
-        assert not manager._move_panel.isVisible()
-        manager._quick_toggle.click()
-        app.processEvents()
+        assert manager._quick_panel.isVisible()
+        assert manager._move_panel.isVisible()
+        assert all(button.text() not in ("Quick Add", "Move selected session") for button in manager.findChildren(QPushButton))
         preset = next(button for button in manager.findChildren(QPushButton) if button.text() == "15m")
         preset.click()
         app.processEvents()
         session = window.service.get_sessions_for_subject(subject.id)[0]
         assert session.duration_seconds == 900
         assert manager._list.selected_session()["session_id"] == session.id
-        manager._move_toggle.click()
+        move = next(button for button in manager._move_panel.findChildren(QPushButton) if button.text() == "+15m")
+        start = datetime.fromisoformat(session.start_time)
+        move.click()
         app.processEvents()
+        moved = window.service.get_session(session.id)
+        assert datetime.fromisoformat(moved.start_time) == start + timedelta(minutes=15)
+        assert manager._list.selected_session()["session_id"] == session.id
         for panel in (manager._quick_panel, manager._move_panel):
             assert panel.isVisible()
             assert panel.minimumSizeHint().width() <= panel.width()
         assert manager.mapTo(window, manager.rect().bottomRight()).x() < window.width()
         assert manager.mapTo(window, manager.rect().bottomRight()).y() < window.height()
+        assert manager._list.height() >= 100
         manager.reject()
     finally:
         window.close()

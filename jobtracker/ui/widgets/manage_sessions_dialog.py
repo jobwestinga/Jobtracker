@@ -63,7 +63,7 @@ class ManageSessionsDialog(InlineDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         self._empty_lbl = QLabel(
             'No sessions recorded yet.\nClick "+ Add Session" to create one.'
@@ -76,24 +76,19 @@ class ManageSessionsDialog(InlineDialog):
         layout.addWidget(self._empty_lbl)
 
         self._list = SessionListView(show_date=True)
+        self._list.setMinimumHeight(100)
         self._list.apply_tokens(resolve_tokens(self))
         self._list.session_activated.connect(self._edit)
         layout.addWidget(self._list, 1)
 
         # ── Quick add: duration ending now ────────────────────────────────
-        self._quick_toggle = QPushButton("Quick Add")
-        self._quick_toggle.setCheckable(True)
-        self._quick_toggle.setAccessibleName("Show quick session presets")
-        layout.addWidget(self._quick_toggle)
         self._quick_panel = QWidget(self)
         quick_layout = QVBoxLayout(self._quick_panel)
         quick_layout.setContentsMargins(0, 0, 0, 0)
-        quick_layout.setSpacing(8)
-        self._quick_toggle.toggled.connect(self._quick_panel.setVisible)
-        self._quick_panel.hide()
+        quick_layout.setSpacing(6)
         layout.addWidget(self._quick_panel)
 
-        quick_label = QLabel("Ending now:")
+        quick_label = QLabel("Quick add · ending now")
         quick_label.setStyleSheet("font-weight: 600; font-size: 12px;")
         quick_layout.addWidget(quick_label)
 
@@ -103,8 +98,8 @@ class ManageSessionsDialog(InlineDialog):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(32)
-            btn.setObjectName("primaryBtn")
             btn.setStyleSheet("font-size: 12px; padding: 6px 6px;")
+            btn.setAccessibleName(f"Add {label} ending now")
             btn.clicked.connect(lambda _checked=False, m=minutes: self._quick_add(m))
             quick_row.addWidget(btn, index // 4, index % 4)
 
@@ -136,14 +131,15 @@ class ManageSessionsDialog(InlineDialog):
         quick_layout.addLayout(slot_row)
 
         # ── Move the selected session ─────────────────────────────────────
-        self._move_toggle = QPushButton("Move selected session")
-        self._move_toggle.setCheckable(True)
-        layout.addWidget(self._move_toggle)
+        move_label = QLabel("Move selected session")
+        move_label.setStyleSheet("font-weight: 600; font-size: 12px;")
+        layout.addWidget(move_label)
         self._move_panel = QWidget(self)
         self._move_panel.setLayout(build_move_row(self._shift_selected))
         self._move_panel.layout().setContentsMargins(0, 0, 0, 0)
-        self._move_toggle.toggled.connect(self._move_panel.setVisible)
-        self._move_panel.hide()
+        self._move_panel.layout().setSpacing(4)
+        for button in self._move_panel.findChildren(QPushButton):
+            button.setStyleSheet("font-size: 12px; padding: 6px 4px;")
         layout.addWidget(self._move_panel)
 
         # ── Actions ───────────────────────────────────────────────────────
