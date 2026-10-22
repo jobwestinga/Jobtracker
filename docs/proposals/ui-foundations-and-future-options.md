@@ -1,9 +1,26 @@
 # UI foundations and future options
 
-Status: proposals for review, 22 October 2026. These are choices, not accepted
-implementation requirements. The separate Visual options v2 PDF remains the
-reference for Bold/Soft agenda finishes and existing theme previews. This
-companion adds composition, workflow, rendering and architecture choices.
+Status: reviewed selections recorded below, 22 October 2026. Unselected options
+remain proposals. The separate Visual options v2 PDF remains the reference for
+Bold/Soft agenda finishes and existing theme previews. This companion adds
+composition, workflow, rendering and architecture choices.
+
+## Review decisions
+
+- Keep the restored v2 hour treatment and use the **Bold agenda** finish.
+- Choose **S1 calm cards**, **W1 one consistent session panel** and **R1 soft
+  bloom**. Keep all existing themes available as appearance options.
+- The user delegated F1/F2 to the recommendation: adopt **both F1 and F2**.
+  Apply their visual roles and explicit presentation state to the chosen
+  frontend; avoid extensive work on views scheduled for replacement.
+- **A4 is the preferred direction to evaluate**, with A2 still an alternative.
+  The user requested an explanation of benefits and drawbacks before proceeding;
+  this is not a decision to begin a wholesale frontend rewrite. First establish
+  the tradeoffs, then validate a small native view before expanding the scope.
+
+These selections take precedence over the original package recommendations
+below. The PDFs remain unchanged review references; this record does not mean
+the selected designs have shipped.
 
 ## Choices at a glance
 
@@ -19,10 +36,10 @@ and maintenance benefits are design judgments to validate in a prototype.
 | W1 | One consistent session panel across entry points | Small/medium | Builds on the existing shared actions |
 | W2 | Dock that same session panel beside history on wide screens | Medium | Alternative wide-screen presentation of W1 |
 | R1 | Soft cached bloom, crisp text and stable focus geometry | Small/medium | Refines the v2 hour treatment; preserves its intent |
-| A1 | Evolve the current Qt Widgets frontend | Medium overall | Recommended delivery route |
+| A1 | Evolve the current Qt Widgets frontend | Medium overall | Smallest migration |
 | A2 | Replace only the graph workspace with Qt Quick/QML | Medium/large | Optional rendering experiment |
 | A3 | Share HTML/CSS presentation between Mac and phone | Large | Alternative long-term frontend direction |
-| A4 | Build a SwiftUI/AppKit Mac frontend | Very large | Alternative to A2/A3; phone remains web-based |
+| A4 | Build a SwiftUI/AppKit Mac frontend | Very large | Preferred direction to evaluate; phone remains web-based |
 
 ## F1: one visual contract
 
@@ -146,7 +163,7 @@ Owners: [time bars](../../jobtracker/ui/widgets/graphs_view.py),
 
 ## A1-A4: how far to change the frontend
 
-### A1 - Evolve Qt Widgets (recommended first)
+### A1 - Evolve Qt Widgets (smallest migration)
 
 Deliver F1/F2 and a selected composition within the current frontend. Extract
 shared visual primitives and a feature presentation state around existing
