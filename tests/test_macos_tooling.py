@@ -394,3 +394,25 @@ def test_build_runs_selected_python_in_private_source_stage(world):
 def test_empty_guard_list_cannot_disable_required_database_checks():
     with pytest.raises(install_macos.InstallError, match="required database"):
         install_macos.read_work([])
+
+
+def test_unresolved_native_requests_block_installation(tmp_path, database):
+    journal = Path(database.db_path).parent / install_macos.NATIVE_JOURNAL
+    journal.mkdir()
+    (journal / "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json").write_text("{}")
+    work = install_macos.read_work([database.db_path])
+    assert work["native_pending_requests"] == 1 and not work["idle"]
+    (journal / "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json").unlink()
+    assert install_macos.read_work([database.db_path])["idle"]
+
+
+def test_a_settling_native_engine_counts_as_running(tmp_path):
+    application = tmp_path / "JobTracker.app"
+    seen = []
+
+    def runner(command, **options):
+        seen.append(command[-1])
+        return SimpleNamespace(returncode=0 if "Resources/engine" in command[-1] else 1)
+
+    assert install_macos.app_running(application, run=runner)
+    assert len(seen) == 2 and "MacOS/JobTracker" in seen[0]

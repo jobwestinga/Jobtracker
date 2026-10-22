@@ -29,6 +29,7 @@ final class CaptureRunner {
 
     private func waitUntilReady(attempt: Int = 0) {
         if case .ready = model.connection, model.settings != nil, model.subjects.list != nil {
+            recordTiming()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.plan() }
             return
         }
@@ -82,6 +83,29 @@ final class CaptureRunner {
         let step = steps.removeFirst()
         step()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { self.next() }
+    }
+
+    /// Launch-to-first-data time and resident memory of the app and engine.
+    private func recordTiming() {
+        let ready = Date().timeIntervalSince(JobTrackerMain.launchStarted)
+        func rss(_ pid: Int32) -> Int {
+            let pipe = Pipe()
+            let ps = Process()
+            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-o", "rss=", "-p", String(pid)]
+            ps.standardOutput = pipe
+            try? ps.run()
+            ps.waitUntilExit()
+            return Int(String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        }
+        let timing: [String: Any] = [
+            "ready_seconds": (ready * 1000).rounded() / 1000,
+            "app_rss_mb": Double(rss(ProcessInfo.processInfo.processIdentifier)) / 1024,
+            "engine_rss_mb": Double(rss(Int32(model.engine.hello?.pid ?? 0))) / 1024,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: timing, options: [.sortedKeys]) {
+            try? data.write(to: directory.appendingPathComponent("\(prefix)-timing.json"))
+        }
     }
 
     private func snapshot(_ name: String) {

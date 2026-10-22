@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Packaged builds read `JTEngineMode` (`production` or `isolated`) and
 /// `JTStoreFolder` from Info.plist and run the bundled helper in
-/// `Contents/Helpers/jobtracker-engine/`. A development run (no bundle helper)
+/// `Contents/Resources/engine/`. A development run (no bundle helper)
 /// uses `JOBTRACKER_ENGINE_PYTHON` + `JOBTRACKER_ENGINE_ROOT` to start
 /// `python -m jobtracker.desktop` from a checkout. Without explicit settings
 /// the app never selects a real store: it uses an isolated pilot store.
@@ -32,7 +32,7 @@ public struct EngineConfiguration: Equatable {
             throw NSError(domain: "JobTracker", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unknown engine mode \(mode)"])
         }
 
-        let helper = bundle.bundleURL.appendingPathComponent("Contents/Helpers/jobtracker-engine/jobtracker-engine")
+        let helper = bundle.bundleURL.appendingPathComponent("Contents/Resources/engine/jobtracker-engine")
         let launch: EngineLaunch
         if let python = environment["JOBTRACKER_ENGINE_PYTHON"], let root = environment["JOBTRACKER_ENGINE_ROOT"] {
             launch = EngineLaunch(executable: URL(fileURLWithPath: python), arguments: ["-m", "jobtracker.desktop"] + arguments,

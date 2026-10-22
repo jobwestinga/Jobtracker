@@ -103,6 +103,7 @@ public final class AppModel: ObservableObject {
     private func handle(_ event: EngineEvent) {
         switch event {
         case .connected:
+            JobTrackerMain.mark("engine-hello")
             Task { @MainActor in await self.reloadEverything() }
         case .changed(let topics, _):
             invalidate(topics)
@@ -149,7 +150,9 @@ public final class AppModel: ObservableObject {
     @MainActor
     public func reloadEverything() async {
         await loadSettings()
+        JobTrackerMain.mark("settings-loaded")
         await subjects.reload()
+        JobTrackerMain.mark("subjects-loaded")
         await goals.reload(includeTemplates: true)
         graphs.markStale()
         if page == .graphs { await graphs.reload() }

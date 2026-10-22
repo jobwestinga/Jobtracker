@@ -81,10 +81,15 @@ def main(argv=None) -> int:
     return code
 
 
-if __name__ == "__main__":
-    exit_code = main()
+def run(argv=None) -> None:
+    """Process entry for source runs and the frozen helper."""
+    exit_code = main(argv)
     # The stdin reader may still be blocked when the parent sent SIGTERM;
     # leave without interpreter teardown racing that daemon thread.
     logging.shutdown()
     sys.stderr.flush()
     os._exit(exit_code)
+
+
+if __name__ == "__main__":
+    run()

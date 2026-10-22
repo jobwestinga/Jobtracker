@@ -44,9 +44,17 @@ def default_databases(project: Path) -> list[Path]:
             project / "data/jobtracker.db"]
 
 
+NATIVE_JOURNAL = "native-pending-requests"
+
+
 def read_work(databases, *, allow_missing=False) -> dict:
-    """Read all devices' timers and every unacknowledged local operation."""
-    active, pending, checked = 0, 0, []
+    """Read all devices' timers and every unacknowledged local operation.
+
+    Unresolved native-frontend requests (private envelopes beside the store)
+    also block replacement: their outcome is not yet known, and erasing them
+    to make an install look idle could lose or repeat a change.
+    """
+    active, pending, native, checked = 0, 0, 0, []
     paths = dict.fromkeys(str(Path(path).expanduser().resolve()) for path in databases)
     if not paths:
         raise InstallError("At least one required database path is needed")
@@ -69,17 +77,23 @@ def read_work(databases, *, allow_missing=False) -> dict:
                 checked.append(str(path))
         except sqlite3.Error as error:
             raise InstallError(f"Could not inspect required database: {path}: {error}") from error
-    return {"active_sessions": active, "pending_operations": pending, "databases": checked,
-            "idle": active == 0 and pending == 0}
+        journal = path.parent / NATIVE_JOURNAL
+        if journal.is_dir():
+            native += sum(1 for _ in journal.glob("*.json"))
+    return {"active_sessions": active, "pending_operations": pending, "native_pending_requests": native,
+            "databases": checked, "idle": active == 0 and pending == 0 and native == 0}
 
 
 def app_running(application: Path, *, run=subprocess.run) -> bool:
-    executable = application / "Contents/MacOS/JobTracker"
-    result = run(["pgrep", "-f", "^" + re.escape(str(executable)) + "($| )"],
-                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if result.returncode not in (0, 1):
-        raise InstallError("Could not inspect the installed app process")
-    return result.returncode == 0
+    """The UI process, or a native engine helper still settling its work."""
+    for executable in (application / "Contents/MacOS/JobTracker", application / "Contents/Resources/engine/jobtracker-engine"):
+        result = run(["pgrep", "-f", "^" + re.escape(str(executable)) + "($| )"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if result.returncode not in (0, 1):
+            raise InstallError("Could not inspect the installed app process")
+        if result.returncode == 0:
+            return True
+    return False
 
 
 def inspect_install_state(application=APPLICATION, databases=None, *, project=PROJECT_ROOT,

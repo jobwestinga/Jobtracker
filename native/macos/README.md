@@ -41,7 +41,7 @@ JOBTRACKER_NATIVE_MODE=isolated JOBTRACKER_NATIVE_DB=/tmp/jt-pilot/store.db \
 `JOBTRACKER_NATIVE_SUPPORT_DIR` relocates the pending-request journal and
 `JOBTRACKER_LOCK_DIR` the store lock, for tests. Packaged builds read
 `JTEngineMode`/`JTStoreFolder` from Info.plist and run the helper in
-`Contents/Helpers/jobtracker-engine/`.
+`Contents/Resources/engine/` (built by `scripts/build_native.py`).
 
 `JOBTRACKER_NATIVE_CAPTURE=<dir>` renders every named theme and page (both
 graph modes; `JOBTRACKER_NATIVE_CAPTURE_PANELS=1` adds panels) to PNG files for

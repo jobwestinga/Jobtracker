@@ -94,3 +94,30 @@ If installation remains queued, finish or explicitly resolve your own timer and
 let pending changes sync normally. Inspect status and report the blocking reason.
 Reuse authorization already given for the update; do not add a second approval
 step merely because the safe tool waits for idle.
+
+## Native Mac app (A4)
+
+The native frontend builds outside iCloud with SwiftPM and a frozen, Qt-free
+engine; the Command Line Tools are sufficient. It never installs:
+
+```sh
+python scripts/dev.py native --python /path/to/python        # build + native checks
+python scripts/dev.py build --native --python /path/to/python  # signed pilot bundle
+```
+
+The default `pilot` identity is a separate app, `com.jobtracker.native-pilot`
+("JobTracker Native Pilot"), on its own store under
+`~/Library/Application Support/JobTracker Native Pilot/`. It cannot replace
+`/Applications/JobTracker.app` (the installer requires `com.jobtracker.app`).
+`--identity production` keeps the established identity and store and exists
+only for the guarded cutover described in the
+[A4 guide](../guides/a4-native-mac-overhaul.md#p17--pilot-switch-defaults-and-maintain-the-result).
+
+The engine is frozen with PyInstaller into `Contents/Resources/engine/`; every
+nested Mach-O is signed before the app, and `codesign --verify --deep
+--strict` must pass. The build smoke-tests the frozen engine from a neutral
+folder on a disposable store and reports architectures and size.
+
+Installer guards treat a running native UI or a settling engine helper as a
+running app, and unresolved native requests (`native-pending-requests/` beside
+a store) as pending work, exactly like an open session or outbox.

@@ -2,9 +2,30 @@ import AppKit
 import SwiftUI
 
 public enum JobTrackerMain {
+    static let launchStarted = Date()
+
+    /// Startup phase log for performance evidence (JOBTRACKER_NATIVE_TIMING=1).
+    static func mark(_ phase: String) {
+        guard ProcessInfo.processInfo.environment["JOBTRACKER_NATIVE_TIMING"] == "1" else { return }
+        FileHandle.standardError.write(Data(String(format: "timing %.3f %@\n", Date().timeIntervalSince(launchStarted), phase).utf8))
+    }
+
     public static func run() {
+        _ = launchStarted
+        // Start the engine before AppKit finishes launching so Python startup,
+        // recovery and the first reads overlap window creation.
+        let journalFallback = FileManager.default.temporaryDirectory.appendingPathComponent("jobtracker-native-journal")
+        var configuration: EngineConfiguration?
+        var configurationError: String?
+        do { configuration = try EngineConfiguration.resolve() } catch { configurationError = error.localizedDescription }
+        let launch = configuration?.launch ?? EngineLaunch(executable: URL(fileURLWithPath: "/usr/bin/false"), arguments: [])
+        let engine = EngineClient(launch: launch, journal: RequestJournal(directory: configuration?.journalDirectory ?? journalFallback))
+        let model = AppModel(engine: engine, configuration: configuration)
+        if let configurationError { engine.fail(configurationError) } else { engine.start() }
+        mark("engine-started")
+
         let app = NSApplication.shared
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(model: model)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         withExtendedLifetime(delegate) { app.run() }
@@ -14,21 +35,20 @@ public enum JobTrackerMain {
 /// Owns the single window, the engine lifecycle and window-level input.
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
-    private var model: AppModel!
+    private let model: AppModel
     private var keyRouter: KeyRouter?
     private var quitApproved = false
     private var appearanceObserver: Any?
     private var capture: CaptureRunner?
 
+    init(model: AppModel) {
+        self.model = model
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        JobTrackerMain.mark("did-finish-launching")
         buildMenu()
-        let journalFallback = FileManager.default.temporaryDirectory.appendingPathComponent("jobtracker-native-journal")
-        var configuration: EngineConfiguration?
-        var configurationError: String?
-        do { configuration = try EngineConfiguration.resolve() } catch { configurationError = error.localizedDescription }
-        let launch = configuration?.launch ?? EngineLaunch(executable: URL(fileURLWithPath: "/usr/bin/false"), arguments: [])
-        let engine = EngineClient(launch: launch, journal: RequestJournal(directory: configuration?.journalDirectory ?? journalFallback))
-        model = AppModel(engine: engine, configuration: configuration)
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 920),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -47,13 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appearanceObserver = model.$theme.sink { [weak self] _ in DispatchQueue.main.async { self?.applyAppearance() } }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        JobTrackerMain.mark("window-shown")
 
         keyRouter = KeyRouter(model: model, window: window)
-        if let configurationError {
-            engine.fail(configurationError)
-        } else {
-            engine.start()
-        }
         if let directory = ProcessInfo.processInfo.environment["JOBTRACKER_NATIVE_CAPTURE"] {
             capture = CaptureRunner(model: model, window: window, directory: URL(fileURLWithPath: directory))
             capture?.start()

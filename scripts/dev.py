@@ -152,6 +152,8 @@ def main(argv=None):
     build.add_argument("--install", action="store_true", help="Install now when idle, otherwise queue a guarded idle installation.")
     build.add_argument("--keep-dist", action="store_true")
     build.add_argument("--setup", action="store_true", help="Explicitly install required build dependencies.")
+    build.add_argument("--native", action="store_true", help="Build the signed native app with its frozen engine (build only).")
+    build.add_argument("--identity", choices=("pilot", "production"), default="pilot", help="Native bundle identity (default: separate pilot app).")
     sub.add_parser("status", help="Read active-session/outbox status without changing data.")
     sub.add_parser("deploy", help="Deploy to the configured private server using its existing installer.")
     args = parser.parse_args(argv)
@@ -197,6 +199,11 @@ def main(argv=None):
                 if result:
                     return result
             return 0
+        if args.command == "build" and args.native:
+            if args.install or args.setup or args.keep_dist:
+                raise ValueError("--native builds only; installation goes through the guarded A4 cutover")
+            executable = validate_python(args.python, ["PyInstaller"])
+            return run([executable, str(ROOT / "scripts/build_native.py"), "--python", executable, "--identity", args.identity])
         if args.command == "build":
             executable = validate_python(args.python, [] if args.setup else ["PyInstaller", "PySide6"])
             command = [executable, str(ROOT / "scripts/build_macos.py"), "--python", executable]
