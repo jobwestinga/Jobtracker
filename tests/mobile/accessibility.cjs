@@ -21,7 +21,7 @@ const server = http.createServer((req, res) => {
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
-    const page = await browser.newPage({ viewport: { width: 320, height: 740 } });
+    const page = await browser.newPage({ viewport: { width: 320, height: 740 }, hasTouch: true });
     const errors = []; page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.evaluate(async () => {
@@ -57,7 +57,11 @@ const server = http.createServer((req, res) => {
       const api = {
         breakdown: async () => ({ grouping: 'daily', buckets: [
           { date: yesterday, total_seconds: 3600, segments: [{ subject_uid: 'subject', subject_name: 'Physics', seconds: 3600, color: '#3B82F6' }] },
-          { date: today, total_seconds: 5400, segments: [{ subject_uid: 'subject', subject_name: 'Physics', seconds: 5400, color: '#3B82F6' }] },
+          { date: today, total_seconds: 5400, segments: [
+            { subject_uid: 'subject', subject_name: 'Physics', seconds: 1800, color: '#3B82F6' },
+            { subject_uid: 'writing', subject_name: 'Writing', seconds: 1800, color: '#14B8A6' },
+            { subject_uid: 'subject', subject_name: 'Physics', seconds: 1800, color: '#3B82F6' },
+          ] },
         ] }),
         agenda: async () => ({ days: [yesterday, today], day_start: '03:00', sessions: [
           { ...store.snapshot.sessions[0], day: today, start_h: 9, end_h: 10.5, subject_name: 'Physics', color: '#3B82F6' },
@@ -191,16 +195,50 @@ const server = http.createServer((req, res) => {
 
     // Graph data and edit/day actions are reachable with a keyboard.
     await page.evaluate(() => showView('graphs'));
+    const bars = await page.locator('.bar-col').evaluateAll((columns) => columns.map((column) => {
+      const fill = column.querySelector('.bar-fill');
+      const pieces = [...fill.querySelectorAll('.bar-seg')];
+      return { fill: fill.getBoundingClientRect().height, stack: column.querySelector('.bar-stack').getBoundingClientRect().height,
+        portions: pieces.map((piece) => Number.parseFloat(piece.style.height)),
+        paintedPortions: pieces.map((piece) => piece.getBoundingClientRect().height / fill.getBoundingClientRect().height * 100),
+        painted: pieces.reduce((sum, piece) => sum + piece.getBoundingClientRect().height, 0),
+        value: column.querySelector('.bar-val').textContent };
+    }));
+    assert.deepEqual(bars.map((bar) => bar.value), ['1.0h', '1.5h']);
+    assert.deepEqual(bars.map((bar) => bar.portions.length), [1, 2], 'sessions are summed by subject before drawing');
+    assert.ok(Math.abs(bars[0].fill / bars[1].fill - 2 / 3) < .005, `bar-height ratio ${JSON.stringify(bars)}`);
+    for (const bar of bars) {
+      assert.ok(Math.abs(bar.portions.reduce((sum, portion) => sum + portion, 0) - 100) < .001, 'subject proportions fill exactly 100%');
+      assert.ok(Math.abs(bar.painted - bar.fill) < 1, 'painted segments preserve the represented duration');
+      assert.ok(bar.portions.every((portion, index) => Math.abs(portion - bar.paintedPortions[index]) < .1), 'each painted subject share matches its duration');
+    }
+    assert.ok(Math.abs(bars[0].stack - bars[1].stack) < 1, 'hour badges share one baseline');
+    await page.locator('[data-mode="bars"]').focus();
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.mode), 'bars');
+    await page.keyboard.press('ArrowDown');
+    await page.waitForSelector('.agenda-block');
+    assert.equal(await page.locator('[data-mode="agenda"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.mode), 'agenda');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.mode), 'agenda');
+    await page.keyboard.press('ArrowUp');
+    await page.waitForSelector('.bar-col');
+    assert.equal(await page.locator('[data-mode="bars"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.mode), 'bars');
+    await page.screenshot({ path: '/tmp/jobtracker-mobile-graph-review.png' });
     await page.locator('.bar-col').last().focus(); await page.keyboard.press('Enter');
     assert.equal(await page.evaluate(() => daysOpened.length), 1);
     assert.match(await page.locator('.bar-col').last().getAttribute('aria-label'), /Physics/);
-    await page.locator('[data-mode="agenda"]').click();
+    await page.locator('.bar-col').last().tap();
+    assert.equal(await page.evaluate(() => daysOpened.length), 2);
+    await page.locator('[data-mode="agenda"]').tap();
     await page.waitForSelector('.agenda-block');
     assert.equal(await page.locator('[data-mode="agenda"]').getAttribute('aria-pressed'), 'true');
     await page.locator('.agenda-block').focus(); await page.keyboard.press('Space');
     assert.deepEqual(await page.evaluate(() => edited), ['session']);
     await page.locator('.agenda-daylbl').last().focus(); await page.keyboard.press('Enter');
-    assert.equal(await page.evaluate(() => daysOpened.length), 2);
+    assert.equal(await page.evaluate(() => daysOpened.length), 3);
 
     // Subject quick add is a labelled dialog: keyboard entry, named preset
     // group, exposed chunk toggle state, and focus returns to its invoker.
@@ -277,6 +315,6 @@ const server = http.createServer((req, res) => {
     assert.ok(!/user-scalable\s*=\s*no/i.test(viewport) && !/maximum-scale/i.test(viewport) && /minimum-scale=1/.test(viewport), viewport);
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ accessibilityChecks: 'passed', viewport: '320x740', textSize: '200%',
-      covered: ['sheet focus/Escape/draft recovery', 'fullscreen nested dialog and focus restoration', 'keyboard goals/graphs/weight', 'subject quick add and colour names', 'lazy chart text data', 'contrast/reflow/reduced motion'], voiceOverTested: false }));
+      covered: ['sheet focus/Escape/draft recovery', 'fullscreen nested dialog and focus restoration', 'keyboard goals/graphs/weight', 'graph arrow focus, touch and proportional stacked bars', 'subject quick add and colour names', 'lazy chart text data', 'contrast/reflow/reduced motion'], voiceOverTested: false }));
   } finally { await browser?.close(); server.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

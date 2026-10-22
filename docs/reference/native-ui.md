@@ -168,8 +168,10 @@ Preserve these established layout choices:
 
 - A capped/centred content column. Content is deliberately **full-bleed**: the
   screen should look filled at fullscreen width.
-- A dark contrast stroke around the bar-chart totals. The numerals keep only
-  their coloured glow (`_intensity_style` tiers) over `TEXT_PRIMARY`.
+- Magnitude-scaled and tier-coloured bar totals. Labels sit above their filled
+  stacks, with subtle tinted chips when there is room. Use crisp text rather
+  than multiple offset glow passes. Stacks remain contiguous, with a rounded
+  outer cap and a gentle horizontal surface gradient; date labels thin to fit.
 - Any special colouring for today's agenda column. Every column is styled
   identically; the current-time marker line is the only "now" cue.
 

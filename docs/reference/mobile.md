@@ -56,6 +56,11 @@ them does.
 - **Bars are summed per SUBJECT before drawing.** The API returns one segment per
   *session*. Summing first avoids a minimum block height inflating long buckets
   until every bar reaches the ceiling.
+- Filled stacks use the bucket-to-peak height, with each subject occupying its
+  share of that bucket. Rounded caps and gentle shading leave segments
+  contiguous. Hour labels retain daily intensity tiers; the API supplies the
+  normalized intensity for weekly/monthly buckets. Up/Down on graph mode
+  buttons selects Stacked Bar/Agenda and keeps focus on the selected control.
 - Poll while foregrounded, never while a sheet is open. Preserve drafts and
   existing interactive DOM during refreshes; timer-only updates must not rebuild
   a form or chart.

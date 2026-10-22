@@ -135,6 +135,9 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       const column = el("div", "bar-col");
       column.dataset.focusKey = `bar:${data.grouping}:${bucket.date}`;
       const stack = el("div", "bar-stack");
+      const fill = el("div", "bar-fill");
+      fill.style.height = `${(bucket.total_seconds / peak) * 100}%`;
+      stack.append(fill);
       // Sum per SUBJECT first. The API returns one segment per session, and a
       // month can hold fifty of them; with a minimum height per block, every long
       // bucket hit the ceiling and all the bars came out the same height. This is
@@ -150,13 +153,22 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       const segments = [...perSubject.values()].sort((a, b) => b.seconds - a.seconds);
       for (const segment of segments) {
         const piece = el("div", "bar-seg");
-        piece.style.height = `${(segment.seconds / peak) * 100}%`;
+        piece.style.height = `${bucket.total_seconds ? (segment.seconds / bucket.total_seconds) * 100 : 0}%`;
         piece.style.backgroundColor = safeColor(segment.color);
         piece.title = `${segment.name}: ${hm(segment.seconds)}`;
         piece.setAttribute("aria-hidden", "true");
-        stack.append(piece);
+        fill.append(piece);
       }
-      const value = el("div", "bar-val", bucket.total_seconds ? hm(bucket.total_seconds) : "");
+      const value = el("div", "bar-val");
+      if (bucket.total_seconds) {
+        const hours = (bucket.intensity_seconds ?? bucket.total_seconds) / 3600;
+        const tiers = [[1, "#94A3B8", 0.85], [2.5, "#86EFAC", 1], [4.5, "#60A5FA", 1.08],
+          [7, "#A855F7", 1.2], [10, "#FB923C", 1.32], [Infinity, "#EF4444", 1.45]];
+        const [, color, scale] = tiers.find(([limit]) => hours <= limit);
+        value.style.setProperty("--hour-color", color);
+        value.style.setProperty("--hour-scale", scale);
+        value.append(el("span", null, `${(bucket.total_seconds / 3600).toFixed(1)}h`));
+      }
       const label = el("div", "bar-lbl", shortLabel(bucket.date, data.grouping));
       column.append(value, stack, label);
       // Tapping a day opens exactly that day, the way the desktop's charts do.
@@ -403,6 +415,14 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         }
         graphChanged();
       };
+      if (button.dataset.mode) button.onkeydown = (event) => {
+        if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const mode = event.key === "ArrowUp" ? "bars" : "agenda";
+        const target = document.querySelector(`#view-graphs [data-mode="${mode}"]`);
+        target.focus({ preventScroll: true });
+        if (state.graphMode !== mode) target.click();
+      };
     });
     $("graph-start").onchange = () => { state.graphStart = $("graph-start").value; graphChanged(); };
     $("graph-end").onchange = () => { state.graphEnd = $("graph-end").value; graphChanged(); };
@@ -425,7 +445,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     graphFullscreen?.destroy(); graphFullscreen = null;
     if (graphResizeFrame !== null) cancelAnimationFrame(graphResizeFrame);
     graphResizeFrame = null;
-    document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => { button.onclick = null; });
+    document.querySelectorAll("#view-graphs .seg-btn").forEach((button) => { button.onclick = button.onkeydown = null; });
     for (const id of ["graph-options", "graph-fullscreen"]) $(id).onclick = null;
     for (const id of ["graph-start", "graph-end"]) $(id).onchange = null;
   }

@@ -8,6 +8,7 @@ from jobtracker.ui.widgets.graph_settings_dialog import (RANGE_OPTIONS)
 from tests.support.native import (_application, _window, _agenda_canvas_with)
 
 def test_graph_ranges_are_calendar_presets_with_custom_still_available():
+    qt_app = _application()
     assert RANGE_OPTIONS == [
         ("Weeks", "weeks"),
         ("Months", "months"),

@@ -9,7 +9,7 @@ from datetime import datetime
 from html import escape
 
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
 from ...core.themes import DEFAULT_TOKENS
@@ -19,12 +19,12 @@ from .paint_utils import HoverCard, with_alpha as _with_alpha
 def _intensity_style(seconds: float) -> tuple[str, float, bool]:
     """(color, scale, strong) for a bar's total label, by tracked time per day.
 
-    Higher tiers grow larger and ``strong`` tiers get the extra outer glow —
+    Higher tiers grow larger and ``strong`` tiers get a bolder weight —
     big days should read as achievements at a glance, even fullscreen.
     """
     hours = max(0.0, float(seconds)) / 3600.0
     if hours <= 1.0:
-        return "#737373", 0.85, False
+        return "#94A3B8", 0.85, False
     if hours <= 2.5:
         return "#86EFAC", 1.0, False
     if hours <= 4.5:
@@ -190,16 +190,18 @@ class _GraphCanvas(QWidget):
         p.drawText(4, int(base_y) + 4, "0.0h")
 
         bar_width, gap = self._bar_layout()
-        bar_count = len(self._data)
+        last_day_label_right = float("-inf")
 
         for idx, day_data in enumerate(self._data):
             x = chart.left() + idx * (bar_width + gap)
             total_seconds = max(0, int(day_data.get("total_seconds", 0)))
             segments = _merge_adjacent_segments(day_data.get("segments", []))
 
-            bar_rect = QRectF(x, chart.top(), bar_width, chart.height())
+            filled_height = chart.height() * total_seconds / max_total
+            bar_rect = QRectF(x, chart.bottom() - filled_height, bar_width, filled_height)
             clip = QPainterPath()
-            clip.addRoundedRect(bar_rect, 7, 7)
+            radius = min(6.0, bar_width / 3, filled_height / 2)
+            clip.addRoundedRect(bar_rect, radius, radius)
 
             p.save()
             p.setClipPath(clip)
@@ -220,20 +222,22 @@ class _GraphCanvas(QWidget):
                     max(1.0, height) + 1.0,
                 )
                 p.setPen(Qt.NoPen)
-                p.setBrush(QColor(seg.get("color", "#3B82F6")))
+                color = QColor(seg.get("color", "#3B82F6"))
+                surface = QLinearGradient(x, 0, x + bar_width, 0)
+                surface.setColorAt(0.0, color.lighter(108))
+                surface.setColorAt(0.45, color)
+                surface.setColorAt(1.0, color.darker(108))
+                p.setBrush(surface)
                 p.drawRect(rect)
             p.restore()
 
-            # Subtle outline for each day bar (quieter for empty days)
-            outline_alpha = 140 if total_seconds > 0 else 45
-            p.setPen(QPen(_with_alpha(t["BORDER_COLOR"], outline_alpha), 1))
-            if total_seconds == 0:
-                p.setBrush(_with_alpha(t["BG_PRIMARY"], 65))
-            else:
+            # Outline the measured stack, rather than a tall empty container.
+            if total_seconds > 0:
+                p.setPen(QPen(_with_alpha(t["TEXT_PRIMARY"], 35), 0.8))
                 p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(bar_rect, 7, 7)
+                p.drawRoundedRect(bar_rect.adjusted(0.4, 0.4, -0.4, -0.4), radius, radius)
 
-            # Total hours label with dynamic magnitude size and colour contour
+            # Crisp time chips keep the magnitude tiers without blurry halos.
             if bar_width > 20 and total_seconds > 0:
                 total_h = total_seconds / 3600.0
                 intensity_seconds = day_data.get(
@@ -244,25 +248,18 @@ class _GraphCanvas(QWidget):
                 text = f"{total_h:.1f}h"
                 base_font_size = 11
                 scaled_size = max(8, int(base_font_size * s))
-                weight = QFont.Black if strong else QFont.Bold
+                weight = QFont.Bold if strong else QFont.DemiBold
                 p.setFont(QFont("SF Pro Text", scaled_size, weight))
-
-                text_rect = QRectF(x - 28, chart.top() - 28, bar_width + 56, 24)
-
-                # Strong days get a wide soft halo behind the contour so big
-                # totals visibly pop, especially fullscreen. No dark stroke:
-                # it read as an ugly black outline.
-                if strong:
-                    p.setPen(QPen(_with_alpha(c_hex, 80), 1))
-                    for ox, oy in [(-2, -2), (2, -2), (-2, 2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]:
-                        p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
-
-                # Shiny coloured contour (multi-offset outer stroke)
-                p.setPen(QPen(_with_alpha(c_hex, 220), 1))
-                for ox, oy in [(-1, -1), (1, -1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
-                    p.drawText(text_rect.translated(ox, oy), Qt.AlignCenter, text)
-
-                p.setPen(QColor(t["TEXT_PRIMARY"]))
+                while scaled_size > 8 and p.fontMetrics().horizontalAdvance(text) > bar_width + gap - 4:
+                    scaled_size -= 1
+                    p.setFont(QFont("SF Pro Text", scaled_size, weight))
+                label_width = p.fontMetrics().horizontalAdvance(text) + 8
+                text_rect = QRectF(x + bar_width / 2 - label_width / 2, bar_rect.top() - 27, label_width, 23)
+                if bar_width >= 52 and label_width <= bar_width + gap - 4:
+                    p.setPen(QPen(_with_alpha(c_hex, 65), 0.7))
+                    p.setBrush(_with_alpha(c_hex, 20))
+                    p.drawRoundedRect(text_rect.adjusted(0, 1, 0, -1), 5, 5)
+                p.setPen(QColor(c_hex))
                 p.drawText(text_rect, Qt.AlignCenter, text)
 
             # Day label
@@ -271,15 +268,15 @@ class _GraphCanvas(QWidget):
             )
             p.setPen(QColor(t["TEXT_DIMMED"]))
             p.setFont(QFont("SF Pro Text", 9))
-            # Hide text if width is too small on fit_width mode and bar_count is high
-            if bar_width < 16 and self._fit_width and bar_count > 14 and idx % 2 != 0:
-                pass # skip drawing every other label if too tight
-            else:
+            day_label_width = p.fontMetrics().horizontalAdvance(day_text)
+            day_label_left = x + bar_width / 2 - day_label_width / 2
+            if day_label_left >= last_day_label_right + 6:
                 p.drawText(
                     QRectF(x - 12, chart.bottom() + 6, bar_width + 24, 18),
                     Qt.AlignCenter,
                     day_text,
                 )
+                last_day_label_right = day_label_left + day_label_width
 
     # ── hover / click ─────────────────────────────────────────────────────
     def _bucket_title(self, date_iso: str) -> str:
