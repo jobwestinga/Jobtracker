@@ -214,4 +214,34 @@ struct FeatureStateTests: CheckSuite {
         expect(key("\u{F703}", code: 124) == false && app.page == .goals, "arrows belong to the panel")
         expect(key("\u{1B}", code: 53) && app.panels.isEmpty, "Escape closes the panel")
     }
+
+    func weightEditsKeepImportedPrecisionAndDailyIdentity() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        let weight = app.weight
+        live.run { await weight.reload() }
+        guard let view = weight.view, let imported = view.rows.first(where: { $0.source == "scale" && ($0.weightKg * 10).rounded() != $0.weightKg * 10 }) else {
+            expect(false, "imported reading with extra precision"); return
+        }
+        weight.edit(imported.uid)
+        expect(weight.value == imported.weightKg, "editing shows the exact imported value")
+        live.run { await weight.save() }
+        expect(weight.view?.rows.first { $0.uid == imported.uid }?.weightKg == imported.weightKg, "unchanged save keeps precision")
+        // Today's manual entry opens for editing; a tile change updates that same row.
+        weight.today()
+        let manual = weight.view!.rows.first { $0.source == "manual" && $0.day == LocalTime.dayString(Date()) }!
+        expect(weight.editingUid == manual.uid, "today's entry opened")
+        weight.selectWhole(weight.firstWhole + 1)
+        weight.selectDecimal(4)
+        let expected = weight.value!
+        let sentTo = weight.editingUid
+        live.run { await weight.save() }
+        expect(sentTo == manual.uid, "save targets today's row")
+        // A newer refresh (from the tile preference writes) may supersede the
+        // save's own refresh by epoch; the view settles on the committed value.
+        live.harness.pump(5) { weight.view?.rows.first { $0.uid == manual.uid }?.weightKg == expected }
+        let rows = weight.view!.rows.filter { $0.source == "manual" && $0.day == LocalTime.dayString(Date()) }
+        expect(rows.count == 1 && rows[0].uid == manual.uid && abs(rows[0].weightKg - expected) < 1e-9, "same daily identity updated")
+        expect(weight.status == "Saved.")
+    }
 }

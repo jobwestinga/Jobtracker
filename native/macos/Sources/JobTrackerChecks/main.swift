@@ -38,6 +38,7 @@ let checks: [(String, () throws -> Void)] = [
     ("FeatureStateTests.goalDigitsOpenRowsAndToggleMilestones", { try FeatureStateTests().goalDigitsOpenRowsAndToggleMilestones() }),
     ("FeatureStateTests.themePreviewRollsBackOnCancel", { try FeatureStateTests().themePreviewRollsBackOnCancel() }),
     ("FeatureStateTests.keyRoutingFollowsPageAndPanelOwnership", { try FeatureStateTests().keyRoutingFollowsPageAndPanelOwnership() }),
+    ("FeatureStateTests.weightEditsKeepImportedPrecisionAndDailyIdentity", { try FeatureStateTests().weightEditsKeepImportedPrecisionAndDailyIdentity() }),
 ]
 
 exit(runChecks(checks))

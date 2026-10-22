@@ -389,3 +389,35 @@ def test_weight_view_reuses_plot_rules_and_keeps_imported_precision(engine, data
     assert view["badge"]["delta"] == round(80.0 - 82.46, 1)
     assert view["summary"]["count"] == 4
     assert engine.call("weight.view", {"range": "7"})["outcome"] == protocol.INVALID
+
+
+def test_backup_export_writes_complete_files_and_import_merges_atomically(synced_engine, tmp_path):
+    import json
+    import zipfile
+
+    subject = synced_engine.ok("subject.add", {"name": "Physics", "color": "#3B82F6", "notes": ""})["subject"]
+    zip_path = tmp_path / "out" / "jobtracker_backup.zip"
+    zip_path.parent.mkdir()
+    synced_engine.ok("backup.export", {"path": str(zip_path)})
+    with zipfile.ZipFile(zip_path) as bundle:
+        names = set(bundle.namelist())
+        exported = json.loads(bundle.read("jobtracker_backup.json"))
+    assert {"jobtracker_backup.json", "sessions.csv", "subjects.csv", "daily_summary.csv"} <= names
+    assert [row["uid"] for row in exported["subjects"]] == [subject["uid"]]
+    assert not list(zip_path.parent.glob(".jobtracker-export-*")), "no partial temporary files remain"
+    assert synced_engine.call("backup.export", {"path": "relative.zip"})["outcome"] == protocol.INVALID
+
+    # Import merges through the synced facade: one queued import_backup, UIDs kept.
+    exported["subjects"].append({**exported["subjects"][0], "uid": "11111111-1111-4111-8111-111111111111", "name": "Maths", "id": 999})
+    json_path = tmp_path / "restore.json"
+    json_path.write_text(json.dumps(exported))
+    before = len(_outbox(synced_engine))
+    synced_engine.ok("backup.import", {"path": str(json_path)})
+    names = sorted(s["name"] for s in synced_engine.ok("subjects.list")["subjects"])
+    assert names == ["Maths", "Physics"]
+    assert _outbox(synced_engine)[before:] == ["import_backup"]
+    # A malformed file changes nothing and queues nothing.
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert synced_engine.call("backup.import", {"path": str(bad)})["outcome"] == protocol.INVALID
+    assert len(_outbox(synced_engine)) == before + 1
