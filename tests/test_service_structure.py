@@ -144,7 +144,16 @@ def test_synced_composed_actions_keep_exact_operation_sequence(database):
     assert queued[-1]["params"]["moment"] == "2026-10-11T10:15:00"
 
 
-def test_analytics_keeps_facade_window_override(database):
+def test_analytics_keeps_facade_window_override(database, monkeypatch):
+    from jobtracker.services import analytics_service
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 13, 12)
+
+    monkeypatch.setattr(analytics_service, "datetime", FixedDateTime)
+
     class Adapter(TrackerService):
         def graph_end_day(self, day_start=None):
             return date(2026, 10, 15)
@@ -152,7 +161,7 @@ def test_analytics_keeps_facade_window_override(database):
     service = Adapter(database, recover=False)
     start, end = service._resolve_logical_window(service.get_day_start(), 7, None, None)
     assert end == date(2026, 10, 15)
-    assert start <= end
+    assert start == date(2026, 10, 7)
 
 
 @pytest.mark.parametrize("method, keyword", [
