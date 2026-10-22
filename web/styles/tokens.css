@@ -17,3 +17,23 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
+
+/* BEGIN generated UI roles (scripts/generate_ui_tokens.py) */
+:root {
+  --hour-tier-1: #94A3B8;
+  --hour-tier-2: #86EFAC;
+  --hour-tier-3: #60A5FA;
+  --hour-tier-4: #A855F7;
+  --hour-tier-5: #FB923C;
+  --hour-tier-6: #EF4444;
+  --bloom-strong-blur: 6px;
+  --bloom-strong-alpha: 0.55;
+  --bloom-peak-blur: 11px;
+  --bloom-peak-alpha: 0.85;
+  --agenda-edge: 3px;
+  --agenda-radius: 6px;
+  --agenda-fill-mix: 78%;
+  --radius-card: 11px;
+  --radius-control: 8px;
+}
+/* END generated UI roles */

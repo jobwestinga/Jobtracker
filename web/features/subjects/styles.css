@@ -58,6 +58,7 @@
 .swatch.used { opacity: 0.35; }
 
 .swatch.picked { border-color: var(--text); transform: scale(1.08); }
+.swatch-custom { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px dashed var(--line); background: none; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .active-dot { animation: none; }

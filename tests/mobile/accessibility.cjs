@@ -270,9 +270,11 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Quick add time to Physics');
     // Colour swatches are named toggles rather than unlabeled coloured buttons.
     await page.locator('#add-subject').click();
-    assert.equal(await page.getByRole('group', { name: 'Colour' }).getByRole('button').count(), 10);
-    await page.getByRole('button', { name: 'Teal', exact: true }).click();
-    assert.equal(await page.getByRole('button', { name: 'Teal', exact: true }).getAttribute('aria-pressed'), 'true');
+    // One compact set: the eight shared hues plus a Custom colour control.
+    assert.equal(await page.getByRole('group', { name: 'Colour' }).getByRole('button').count(), 8);
+    assert.equal(await page.getByRole('group', { name: 'Colour' }).getByLabel('Custom colour').count(), 1);
+    await page.getByRole('button', { name: 'Cyan', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'Cyan', exact: true }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.getByRole('button', { name: 'Blue, already used', exact: true }).count(), 1);
     await page.keyboard.press('Escape');
 

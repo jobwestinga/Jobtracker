@@ -5,10 +5,56 @@ import { openSheet, createSheetAction, field } from "../../shared/sheet.js";
 import { uuid } from "../../shared/ids.js";
 import { orderSubjects } from "../../shared/order-controls.js";
 
+// The eight shared preset hues (design/ui_roles.json subject_colors).
 const SUBJECT_PALETTE = Object.freeze([
-  ["#3B82F6", "Blue"], ["#EF4444", "Red"], ["#10B981", "Green"], ["#F59E0B", "Amber"], ["#8B5CF6", "Violet"],
-  ["#EC4899", "Pink"], ["#14B8A6", "Teal"], ["#F97316", "Orange"], ["#6366F1", "Indigo"], ["#84CC16", "Lime"],
+  ["#3B82F6", "Blue"], ["#8B5CF6", "Violet"], ["#EC4899", "Pink"], ["#EF4444", "Red"],
+  ["#F97316", "Orange"], ["#EAB308", "Yellow"], ["#22C55E", "Green"], ["#06B6D4", "Cyan"],
 ]);
+
+/* One compact colour choice: the eight hues, the current custom colour when
+   it is not one of them, and a Custom control. The saved value is returned
+   exactly as stored until the person picks another colour. */
+function colourPicker(content, { initial, used = new Set(), labelId }) {
+  const label = el("p", "caption", "Colour");
+  label.id = labelId;
+  content.append(label);
+  const chips = el("div", "chips");
+  chips.setAttribute("role", "group");
+  chips.setAttribute("aria-labelledby", labelId);
+  let value = initial;
+  const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+  const swatches = [];
+  function refresh() {
+    for (const chip of swatches) {
+      const picked = same(chip.dataset.colour, value);
+      chip.classList.toggle("picked", picked);
+      chip.setAttribute("aria-pressed", String(picked));
+    }
+  }
+  function addSwatch(colour, name) {
+    const chip = el("button", "chip swatch");
+    chip.type = "button";
+    chip.style.background = colour;
+    chip.dataset.colour = colour;
+    const isUsed = [...used].some((entry) => same(entry, colour));
+    chip.setAttribute("aria-label", isUsed ? `${name}, already used` : name);
+    if (isUsed) chip.classList.add("used");
+    chip.onclick = () => { value = colour; refresh(); };
+    swatches.push(chip);
+    chips.append(chip);
+    return chip;
+  }
+  for (const [colour, name] of SUBJECT_PALETTE) addSwatch(colour, name);
+  if (initial && !SUBJECT_PALETTE.some(([colour]) => same(colour, initial))) addSwatch(initial, `Current colour ${initial}`);
+  const custom = Object.assign(document.createElement("input"), { type: "color", className: "swatch-custom",
+    value: /^#[0-9a-f]{6}$/i.test(initial || "") ? initial : "#3B82F6" });
+  custom.setAttribute("aria-label", "Custom colour");
+  custom.oninput = () => { value = custom.value; refresh(); };
+  chips.append(custom);
+  content.append(chips);
+  refresh();
+  return { value: () => value };
+}
 
 export function createSubjectsFeature({ store, act, banner, reorderButtons, editSession, quickAdd }) {
   const state = { subjectFilter: "active", tick: null };
@@ -115,8 +161,8 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
       const [content, submit] = sheetAction(body);
       const name = field(content, "Name", Object.assign(document.createElement("input"),
         { type: "text", value: subject.name, required: true }));
-      const color = field(content, "Colour", Object.assign(document.createElement("input"),
-        { type: "color", value: /^#[0-9a-f]{6}$/i.test(subject.color) ? subject.color : "#3B82F6" }));
+      const used = new Set((store.snapshot?.subjects || []).filter((s) => !s.is_archived && s.uid !== subject.uid).map((s) => s.color));
+      const color = colourPicker(content, { initial: subject.color, used, labelId: "subject-edit-colour-label" });
       const notes = field(content, "Description", Object.assign(document.createElement("textarea"),
         { rows: 3, value: subject.notes || "" }));
       const save = el("button", "primary wide", "Save changes");
@@ -126,7 +172,7 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
         if ((store.snapshot?.subjects || []).some((row) => row.uid !== subject.uid && row.name === name.value.trim())) {
           return banner("That subject name already exists, including archived subjects.");
         }
-        return submit("update_subject", { subject_uid: subject.uid, name: name.value.trim(), color: color.value, notes: notes.value });
+        return submit("update_subject", { subject_uid: subject.uid, name: name.value.trim(), color: color.value(), notes: notes.value });
       };
       content.append(save);
       if (!subject.is_archived) {
@@ -179,34 +225,11 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
         Object.assign(document.createElement("input"),
           { type: "text", placeholder: "e.g. Thesis" }));
 
-      const colourLabel = el("p", "caption", "Colour");
-      colourLabel.id = "subject-colour-label";
-      content.append(colourLabel);
-      // The desktop suggests colours that stay distinct from the existing ones;
-      // on the phone a fixed palette is enough, with the already-used ones marked.
+      // Like the desktop, start from a hue that stands apart from active subjects.
       const used = new Set((store.snapshot?.subjects || []).filter((s) => !s.is_archived).map((s) => s.color));
-      const chips = el("div", "chips");
-      chips.setAttribute("role", "group");
-      chips.setAttribute("aria-labelledby", colourLabel.id);
-      let chosen = null;
-      for (const [colour, colourName] of SUBJECT_PALETTE) {
-        const chip = el("button", "chip swatch");
-        chip.type = "button";
-        chip.style.background = colour;
-        chip.dataset.colour = colour;
-        chip.setAttribute("aria-label", used.has(colour) ? `${colourName}, already used` : colourName);
-        chip.setAttribute("aria-pressed", "false");
-        if (used.has(colour)) chip.classList.add("used");
-        chip.onclick = () => {
-          chosen = colour;
-          chips.querySelectorAll(".swatch").forEach((c) => {
-            c.classList.toggle("picked", c === chip);
-            c.setAttribute("aria-pressed", String(c === chip));
-          });
-        };
-        chips.append(chip);
-      }
-      content.append(chips);
+      const lower = new Set([...used].map((colour) => colour.toLowerCase()));
+      const initial = SUBJECT_PALETTE.map(([value]) => value).find((c) => !lower.has(c.toLowerCase())) || SUBJECT_PALETTE[0][0];
+      const colour = colourPicker(content, { initial, used, labelId: "subject-colour-label" });
 
       const save = el("button", "primary wide", "Add subject");
       save.onclick = () => {
@@ -216,8 +239,7 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
         if ((store.snapshot?.subjects || []).some((row) => row.name === title)) {
           return banner("That subject name already exists, including archived subjects.");
         }
-        const colour = chosen || SUBJECT_PALETTE.map(([value]) => value).find((c) => !used.has(c)) || SUBJECT_PALETTE[0][0];
-        return submit("add_subject", { name: title, color: colour, notes: "" }, { uid: uuid() });
+        return submit("add_subject", { name: title, color: colour.value(), notes: "" }, { uid: uuid() });
       };
       content.append(save);
     });

@@ -31,3 +31,36 @@ export function agendaNowMarker(days, hourStart, hourEnd, { now = new Date(), bo
 export function agendaHourLabel(hour) {
   return `${pad(Math.floor(hour) % 24)}:00${hour >= 24 ? " +1" : ""}`;
 }
+
+// Bold agenda: overlapping sessions keep their true times in side-by-side
+// lanes; same-lane blocks separated by at most the tolerance (max of 30 s and
+// one device pixel) join into one shape. Joining is drawing only: each block
+// keeps its own interval, target and identity, and no gap counts as work.
+export function layoutAgendaDay(sessions, toleranceHours) {
+  const placed = [];
+  let laneEnds = [], cluster = [], clusterEnd = -Infinity;
+  const close = () => {
+    const lanes = Math.max(1, ...cluster.map((item) => item.lane + 1));
+    for (const item of cluster) item.lanes = lanes;
+    cluster = []; laneEnds = [];
+  };
+  for (const session of [...sessions].sort((a, b) => a.start_h - b.start_h || a.end_h - b.end_h)) {
+    if (session.start_h >= clusterEnd - 1e-9) close();
+    let lane = laneEnds.findIndex((end) => end <= session.start_h + 1e-9);
+    if (lane < 0) { lane = laneEnds.length; laneEnds.push(session.end_h); } else laneEnds[lane] = session.end_h;
+    const item = { session, lane: Math.min(lane, 7), lanes: 1, joinsAbove: false, joinsBelow: false };
+    placed.push(item); cluster.push(item);
+    clusterEnd = Math.max(clusterEnd, session.end_h);
+  }
+  close();
+  const lastInLane = new Map();
+  for (const item of placed) {
+    const key = `${item.lane}/${item.lanes}`;
+    const previous = lastInLane.get(key);
+    if (previous && Math.abs(item.session.start_h - previous.session.end_h) <= toleranceHours) {
+      previous.joinsBelow = true; item.joinsAbove = true;
+    }
+    lastInLane.set(key, item);
+  }
+  return placed;
+}

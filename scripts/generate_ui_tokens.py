@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 THEMES = Path("jobtracker/core/themes.py")
 ROLES = Path("design/ui_roles.json")
 SWIFT_OUT = Path("native/macos/Sources/JobTrackerKit/Theme/TokensData.generated.swift")
+CSS_TARGET = Path("web/styles/tokens.css")
+CSS_BEGIN = "/* BEGIN generated UI roles (scripts/generate_ui_tokens.py) */"
+CSS_END = "/* END generated UI roles */"
 
 _COLOR_KEYS = ("BG_PRIMARY", "BG_SECONDARY", "BG_TERTIARY", "BORDER_COLOR", "BORDER_FOCUS",
                "TEXT_PRIMARY", "TEXT_SECONDARY", "TEXT_DIMMED", "ACCENT", "ACCENT_GREEN", "ACCENT_RED")
@@ -91,17 +94,54 @@ def render_swift(data: dict) -> str:
     )
 
 
+def render_css_block(data: dict) -> str:
+    """Phone custom properties for the shared roles (colours stay per theme)."""
+    roles = data["roles"]
+    tiers = roles["hour_tiers"]
+    bloom = tiers["bloom"]
+    lines = [CSS_BEGIN, ":root {"]
+    for index, tier in enumerate(tiers["tiers"], start=1):
+        lines.append(f"  --hour-tier-{index}: {tier['color']};")
+    # CSS blur radii are about twice a Gaussian sigma.
+    lines += [
+        f"  --bloom-strong-blur: {bloom['strong_radius'] * 2:g}px;",
+        f"  --bloom-strong-alpha: {bloom['strong_alpha']:g};",
+        f"  --bloom-peak-blur: {bloom['peak_radius'] * 2:g}px;",
+        f"  --bloom-peak-alpha: {bloom['peak_alpha']:g};",
+        f"  --agenda-edge: {roles['agenda']['edge_width']:g}px;",
+        f"  --agenda-radius: {roles['radius']['agenda_group']:g}px;",
+        f"  --agenda-fill-mix: {round(roles['agenda']['bold_fill_mix'] * 100):g}%;",
+        f"  --radius-card: {roles['radius']['card']:g}px;",
+        f"  --radius-control: {roles['radius']['control']:g}px;",
+        "}",
+        CSS_END,
+    ]
+    return "\n".join(lines)
+
+
+def _with_css_block(text: str, block: str) -> str:
+    if CSS_BEGIN in text and CSS_END in text:
+        start = text.index(CSS_BEGIN)
+        end = text.index(CSS_END) + len(CSS_END)
+        return text[:start] + block + text[end:]
+    return text.rstrip("\n") + "\n\n" + block + "\n"
+
+
 def check(root: Path = ROOT, *, write: bool = False) -> list[str]:
-    expected = render_swift(build(root))
-    target = root / SWIFT_OUT
-    if write:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists() or target.read_text() != expected:
-            target.write_text(expected)
-        return []
-    if not target.exists() or target.read_text() != expected:
-        return [f"{SWIFT_OUT} is stale; run python3 scripts/generate_ui_tokens.py"]
-    return []
+    data = build(root)
+    outputs = {
+        root / SWIFT_OUT: render_swift(data),
+        root / CSS_TARGET: _with_css_block((root / CSS_TARGET).read_text(), render_css_block(data)),
+    }
+    errors = []
+    for target, expected in outputs.items():
+        if write:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists() or target.read_text() != expected:
+                target.write_text(expected)
+        elif not target.exists() or target.read_text() != expected:
+            errors.append(f"{target.relative_to(root)} is stale; run python3 scripts/generate_ui_tokens.py")
+    return errors
 
 
 def main(argv=None) -> int:

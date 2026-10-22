@@ -229,6 +229,8 @@ const minutesOf = (entry) => (Date.parse(`${entry.params.end_time}Z`) - Date.par
   // repeated tap after the retry cannot queue the edit twice.
   await page.evaluate(() => { outboxWrites = 0; failOutboxWrite = 1; lastOutcome = null; });
   await page.getByRole('button', { name: 'Edit Reading', exact: true }).click();
+  // A colour outside the eight hues stays selected as the current colour.
+  assert.equal(await page.getByRole('button', { name: 'Current colour #10B981', exact: true }).getAttribute('aria-pressed'), 'true');
   await page.getByLabel('Name', { exact: true }).fill('Reading notes');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await page.waitForFunction(() => lastOutcome?.ok === false);
@@ -242,7 +244,8 @@ const minutesOf = (entry) => (Date.parse(`${entry.params.end_time}Z`) - Date.par
   });
   await waitSaved();
   assert.equal(await page.evaluate(() => writes.length), beforeSubjectSave + 1);
-  assert.deepEqual(await page.evaluate(() => [writes.at(-1).op, writes.at(-1).params.name]), ['update_subject', 'Reading notes']);
+  assert.deepEqual(await page.evaluate(() => [writes.at(-1).op, writes.at(-1).params.name, writes.at(-1).params.color]),
+    ['update_subject', 'Reading notes', '#10B981'], 'an untouched saved colour is kept exactly');
   await activeUnchanged();
 
   await page.setViewportSize({ width: 390, height: 844 });

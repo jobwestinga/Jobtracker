@@ -44,9 +44,17 @@ them does.
   changing it. Header and tab icons are inline `currentColor` SVGs, not emoji.
 - **Subjects follow the Mac's order** (`sort_order`, then newest first) through
   `orderSubjects` in [order-controls.js](../../web/shared/order-controls.js);
-  snapshots arrive in database order. Subject cards and agenda blocks take the
-  Mac styling: a subject-colour frame with a solid left edge, and agenda blocks in
-  a strong subject tint on a neutral dark base over one uniform panel.
+  snapshots arrive in database order. Subject cards take the Mac styling: a
+  subject-colour frame with a solid left edge. Agenda blocks use the selected
+  **Bold** finish: a strong subject tint with an integrated subject edge, bold
+  title and duration line. `layoutAgendaDay` in
+  [agenda-time.js](../../web/features/graphs/agenda-time.js) joins same-lane
+  neighbours separated by at most max(30 s, one device pixel) into one shape
+  with no divider, and places overlapping sessions in side-by-side lanes at
+  their true times. Each block keeps its own session target.
+- **Subject colours** use one compact set: the eight shared hues from
+  `design/ui_roles.json`, the current colour when it is custom, and a Custom
+  control. An untouched saved colour is resubmitted exactly as stored.
 - **Graphs show only view and range**; bar grouping and agenda hours are in the
   options sheet. Fullscreen is a fixed column whose chart fills the remaining
   height, so the header never scrolls over the controls.
@@ -63,7 +71,9 @@ them does.
   share of that bucket. Rounded caps and gentle shading leave segments
   contiguous. Hour labels have no boxes, grow continuously with daily intensity
   (capped at 14h) and use
-  a coloured halo for achievement tiers, strongest above 10 hours per day.
+  one soft colour bloom (R1) behind crisp text for achievement tiers,
+  strongest above 10 hours per day. Bloom radii and tier colours come from the
+  generated role block in [tokens.css](../../web/styles/tokens.css).
   Dense columns scroll within the chart and text scaling stays available.
   Hour labels retain daily intensity tiers; the API supplies the
   normalized intensity for weekly/monthly buckets. Up/Down on graph mode

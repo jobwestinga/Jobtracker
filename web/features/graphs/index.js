@@ -2,7 +2,7 @@ import { $, el, safeColor, captureFocus, restoreFocus } from "../../shared/dom.j
 import { addDays, localIso } from "../../shared/time.js";
 import { hm, prettyDayShort, shortLabel } from "../../shared/format.js";
 import { openSheet, closeSheet, field } from "../../shared/sheet.js";
-import { agendaNowMarker, agendaHourLabel, dayStartHour } from "./agenda-time.js";
+import { agendaNowMarker, agendaHourLabel, dayStartHour, layoutAgendaDay } from "./agenda-time.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
 import { STORAGE_KEYS } from "../../shared/storage.js";
 
@@ -167,6 +167,8 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         const [, color] = tiers.find(([limit]) => hours <= limit);
         const scale = 0.85 + Math.min(Math.max(0, hours), 14) / 15;
         value.style.setProperty("--hour-color", color);
+        // R1: one soft colour bloom behind crisp text, stronger above 10h.
+        value.style.setProperty("--hour-glow", glowColour(color, hours > 10 ? 0.85 : 0.55));
         value.style.setProperty("--hour-scale", scale);
         value.classList.toggle("bar-val--strong", hours > 4.5);
         value.classList.toggle("bar-val--peak", hours > 10);
@@ -206,6 +208,11 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
         chip.append(dot, el("span", null, `${name} · ${hm(entry.seconds)}`));
         legend.append(chip);
       });
+  }
+
+  function glowColour(hex, alpha) {
+    const value = Number.parseInt(hex.slice(1), 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
   }
 
   function drawAgenda(host, data) {
@@ -258,16 +265,23 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       track.style.height = `${height}px`;
       tracks.set(day, track);
 
-      for (const session of byDay.get(day)) {
-        if (session.end_h <= lo || session.start_h >= hi) continue;
+      const tolerance = Math.max(30 / 3600, span / height / (window.devicePixelRatio || 1));
+      const visible = byDay.get(day).filter((session) => session.end_h > lo && session.start_h < hi);
+      for (const { session, lane, lanes, joinsAbove, joinsBelow } of layoutAgendaDay(visible, tolerance)) {
         const top = percentFor(Math.max(lo, session.start_h));
         const blockHeight = Math.max(0, percentFor(Math.min(hi, session.end_h)) - top);
         const block = el("div", "agenda-block");
         block.style.top = `${top}%`;
         block.style.height = `${blockHeight}%`;
-        // Neutral dark base plus a strong subject tint and a solid left bar (CSS).
+        block.style.left = `calc(${(lane * 100) / lanes}% + 1px)`;
+        block.style.width = `calc(${100 / lanes}% - 2px)`;
+        block.classList.toggle("joins-above", joinsAbove);
+        block.classList.toggle("joins-below", joinsBelow);
+        // Strong subject tint with an integrated subject edge (CSS).
         block.style.setProperty("--subject", safeColor(session.color));
-        if (blockHeight / 100 * height > 16) block.textContent = session.subject_name;
+        const pixels = blockHeight / 100 * height;
+        if (pixels > 16) block.append(el("span", "agenda-title", session.subject_name));
+        if (pixels > 30) block.append(el("span", "agenda-dur", hm(session.duration_seconds)));
         block.title = `${session.subject_name} · ${hm(session.duration_seconds)}`;
         const startClock = session.start_time?.slice(11, 16) || agendaHourLabel(session.start_h);
         const endClock = session.end_time?.slice(11, 16) || agendaHourLabel(session.end_h);
