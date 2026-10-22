@@ -162,11 +162,14 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       const value = el("div", "bar-val");
       if (bucket.total_seconds) {
         const hours = (bucket.intensity_seconds ?? bucket.total_seconds) / 3600;
-        const tiers = [[1, "#94A3B8", 0.85], [2.5, "#86EFAC", 1], [4.5, "#60A5FA", 1.08],
-          [7, "#A855F7", 1.2], [10, "#FB923C", 1.32], [Infinity, "#EF4444", 1.45]];
-        const [, color, scale] = tiers.find(([limit]) => hours <= limit);
+        const tiers = [[1, "#94A3B8"], [2.5, "#86EFAC"], [4.5, "#60A5FA"],
+          [7, "#A855F7"], [10, "#FB923C"], [Infinity, "#EF4444"]];
+        const [, color] = tiers.find(([limit]) => hours <= limit);
+        const scale = 0.85 + Math.min(Math.max(0, hours), 14) / 15;
         value.style.setProperty("--hour-color", color);
         value.style.setProperty("--hour-scale", scale);
+        value.classList.toggle("bar-val--strong", hours > 4.5);
+        value.classList.toggle("bar-val--peak", hours > 10);
         value.append(el("span", null, `${(bucket.total_seconds / 3600).toFixed(1)}h`));
       }
       const label = el("div", "bar-lbl", shortLabel(bucket.date, data.grouping));

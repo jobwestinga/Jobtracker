@@ -168,9 +168,12 @@ Preserve these established layout choices:
 
 - A capped/centred content column. Content is deliberately **full-bleed**: the
   screen should look filled at fullscreen width.
-- Magnitude-scaled and tier-coloured bar totals. Labels sit above their filled
-  stacks, with subtle tinted chips when there is room. Use crisp text rather
-  than multiple offset glow passes. Stacks remain contiguous, with a rounded
+- Magnitude-scaled and tier-coloured bar totals sit above their filled stacks
+  without boxes. Size grows continuously with daily intensity, capped at 14h.
+  A shared base font preserves relative size at narrow widths;
+  crowded labels yield to larger totals. Achievement tiers use a coloured halo
+  around crisp bright text, strongest for red totals above 10 hours per day.
+  Stacks remain contiguous, with a rounded
   outer cap and a gentle horizontal surface gradient; date labels thin to fit.
 - Any special colouring for today's agenda column. Every column is styled
   identically; the current-time marker line is the only "now" cue.

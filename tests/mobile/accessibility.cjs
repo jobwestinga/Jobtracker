@@ -56,12 +56,13 @@ const server = http.createServer((req, res) => {
       };
       const api = {
         breakdown: async () => ({ grouping: 'daily', buckets: [
-          { date: yesterday, total_seconds: 3600, segments: [{ subject_uid: 'subject', subject_name: 'Physics', seconds: 3600, color: '#3B82F6' }] },
-          { date: today, total_seconds: 5400, segments: [
+          { date: addDays(today, -2), total_seconds: 3600, segments: [{ subject_uid: 'subject', subject_name: 'Physics', seconds: 3600, color: '#3B82F6' }] },
+          { date: yesterday, total_seconds: 5400, segments: [
             { subject_uid: 'subject', subject_name: 'Physics', seconds: 1800, color: '#3B82F6' },
             { subject_uid: 'writing', subject_name: 'Writing', seconds: 1800, color: '#14B8A6' },
             { subject_uid: 'subject', subject_name: 'Physics', seconds: 1800, color: '#3B82F6' },
           ] },
+          { date: today, total_seconds: 41040, segments: [{ subject_uid: 'subject', subject_name: 'Physics', seconds: 41040, color: '#3B82F6' }] },
         ] }),
         agenda: async () => ({ days: [yesterday, today], day_start: '03:00', sessions: [
           { ...store.snapshot.sessions[0], day: today, start_h: 9, end_h: 10.5, subject_name: 'Physics', color: '#3B82F6' },
@@ -204,15 +205,28 @@ const server = http.createServer((req, res) => {
         painted: pieces.reduce((sum, piece) => sum + piece.getBoundingClientRect().height, 0),
         value: column.querySelector('.bar-val').textContent };
     }));
-    assert.deepEqual(bars.map((bar) => bar.value), ['1.0h', '1.5h']);
-    assert.deepEqual(bars.map((bar) => bar.portions.length), [1, 2], 'sessions are summed by subject before drawing');
+    assert.deepEqual(bars.map((bar) => bar.value), ['1.0h', '1.5h', '11.4h']);
+    assert.deepEqual(bars.map((bar) => bar.portions.length), [1, 2, 1], 'sessions are summed by subject before drawing');
     assert.ok(Math.abs(bars[0].fill / bars[1].fill - 2 / 3) < .005, `bar-height ratio ${JSON.stringify(bars)}`);
     for (const bar of bars) {
       assert.ok(Math.abs(bar.portions.reduce((sum, portion) => sum + portion, 0) - 100) < .001, 'subject proportions fill exactly 100%');
       assert.ok(Math.abs(bar.painted - bar.fill) < 1, 'painted segments preserve the represented duration');
       assert.ok(bar.portions.every((portion, index) => Math.abs(portion - bar.paintedPortions[index]) < .1), 'each painted subject share matches its duration');
     }
-    assert.ok(Math.abs(bars[0].stack - bars[1].stack) < 1, 'hour badges share one baseline');
+    assert.ok(Math.abs(bars[0].stack - bars[1].stack) < 1, 'hour labels share one baseline');
+    async function checkHourLabels() {
+      const labels = await page.locator('.bar-val span').evaluateAll((nodes) => nodes.map((node) => {
+        const style = getComputedStyle(node), rect = node.getBoundingClientRect(), column = node.closest('.bar-col').getBoundingClientRect();
+        return { size: Number.parseFloat(style.fontSize), shadow: style.textShadow,
+          border: style.borderTopWidth, background: style.backgroundColor,
+          fits: rect.left >= column.left - 1 && rect.right <= column.right + 1 };
+      }));
+      assert.ok(labels[0].size < labels[1].size && labels[1].size * 1.25 < labels[2].size, JSON.stringify(labels));
+      assert.equal(labels[0].shadow, 'none');
+      assert.match(labels[2].shadow, /239, 68, 68/, 'above-10h totals have a red glow');
+      assert.ok(labels.every((label) => label.border === '0px' && label.background === 'rgba(0, 0, 0, 0)' && label.fits), JSON.stringify(labels));
+    }
+    await checkHourLabels();
     await page.locator('[data-mode="bars"]').focus();
     await page.keyboard.press('ArrowUp');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.mode), 'bars');
@@ -302,6 +316,8 @@ const server = http.createServer((req, res) => {
       assert.ok(metrics.document <= metrics.width + 1 && metrics.view <= metrics.viewClient + 1 && metrics.tabRight <= metrics.width + 1,
         `${view} text reflow: ${JSON.stringify(metrics)}`);
     }
+    await page.evaluate(() => showView('graphs'));
+    await checkHourLabels();
     await page.locator('#open-settings').click();
     assert.ok(await page.locator('.sheet').evaluate((node) => node.scrollWidth <= node.clientWidth + 1));
     await page.keyboard.press('Escape');

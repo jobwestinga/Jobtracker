@@ -19,21 +19,22 @@ from .paint_utils import HoverCard, with_alpha as _with_alpha
 def _intensity_style(seconds: float) -> tuple[str, float, bool]:
     """(color, scale, strong) for a bar's total label, by tracked time per day.
 
-    Higher tiers grow larger and ``strong`` tiers get a bolder weight —
+    Higher tiers grow larger and ``strong`` tiers regain a colored halo —
     big days should read as achievements at a glance, even fullscreen.
     """
     hours = max(0.0, float(seconds)) / 3600.0
+    scale = 0.85 + min(hours, 14.0) / 15.0
     if hours <= 1.0:
-        return "#94A3B8", 0.85, False
+        return "#94A3B8", scale, False
     if hours <= 2.5:
-        return "#86EFAC", 1.0, False
+        return "#86EFAC", scale, False
     if hours <= 4.5:
-        return "#60A5FA", 1.08, False
+        return "#60A5FA", scale, False
     if hours <= 7.0:
-        return "#A855F7", 1.2, True
+        return "#A855F7", scale, True
     if hours <= 10.0:
-        return "#FB923C", 1.32, True
-    return "#EF4444", 1.45, True
+        return "#FB923C", scale, True
+    return "#EF4444", scale, True
 
 
 def _bucket_label(date_iso: str, grouping: str) -> str:
@@ -122,7 +123,7 @@ class _GraphCanvas(QWidget):
     def _chart_rect(self) -> QRectF:
         # Top margin leaves room for the enlarged total labels (halo included).
         return QRectF(
-            44, 32, max(80, self.width() - 66), max(120, self.height() - 76)
+            44, 46, max(80, self.width() - 66), max(120, self.height() - 90)
         )
 
     def _bar_layout(self) -> tuple[float, float]:
@@ -191,6 +192,23 @@ class _GraphCanvas(QWidget):
 
         bar_width, gap = self._bar_layout()
         last_day_label_right = float("-inf")
+        # Fit one common base size, rather than shrinking large totals until
+        # they look the same as smaller ones. Dense views can omit colliding
+        # labels while keeping the size hierarchy and exact click geometry.
+        label_base_size = 14.0
+        for day_data in self._data:
+            total = max(0, int(day_data.get("total_seconds", 0)))
+            if not total:
+                continue
+            _, scale, strong = _intensity_style(day_data.get("intensity_seconds", total))
+            font = QFont("SF Pro Text")
+            font.setPointSizeF(14.0 * scale)
+            font.setWeight(QFont.Bold if strong else QFont.DemiBold)
+            p.setFont(font)
+            width = p.fontMetrics().horizontalAdvance(f"{total / 3600:.1f}h")
+            label_base_size = min(label_base_size, 14.0 * max(1, bar_width + gap - 10) / max(1, width))
+        label_base_size = max(9.0, label_base_size)
+        total_labels = []
 
         for idx, day_data in enumerate(self._data):
             x = chart.left() + idx * (bar_width + gap)
@@ -237,7 +255,8 @@ class _GraphCanvas(QWidget):
                 p.setBrush(Qt.NoBrush)
                 p.drawRoundedRect(bar_rect.adjusted(0.4, 0.4, -0.4, -0.4), radius, radius)
 
-            # Crisp time chips keep the magnitude tiers without blurry halos.
+            # Free-standing totals: larger days stay larger, with a colored
+            # halo around a crisp bright core for the achievement tiers.
             if bar_width > 20 and total_seconds > 0:
                 total_h = total_seconds / 3600.0
                 intensity_seconds = day_data.get(
@@ -246,21 +265,15 @@ class _GraphCanvas(QWidget):
                 c_hex, s, strong = _intensity_style(intensity_seconds)
 
                 text = f"{total_h:.1f}h"
-                base_font_size = 11
-                scaled_size = max(8, int(base_font_size * s))
                 weight = QFont.Bold if strong else QFont.DemiBold
-                p.setFont(QFont("SF Pro Text", scaled_size, weight))
-                while scaled_size > 8 and p.fontMetrics().horizontalAdvance(text) > bar_width + gap - 4:
-                    scaled_size -= 1
-                    p.setFont(QFont("SF Pro Text", scaled_size, weight))
-                label_width = p.fontMetrics().horizontalAdvance(text) + 8
-                text_rect = QRectF(x + bar_width / 2 - label_width / 2, bar_rect.top() - 27, label_width, 23)
-                if bar_width >= 52 and label_width <= bar_width + gap - 4:
-                    p.setPen(QPen(_with_alpha(c_hex, 65), 0.7))
-                    p.setBrush(_with_alpha(c_hex, 20))
-                    p.drawRoundedRect(text_rect.adjusted(0, 1, 0, -1), 5, 5)
-                p.setPen(QColor(c_hex))
-                p.drawText(text_rect, Qt.AlignCenter, text)
+                font = QFont("SF Pro Text")
+                font.setPointSizeF(label_base_size * s)
+                font.setWeight(weight)
+                p.setFont(font)
+                metrics = p.fontMetrics()
+                label_width = metrics.horizontalAdvance(text)
+                text_rect = QRectF(x + bar_width / 2 - label_width / 2, bar_rect.top() - metrics.height() - 9, label_width, metrics.height())
+                total_labels.append((intensity_seconds, text_rect, font, text, c_hex, strong))
 
             # Day label
             day_text = _bucket_label(
@@ -277,6 +290,22 @@ class _GraphCanvas(QWidget):
                     day_text,
                 )
                 last_day_label_right = day_label_left + day_label_width
+
+        occupied = []
+        for intensity, rect, font, text, color, strong in sorted(total_labels, key=lambda item: item[0], reverse=True):
+            bounds = rect.adjusted(-5, -4, 5, 4)
+            if any(bounds.intersects(other) for other in occupied):
+                continue
+            occupied.append(bounds)
+            p.setFont(font)
+            metrics = p.fontMetrics()
+            glyphs = QPainterPath()
+            glyphs.addText(rect.left(), rect.top() + metrics.ascent(), font, text)
+            if strong:
+                layers = [(8, 22), (5, 48), (2.5, 115)] if intensity > 10 * 3600 else [(5, 22), (2.5, 65)]
+                for width, alpha in layers:
+                    p.strokePath(glyphs, QPen(_with_alpha(color, alpha), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.fillPath(glyphs, QColor(t["TEXT_PRIMARY"] if strong else color))
 
     # ── hover / click ─────────────────────────────────────────────────────
     def _bucket_title(self, date_iso: str) -> str:

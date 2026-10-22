@@ -61,7 +61,11 @@ them does.
   whole-session move presets stay visible in the session editor.
 - Filled stacks use the bucket-to-peak height, with each subject occupying its
   share of that bucket. Rounded caps and gentle shading leave segments
-  contiguous. Hour labels retain daily intensity tiers; the API supplies the
+  contiguous. Hour labels have no boxes, grow continuously with daily intensity
+  (capped at 14h) and use
+  a coloured halo for achievement tiers, strongest above 10 hours per day.
+  Dense columns scroll within the chart and text scaling stays available.
+  Hour labels retain daily intensity tiers; the API supplies the
   normalized intensity for weekly/monthly buckets. Up/Down on graph mode
   buttons selects Stacked Bar/Agenda and keeps focus on the selected control.
 - Poll while foregrounded, never while a sheet is open. Preserve drafts and
