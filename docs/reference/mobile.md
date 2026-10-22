@@ -51,7 +51,9 @@ them does.
   [agenda-time.js](../../web/features/graphs/agenda-time.js) joins same-lane
   neighbours separated by at most max(30 s, one device pixel) into one shape
   with no divider, and places overlapping sessions in side-by-side lanes at
-  their true times. Each block keeps its own session target.
+  their true times. Each block keeps its own session target; lane assignment
+  must not clamp later overlaps onto the eighth target. The twelve-overlap
+  regression preserves every identity without moving timestamps.
 - **Subject colours** use one compact set: the eight shared hues from
   `design/ui_roles.json`, the current colour when it is custom, and a Custom
   control. An untouched saved colour is resubmitted exactly as stored.

@@ -26,3 +26,11 @@ test("a gap larger than the tolerance stays visible", () => {
   const placed = layoutAgendaDay([block("a", 9, 10), block("b", 10 + 31 / 60, 11)], tolerance);
   assert.ok(!placed[0].joinsBelow && !placed[1].joinsAbove);
 });
+
+test("more than eight overlapping sessions retain distinct targets", () => {
+  const sessions = Array.from({ length: 12 }, (_, index) => block(`s${index}`, 9, 10));
+  const placed = layoutAgendaDay(sessions, tolerance);
+  assert.equal(new Set(placed.map((item) => item.lane)).size, 12);
+  assert.ok(placed.every((item) => item.lanes === 12));
+  assert.deepEqual(placed.map((item) => item.session.uid), sessions.map((item) => item.uid));
+});
