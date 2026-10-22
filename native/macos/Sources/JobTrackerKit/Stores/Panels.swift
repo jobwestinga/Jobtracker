@@ -22,8 +22,17 @@ public struct PanelEntry: Identifiable {
         case recovery(RecoveryModel)
 
         var dismissalBlocked: Bool {
-            if case .recovery(let model) = self { return model.saving }
-            return false
+            switch self {
+            case .confirm(let model): return model.running
+            case .recovery(let model): return model.saving
+            case .subjectEditor(let model): return model.saving
+            case .goalForm(let model): return model.saving
+            case .templateEditor(let model): return model.saving
+            case .sessions(let model): return !model.inFlight.isEmpty
+            case .settings(let model): return model.saving || model.dataBusy
+            case .graphSettings(let model): return model.saving
+            default: return false
+            }
         }
 
         func willDismiss() {
@@ -74,7 +83,7 @@ public final class ConfirmModel: ObservableObject {
 
 /// New or existing subject draft. Colour choice keeps the saved value exactly.
 public final class SubjectEditorModel: ObservableObject {
-    public let subject: SubjectDTO?
+    @Published public private(set) var subject: SubjectDTO?
     public let activeColors: [String]
     public let suggestions: [String]
     @Published public var name: String
@@ -104,6 +113,7 @@ public final class SubjectEditorModel: ObservableObject {
 
     @MainActor
     public func save() async -> Bool {
+        guard !saving else { return false }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { error = "Subject name cannot be empty."; return false }
         saving = true
@@ -142,6 +152,17 @@ public final class SubjectEditorModel: ObservableObject {
             error = nil
         }
     }
+
+    func resolvePending(_ id: String, response: EngineResponse) {
+        guard id == requestId else { return }
+        if response.outcome.succeeded, let saved = try? response.result(SubjectResult.self).subject {
+            subject = saved  // A later Save edits this row rather than creating it twice.
+            error = "The earlier save was confirmed. Your current draft is kept."
+        } else {
+            error = response.error ?? "The earlier save was not applied. Your input is kept."
+        }
+        if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
+    }
 }
 
 public final class DeleteSubjectModel: ObservableObject {
@@ -165,7 +186,7 @@ public final class RecoveryModel: ObservableObject {
     @Published public var error: String?
     @Published public var saving = false
     private unowned let app: AppModel
-    private let requestId = UUID().uuidString.lowercased()
+    private var requestId = UUID().uuidString.lowercased()
 
     init(app: AppModel, timer: TimerDTO) {
         self.app = app
@@ -180,12 +201,13 @@ public final class RecoveryModel: ObservableObject {
     /// clamping custom values exactly like the Qt dialog.
     @MainActor
     public func resolve() async -> Bool {
+        guard !saving else { return false }
         guard let recovery = snapshot.recovery, let uid = snapshot.active?.uid else { return true }
         var params: [String: JSONValue] = ["session_uid": .string(uid), "choice": .string(choice.rawValue), "prompt_now": .string(recovery.now)]
         switch choice {
         case .customEnd:
-            guard let parsed = LocalTime.parse(customEnd) else { error = "Enter the end as YYYY-MM-DD HH:MM."; return false }
-            params["custom_end"] = .string(LocalTime.isoString(parsed))
+            guard let timestamp = LocalTime.canonicalTimestamp(customEnd) else { error = "Enter the end as YYYY-MM-DD HH:MM."; return false }
+            params["custom_end"] = .string(timestamp)
         case .customLength:
             params["custom_length_seconds"] = .int(max(0, customHours) * 3600 + max(0, customMinutes) * 60)
         default:
@@ -199,6 +221,18 @@ public final class RecoveryModel: ObservableObject {
             return true
         }
         error = response.error ?? "The session could not be closed at that time."
+        if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
+        return false
+    }
+
+    func resolvePending(_ id: String, response: EngineResponse) -> Bool {
+        guard id == requestId else { return false }
+        if response.outcome.succeeded, let timer = try? response.result(TimerDTO.self) {
+            app.adopt(timer: timer)
+            return true
+        }
+        error = response.error ?? "The earlier recovery choice was not applied."
+        if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
         return false
     }
 

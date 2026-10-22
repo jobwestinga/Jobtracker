@@ -113,8 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return .terminateNow
         }
         Task { @MainActor in
-            let result = await model.requestQuit()
-            if let result, !result.quit {
+            guard let result = await model.requestQuit() else {
+                model.show("Quit was not confirmed by the engine. Your current session and pending work are kept.", error: true)
+                NSApp.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            if !result.quit {
                 window.makeKeyAndOrderFront(nil)
                 model.select(.subjects)
                 model.panels.removeAll { if case .confirm = $0.kind { return true }; return false }
@@ -124,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NSApp.reply(toApplicationShouldTerminate: false)
                 return
             }
-            if let error = result?.backupError {
+            if let error = result.backupError {
                 NSLog("JobTracker auto-backup on quit failed: %@", error)
             }
             model.engine.stop()

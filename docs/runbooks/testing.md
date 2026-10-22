@@ -58,8 +58,9 @@ python scripts/dev.py native --python /path/to/python   # when native/ or jobtra
 layout and decoding checks, the shared bridge fixtures, and live-engine checks
 that start `python -m jobtracker.desktop` on disposable isolated stores
 (replay after a lost reply, journal recovery, crash restart, single owner and
-feature flows). It needs only the Command Line Tools; native UI automation and
-VoiceOver passes need full Xcode and remain manual.
+feature flows). It needs only the Command Line Tools. XCUIAutomation requires
+full Xcode; VoiceOver is built into macOS and requires a separate interactive
+pass, not an Xcode installation.
 
 The full test command runs pytest. `check` also runs the repository privacy
 guard; enable its staged-content hook with `git config core.hooksPath .githooks`.

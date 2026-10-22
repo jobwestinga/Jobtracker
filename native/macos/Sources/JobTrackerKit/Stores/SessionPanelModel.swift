@@ -13,6 +13,7 @@ public final class SessionPanelModel: ObservableObject {
     }
 
     public struct Draft: Equatable {
+        public let id = UUID()
         public let targetUid: String?
         public let baseSubjectUid: String
         public let baseStart: String
@@ -54,8 +55,7 @@ public final class SessionPanelModel: ObservableObject {
         /// The exact stored string when a field is unchanged, else the edit.
         func wireValue(field text: String, base: String) -> String? {
             if text == LocalTime.format(base, Self.displayPattern) && !isNew { return base }
-            guard let parsed = LocalTime.parse(text) else { return nil }
-            return LocalTime.isoString(parsed, microseconds: false)
+            return LocalTime.canonicalTimestamp(text)
         }
     }
 
@@ -75,6 +75,7 @@ public final class SessionPanelModel: ObservableObject {
 
     private unowned let app: AppModel
     private var requestIds: [String: String] = [:]
+    private var submittedDrafts: [String: Draft] = [:]
     private var epoch = 0
     private static let pageSize = 200
 
@@ -125,13 +126,21 @@ public final class SessionPanelModel: ObservableObject {
             fresh = page.sessions.filter { !$0.open }
             count = page.total
             next = page.nextOffset
+            // A graph can open any historical session, including one beyond
+            // the first page. Keep that explicit target without loading all
+            // history or silently changing selection to a newer row.
+            if let uid = selectedUid, !fresh.contains(where: { $0.uid == uid }),
+               let row = try? await app.call("session.get", ["session_uid": .string(uid)], kind: .read).result(SessionResult.self).session,
+               row.subjectUid == uidForScope {
+                fresh.append(row)
+            }
         case .day(let day):
             let response = await app.call("sessions.for_day", ["day": .string(day)], kind: .read)
             guard let result = try? response.result(DaySessionsDTO.self) else { return }
             fresh = result.sessions.sorted { $0.startTime < $1.startTime }
             count = fresh.count
         }
-        let subjectList = await loadSubjects()
+        let subjectList = await loadSubjects(for: fresh)
         guard mine == epoch else { return }
         subjects = subjectList
         rows = fresh
@@ -145,18 +154,19 @@ public final class SessionPanelModel: ObservableObject {
     @MainActor
     public func loadMore() async {
         guard case .subject(let uid, _, _) = scope, let offset = nextOffset else { return }
+        let mine = epoch
         let response = await app.call("sessions.for_subject", ["subject_uid": .string(uid), "offset": .int(offset), "limit": .int(Self.pageSize)], kind: .read)
-        guard let page = try? response.result(SessionPageDTO.self) else { return }
+        guard mine == epoch, nextOffset == offset, let page = try? response.result(SessionPageDTO.self) else { return }
         rows += page.sessions.filter { !$0.open && !rows.map(\.uid).contains($0.uid) }
         nextOffset = page.nextOffset
     }
 
     @MainActor
-    private func loadSubjects() async -> [SubjectDTO] {
+    private func loadSubjects(for fresh: [SessionDTO]) async -> [SubjectDTO] {
         var all = (try? await app.call("subjects.list", kind: .read).result(SubjectsListDTO.self))?.subjects ?? []
         // The selected session's own subject may be archived; keep it selectable.
         let archived = (try? await app.call("subjects.list", ["archived": .bool(true)], kind: .read).result(SubjectsListDTO.self))?.subjects ?? []
-        let needed = Set(rows.compactMap(\.subjectUid) + [draft?.subjectUid].compactMap { $0 })
+        let needed = Set(fresh.compactMap(\.subjectUid) + [draft?.subjectUid, uidForScope].compactMap { $0 })
         all += archived.filter { needed.contains($0.uid) }
         return all
     }
@@ -164,8 +174,13 @@ public final class SessionPanelModel: ObservableObject {
     private func handleScopeGone() {
         rows = []
         selectedUid = nil
-        draft = nil
-        message = "This subject no longer exists."
+        if draft?.isDirty != true { draft = nil }
+        message = "This subject no longer exists. Any unsaved input is kept until you discard it."
+    }
+
+    private var uidForScope: String? {
+        if case .subject(let uid, _, _) = scope { return uid }
+        return nil
     }
 
     /// Keep selection and drafts by identity after any refresh.
@@ -174,10 +189,10 @@ public final class SessionPanelModel: ObservableObject {
         guard let row = rows.first(where: { $0.uid == uid }) else {
             let hadEdits = draft?.isDirty == true && draft?.targetUid == uid
             selectedUid = nil
-            if draft?.targetUid == uid { draft = nil }
+            if draft?.targetUid == uid && !hadEdits { draft = nil }
             conflict = nil
             message = hadEdits
-                ? "That session was removed or moved elsewhere; your unsaved edits were not applied."
+                ? "That session was removed or moved elsewhere; your unsaved input is kept."
                 : (inFlight.contains("delete") ? nil : "That session is no longer in this list.")
             return
         }
@@ -263,7 +278,27 @@ public final class SessionPanelModel: ObservableObject {
     /// A settled outcome frees the key; an unknown outcome keeps its identity
     /// so the retry is the same request, never a second session or move.
     private func settle(_ key: String, _ response: EngineResponse) {
-        if response.outcome.isSettled { requestIds[key] = nil }
+        if response.outcome.isSettled { requestIds[key] = nil; submittedDrafts[key] = nil }
+    }
+
+    /// Bind a late confirmation to its original draft, retaining newer fields.
+    func resolvePending(_ requestId: String, response: EngineResponse) {
+        guard let key = requestIds.first(where: { $0.value == requestId })?.key else { return }
+        let submitted = submittedDrafts[key]
+        settle(key, response)
+        if response.outcome.succeeded, let submitted, let current = draft, current.id == submitted.id,
+           let saved = try? response.result(SessionResult.self).session {
+            var rebased = Draft(session: saved)
+            if current.subjectUid != submitted.subjectUid { rebased.subjectUid = current.subjectUid }
+            if current.start != submitted.start { rebased.start = current.start }
+            if current.end != submitted.end { rebased.end = current.end }
+            selectedUid = saved.uid
+            draft = rebased
+            conflict = nil
+            message = "The earlier save was confirmed. Any newer edits are kept."
+        } else if !response.outcome.succeeded {
+            message = response.error ?? "The earlier change was not applied. Your input is kept."
+        }
     }
 
     @MainActor
@@ -271,6 +306,7 @@ public final class SessionPanelModel: ObservableObject {
         guard !inFlight.contains(key) else { return nil }
         inFlight.insert(key)
         defer { inFlight.remove(key) }
+        if submittedDrafts[key] == nil && (key == "add" || key.hasPrefix("save:")) { submittedDrafts[key] = draft }
         let response = await app.mutate(command, params, requestId: requestId(for: key), quiet: true)
         settle(key, response)
         if !response.outcome.succeeded {
@@ -283,17 +319,19 @@ public final class SessionPanelModel: ObservableObject {
 
     @MainActor
     public func save() async {
+        guard conflict == nil else { message = "Resolve the changed session before saving your edits."; return }
         guard var current = draft else { return }
+        guard current.isNew || current.targetUid == selectedUid else {
+            message = "The original session is no longer selected. Your unsaved input is kept."
+            return
+        }
         guard let start = current.wireValue(field: current.start, base: current.baseStart),
               let end = current.wireValue(field: current.end, base: current.baseEnd) else {
             message = "Enter times as YYYY-MM-DD HH:MM:SS."
             return
         }
-        guard let startDate = LocalTime.parse(start), let endDate = LocalTime.parse(end),
-              endDate.timeIntervalSince(startDate) >= Double(DesignTokens.shared.roles.sessionPresets.minimumSeconds) else {
-            message = "A session must end at least 30 seconds after it starts."
-            return
-        }
+        // The engine validates wall-clock duration. Date.timeIntervalSince
+        // would reinterpret DST gaps/folds and can reject a valid naive edit.
         let submitted = current
         let key = current.isNew ? "add" : "save:\(current.targetUid!)"
         var params: [String: JSONValue] = ["subject_uid": .string(current.subjectUid), "start_time": .string(start), "end_time": .string(end)]

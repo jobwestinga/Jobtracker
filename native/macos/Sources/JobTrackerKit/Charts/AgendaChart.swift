@@ -92,7 +92,6 @@ public struct AgendaLayout {
                 if item.1 >= clusterEnd - 1e-9 { closeCluster() }
                 var lane = laneEnds.firstIndex { $0 <= item.1 + 1e-9 } ?? laneEnds.count
                 if lane == laneEnds.count { laneEnds.append(item.2) } else { laneEnds[lane] = item.2 }
-                lane = min(lane, 7)
                 assigned.append((item.0, item.1, item.2, lane))
                 laneCounts.append(1)
                 cluster.append(assigned.count - 1)
@@ -103,9 +102,11 @@ public struct AgendaLayout {
             var blocks: [Block] = []
             for (i, item) in assigned.enumerated() {
                 let lanes = laneCounts[i]
-                let laneWidth = (width - 2) / CGFloat(lanes)
+                let inset = min(1, width / 10)
+                let laneWidth = (width - 2 * inset) / CGFloat(lanes)
+                let laneGap = lanes > 1 ? min(1, laneWidth / 5) : 0
                 let top = y(item.1), bottom = y(item.2)
-                let blockRect = CGRect(x: x + 1 + CGFloat(item.3) * laneWidth, y: top, width: laneWidth - (lanes > 1 ? 1 : 0),
+                let blockRect = CGRect(x: x + inset + CGFloat(item.3) * laneWidth, y: top, width: laneWidth - laneGap,
                                        height: max(2, bottom - top))
                 blocks.append(Block(source: item.0, rect: blockRect, lane: item.3, lanes: lanes, group: -1))
             }

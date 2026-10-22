@@ -80,6 +80,7 @@ public final class WeightStore: ObservableObject {
     private var calendarDay = LocalTime.dayString(Date())
     private var epoch = 0
     private var requestId: String?
+    private var pendingSaves: [String: Int] = [:]
 
     init(app: AppModel) { self.app = app }
 
@@ -221,6 +222,8 @@ public final class WeightStore: ObservableObject {
 
     public func chooseDay(_ newDay: String) {
         guard LocalTime.parse(newDay) != nil else { return }
+        draftRevision += 1
+        requestId = nil
         day = String(newDay.prefix(10))
         followToday = day == LocalTime.dayString(Date())
         draftDirty = false
@@ -254,6 +257,8 @@ public final class WeightStore: ObservableObject {
     /// Editing keeps imported precision until a tile changes.
     public func edit(_ uid: String) {
         guard let row = view?.rows.first(where: { $0.uid == uid }) else { return }
+        draftRevision += 1
+        requestId = nil
         app.weightFullscreen = false
         followToday = false
         draftDirty = false
@@ -276,8 +281,12 @@ public final class WeightStore: ObservableObject {
         if let editingUid { params["weight_uid"] = .string(editingUid) }
         let id = requestId ?? UUID().uuidString.lowercased()
         requestId = id
+        if pendingSaves[id] == nil { pendingSaves[id] = revision }
         let response = await app.mutate("weight.upsert", params, requestId: id, quiet: true)
-        if response.outcome.isSettled { requestId = nil }
+        if response.outcome.isSettled {
+            if requestId == id { requestId = nil }
+            pendingSaves[id] = nil
+        }
         switch response.outcome {
         case .applied, .replayed:
             guard let saved = try? response.result(WeightUpsertResult.self).measurement else { break }
@@ -304,6 +313,20 @@ public final class WeightStore: ObservableObject {
         }
     }
 
+    func resolvePending(_ id: String, response: EngineResponse) {
+        guard let submittedRevision = pendingSaves.removeValue(forKey: id) else { return }
+        if requestId == id { requestId = nil }
+        if response.outcome.succeeded, let saved = try? response.result(WeightUpsertResult.self).measurement {
+            if submittedRevision == draftRevision {
+                editingUid = saved.uid
+                editingTimestamp = saved.measuredAt
+                editingSource = saved.source
+                draftDirty = false
+                status = "The earlier save was confirmed."
+            } else { status = "The earlier save was confirmed; your newer selection is kept." }
+        } else { status = response.error ?? "The earlier save was not applied. Your selection is kept." }
+    }
+
     public func requestDelete() {
         guard let uid = selectedHistoryUid else { return }
         app.present(.confirm(ConfirmModel(title: "Delete weight reading?", message: "Delete the selected reading from your history?",
@@ -314,7 +337,9 @@ public final class WeightStore: ObservableObject {
     @MainActor
     private func delete(_ uid: String) async {
         let response = await app.mutate("weight.delete", ["weight_uid": .string(uid)], quiet: true)
-        if uid == editingUid { editingUid = nil; editingTimestamp = nil; editingSource = nil }
+        if uid == editingUid && (response.outcome.succeeded || response.outcome == .missing) {
+            editingUid = nil; editingTimestamp = nil; editingSource = nil
+        }
         status = response.outcome.succeeded ? "Deleted." : (response.outcome == .missing ? "This reading was already removed." : "Could not delete: \(response.error ?? "")")
         await reload()
     }

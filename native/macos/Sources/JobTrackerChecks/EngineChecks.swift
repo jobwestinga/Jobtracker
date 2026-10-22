@@ -6,6 +6,7 @@ struct EngineIntegrationTests: CheckSuite {
     final class Harness {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jt-native-check-\(UUID().uuidString)")
         var client: EngineClient!
+        var requestTimeout: TimeInterval = 15
         var events: [EngineEvent] = []
         var journal: RequestJournal { RequestJournal(directory: directory.appendingPathComponent("journal")) }
 
@@ -19,7 +20,7 @@ struct EngineIntegrationTests: CheckSuite {
 
         func start() -> Bool {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            client = EngineClient(launch: launch, journal: journal, requestTimeout: 15)
+            client = EngineClient(launch: launch, journal: journal, requestTimeout: requestTimeout)
             client.onEvent = { [weak self] in self?.events.append($0) }
             client.start()
             return pump(20) { self.client.isReady }
@@ -61,6 +62,27 @@ struct EngineIntegrationTests: CheckSuite {
         let list = try? h.send("subjects.list", kind: .read)?.result(SubjectsListDTO.self)
         expect(list?.subjects.count == 1, "one subject")
         expect(h.journal.pending(storeId: h.client.hello?.storeId ?? "").isEmpty, "journal settled")
+    }
+
+    func timedOutRequestsKeepTheirParametersAndBlockNewMutations() {
+        let h = Harness()
+        h.requestTimeout = 0.15
+        defer { h.stop(); h.cleanup() }
+        expect(h.start(), "engine ready")
+        let pid = pid_t(h.client.hello!.pid)
+        kill(pid, SIGSTOP)
+        let id = UUID().uuidString.lowercased()
+        let params: [String: JSONValue] = ["name": "Original", "color": "#3B82F6", "notes": ""]
+        let first = h.send("subject.add", params, kind: .mutation, id: id)
+        expect(first?.outcome == .unavailable && h.client.unresolved.contains(id))
+        _ = h.send("subject.add", ["name": "Changed", "color": "#3B82F6", "notes": ""], kind: .mutation, id: id)
+        _ = h.send("subject.add", ["name": "Another", "color": "#3B82F6", "notes": ""], kind: .mutation)
+        let entries = h.journal.pending(storeId: h.client.hello!.storeId)
+        expect(entries.count == 1 && entries.first?.params == params, "only the original captured request is durable")
+        kill(pid, SIGCONT)
+        h.pump(5) { h.client.unresolved.isEmpty }
+        let names = (try? h.send("subjects.list", kind: .read)?.result(SubjectsListDTO.self))?.subjects.map(\.name)
+        expect(names == ["Original"], "later taps cannot insert changed or additional requests while outcome is unknown")
     }
 
     /// A UI crash after journaling but before the reply: the next launch
