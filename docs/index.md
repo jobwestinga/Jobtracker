@@ -64,6 +64,8 @@ are split by domain so unrelated implementation history stays out of a task.
   calendar weight dates and graph windows.
 - [Durable write path](architecture/write-path.md): atomic outbox/receipt writes,
   retries, identity and ordered replication.
+- [Native engine host](architecture/native-engine.md): store selection, single
+  owner lock, local bridge frames, command allowlist, receipts and lifecycle.
 - [Decisions](architecture/decisions.md): reasons for the retained design.
 
 ## Detailed references

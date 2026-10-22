@@ -1,0 +1,362 @@
+{
+  "protocol_version": 1,
+  "outcomes": [
+    "applied",
+    "replayed",
+    "ok",
+    "missing",
+    "refused",
+    "invalid",
+    "conflict",
+    "storage_error",
+    "unavailable"
+  ],
+  "commands": {
+    "app.foreground": {
+      "kind": "action",
+      "topics": []
+    },
+    "app.quit": {
+      "kind": "action",
+      "topics": []
+    },
+    "backup.export": {
+      "kind": "action",
+      "topics": []
+    },
+    "backup.import": {
+      "kind": "mutation",
+      "topics": [
+        "subjects",
+        "sessions",
+        "goals",
+        "templates",
+        "weight",
+        "settings",
+        "appearance",
+        "graphs",
+        "timer"
+      ]
+    },
+    "engine.info": {
+      "kind": "read",
+      "topics": []
+    },
+    "goal.add": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.complete": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.delete": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.reorder": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.toggle_focus": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.uncomplete": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goal.update": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "goals.generate_due": {
+      "kind": "mutation",
+      "topics": [
+        "goals",
+        "templates"
+      ]
+    },
+    "goals.list": {
+      "kind": "read",
+      "topics": []
+    },
+    "graphs.agenda": {
+      "kind": "read",
+      "topics": []
+    },
+    "graphs.breakdown": {
+      "kind": "read",
+      "topics": []
+    },
+    "milestone.add": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "milestone.delete": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "milestone.reorder": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "milestone.set_done": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "milestone.update": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
+    "recovery.dismiss": {
+      "kind": "action",
+      "topics": [
+        "timer"
+      ]
+    },
+    "recovery.resolve": {
+      "kind": "mutation",
+      "topics": [
+        "timer",
+        "subjects",
+        "sessions",
+        "graphs"
+      ]
+    },
+    "session.add": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
+    "session.delete": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs",
+        "timer"
+      ]
+    },
+    "session.duplicate": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
+    "session.get": {
+      "kind": "read",
+      "topics": []
+    },
+    "session.shift": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
+    "session.update": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
+    "sessions.for_day": {
+      "kind": "read",
+      "topics": []
+    },
+    "sessions.for_subject": {
+      "kind": "read",
+      "topics": []
+    },
+    "settings.get": {
+      "kind": "read",
+      "topics": []
+    },
+    "settings.set": {
+      "kind": "mutation",
+      "topics": [
+        "settings"
+      ]
+    },
+    "subject.add": {
+      "kind": "mutation",
+      "topics": [
+        "subjects"
+      ]
+    },
+    "subject.archive": {
+      "kind": "mutation",
+      "topics": [
+        "subjects",
+        "timer",
+        "graphs"
+      ]
+    },
+    "subject.delete": {
+      "kind": "mutation",
+      "topics": [
+        "subjects",
+        "timer",
+        "sessions",
+        "graphs"
+      ]
+    },
+    "subject.deletion_summary": {
+      "kind": "read",
+      "topics": []
+    },
+    "subject.reorder": {
+      "kind": "mutation",
+      "topics": [
+        "subjects"
+      ]
+    },
+    "subject.unarchive": {
+      "kind": "mutation",
+      "topics": [
+        "subjects",
+        "graphs"
+      ]
+    },
+    "subject.update": {
+      "kind": "mutation",
+      "topics": [
+        "subjects",
+        "timer",
+        "sessions",
+        "graphs"
+      ]
+    },
+    "subjects.list": {
+      "kind": "read",
+      "topics": []
+    },
+    "sync.configure": {
+      "kind": "action",
+      "topics": [
+        "sync"
+      ]
+    },
+    "sync.now": {
+      "kind": "action",
+      "topics": [
+        "sync"
+      ]
+    },
+    "sync.status": {
+      "kind": "read",
+      "topics": []
+    },
+    "template.add": {
+      "kind": "mutation",
+      "topics": [
+        "templates",
+        "goals"
+      ]
+    },
+    "template.delete": {
+      "kind": "mutation",
+      "topics": [
+        "templates",
+        "goals"
+      ]
+    },
+    "template.set_active": {
+      "kind": "mutation",
+      "topics": [
+        "templates",
+        "goals"
+      ]
+    },
+    "template.update": {
+      "kind": "mutation",
+      "topics": [
+        "templates",
+        "goals"
+      ]
+    },
+    "templates.list": {
+      "kind": "read",
+      "topics": []
+    },
+    "timer.get": {
+      "kind": "read",
+      "topics": []
+    },
+    "timer.start": {
+      "kind": "mutation",
+      "topics": [
+        "timer",
+        "subjects",
+        "graphs"
+      ]
+    },
+    "timer.stop": {
+      "kind": "mutation",
+      "topics": [
+        "timer",
+        "subjects",
+        "sessions",
+        "graphs"
+      ]
+    },
+    "timer.switch": {
+      "kind": "mutation",
+      "topics": [
+        "timer",
+        "subjects",
+        "sessions",
+        "graphs"
+      ]
+    },
+    "weight.delete": {
+      "kind": "mutation",
+      "topics": [
+        "weight"
+      ]
+    },
+    "weight.list": {
+      "kind": "read",
+      "topics": []
+    },
+    "weight.upsert": {
+      "kind": "mutation",
+      "topics": [
+        "weight"
+      ]
+    }
+  }
+}

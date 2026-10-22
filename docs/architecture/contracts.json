@@ -36,6 +36,10 @@
     {
       "id": "imports.layer-direction",
       "document": "docs/architecture/boundaries.md#imports"
+    },
+    {
+      "id": "native.local-bridge",
+      "document": "docs/architecture/native-engine.md#commands-and-outcomes"
     }
   ]
 }

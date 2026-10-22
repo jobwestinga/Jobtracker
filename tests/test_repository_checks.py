@@ -101,6 +101,16 @@ def test_core_cannot_import_ui_even_lazily(tmp_path):
     assert any("forbidden import jobtracker.ui.app" in error for error in errors)
 
 
+def test_native_engine_host_stays_headless(tmp_path):
+    put(tmp_path, "jobtracker/desktop/host.py", "def show():\n    import PySide6\n    from jobtracker.ui import app\n")
+    put(tmp_path, "jobtracker/ui/app.py", "")
+    put(tmp_path, "server/app.py", "from jobtracker.desktop import host\n")
+    errors = check_boundaries.check(tmp_path)
+    assert any("desktop/host.py: forbidden import PySide6" in error for error in errors)
+    assert any("forbidden import jobtracker.ui.app" in error for error in errors)
+    assert any("server/app.py: forbidden import jobtracker.desktop" in error for error in errors)
+
+
 def test_python_cycle_check_distinguishes_lazy_and_type_only_imports(tmp_path):
     put(tmp_path, "jobtracker/ui/a.py", "from . import b\n")
     put(tmp_path, "jobtracker/ui/b.py", "from . import a\n")

@@ -81,8 +81,11 @@ def check(root: Path) -> list[str]:
             forbidden = ["PySide6", "fastapi", "server", "jobtracker.ui", "jobtracker.sync"]
         elif name.startswith("jobtracker.sync") and name != "jobtracker.sync.qt_worker":
             forbidden = ["PySide6", "fastapi", "server", "jobtracker.ui"]
+        elif name.startswith("jobtracker.desktop"):
+            # The native engine host stays headless and server-independent.
+            forbidden = ["PySide6", "fastapi", "server", "jobtracker.ui", "jobtracker.sync.qt_worker"]
         elif name.startswith("server"):
-            forbidden = ["PySide6", "jobtracker.ui"]
+            forbidden = ["PySide6", "jobtracker.ui", "jobtracker.desktop"]
         for dependency in sorted(dependencies):
             if any(dependency == prefix or dependency.startswith(prefix + ".") for prefix in forbidden):
                 errors.append(f"{path.relative_to(root)}: forbidden import {dependency}")

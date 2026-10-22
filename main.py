@@ -7,12 +7,19 @@ the main window.
 import logging
 import sys
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtGui import QIcon
 
 from jobtracker.ui.app import MainWindow
-from jobtracker.core.config import ICON_PATH, APP_NAME
+from jobtracker.core.config import DB_PATH, ICON_PATH, APP_NAME
 from jobtracker.core.logging_config import setup_logging
+from jobtracker.desktop.ownership import StoreInUse, StoreLock
+
+
+def acquire_store_lock() -> StoreLock:
+    """Hold this store for the process lifetime; the native engine checks the
+    same lock, so two timer owners never open one database."""
+    return StoreLock(DB_PATH, role="qt").acquire()
 
 
 def main() -> None:
@@ -30,6 +37,18 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+
+    # Before MainWindow constructs services or runs recovery.
+    try:
+        store_lock = acquire_store_lock()
+    except StoreInUse:
+        logger.warning("Store already open in another JobTracker process: %s", DB_PATH)
+        QMessageBox.information(
+            None, APP_NAME,
+            "JobTracker is already open with this data.\n\n"
+            "Switch to the open JobTracker window to continue.",
+        )
+        sys.exit(1)
 
     # Stylesheet is applied dynamically by MainWindow.__init__
 
@@ -49,7 +68,9 @@ def main() -> None:
     window = MainWindow(app)
     window.show()
 
-    sys.exit(app.exec())
+    code = app.exec()
+    store_lock.release()
+    sys.exit(code)
 
 
 if __name__ == "__main__":

@@ -963,6 +963,92 @@
       "related": [
         "mobile.shell"
       ]
+    },
+    {
+      "id": "native.engine",
+      "title": "Native engine host, local bridge and receipts",
+      "keywords": [
+        "native",
+        "swift",
+        "swiftui",
+        "bridge",
+        "engine",
+        "ipc",
+        "receipt",
+        "pipe",
+        "protocol",
+        "a4"
+      ],
+      "entrypoints": [
+        {
+          "path": "jobtracker/desktop/__main__.py"
+        },
+        {
+          "path": "jobtracker/desktop/commands.py",
+          "symbol": "describe"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/desktop/host.py",
+        "symbol": "EngineHost"
+      },
+      "persistence": [
+        {
+          "path": "jobtracker/desktop/receipts.py",
+          "symbol": "install"
+        },
+        {
+          "path": "jobtracker/desktop/ownership.py",
+          "symbol": "StoreLock"
+        },
+        {
+          "path": "jobtracker/sync/thread_worker.py",
+          "symbol": "ThreadSyncController"
+        }
+      ],
+      "supporting": [
+        {
+          "path": "jobtracker/desktop/bootstrap.py",
+          "symbol": "resolve_store"
+        },
+        {
+          "path": "jobtracker/desktop/protocol.py"
+        },
+        {
+          "path": "jobtracker/desktop/dto.py"
+        },
+        {
+          "path": "jobtracker/services/graph_window.py",
+          "symbol": "window_and_grouping"
+        },
+        {
+          "path": "jobtracker/sync/presentation.py",
+          "symbol": "describe_status"
+        }
+      ],
+      "guide": "docs/architecture/native-engine.md",
+      "operations": [],
+      "tables": [
+        "desktop_request_receipts",
+        "sync_outbox"
+      ],
+      "contracts": [
+        "native.local-bridge",
+        "facades.state-ownership",
+        "imports.layer-direction"
+      ],
+      "routes": [],
+      "tests": [
+        "tests/desktop/test_engine_bootstrap.py",
+        "tests/desktop/test_engine_protocol.py",
+        "tests/desktop/test_engine_commands.py",
+        "tests/desktop/test_engine_lifecycle.py"
+      ],
+      "related": [
+        "native.shell",
+        "sync.replication",
+        "timer.sessions"
+      ]
     }
   ]
 }

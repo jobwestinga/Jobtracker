@@ -242,7 +242,8 @@ def check(root: Path, *, write=False) -> list[str]:
         if unknown:
             errors.append(f"desktop queues unknown operations: {sorted(unknown)}")
         schema = "\n".join((root / path).read_text() for path in (
-            "jobtracker/core/persistence/schema.py", "jobtracker/sync/state.py", "server/feed.py"))
+            "jobtracker/core/persistence/schema.py", "jobtracker/sync/state.py", "server/feed.py",
+            "jobtracker/desktop/receipts.py"))
         tables = set(re.findall(r"CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)", schema, re.I))
         for feature in manifest["features"]:
             for table in feature["tables"]:
