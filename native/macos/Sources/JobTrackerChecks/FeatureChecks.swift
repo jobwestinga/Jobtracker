@@ -244,4 +244,44 @@ struct FeatureStateTests: CheckSuite {
         expect(rows.count == 1 && rows[0].uid == manual.uid && abs(rows[0].weightKg - expected) < 1e-9, "same daily identity updated")
         expect(weight.status == "Saved.")
     }
+
+    func movingTheSelectionOutOfTheDayClearsItWithoutReselecting() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        app.select(.graphs)
+        app.graphs.setMode("agenda")
+        live.harness.pump(10) { app.graphs.agenda != nil }
+        guard let block = app.graphs.agenda?.sessions.first(where: { $0.uid != nil }) else { expect(false, "agenda blocks"); return }
+        let panel = SessionPanelModel(app: app, scope: .day(block.day), select: block.uid)
+        live.harness.pump(10) { panel.loaded }
+        let others = panel.rows.filter { $0.uid != block.uid }.map(\.uid)
+        live.run { await panel.shift(86400) }
+        expect(panel.selectedUid == nil, "selection cleared after leaving the day")
+        expect(panel.message?.contains("outside this list") == true, "explained")
+        expect(panel.rows.map(\.uid) == others, "remaining rows untouched, none selected")
+        live.run { await panel.shift(86400) }
+        expect(panel.selectedUid == nil && panel.rows.map(\.uid) == others, "another tap acts on nothing")
+    }
+
+    func unreachableServerShowsOfflineWhileLocalSavesSucceed() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        let configure = live.harness.send("sync.configure", ["enabled": true, "server_url": "https://127.0.0.1:9", "token": "check-token"], kind: .action)
+        expect(configure?.outcome == .ok, "configured")
+        // Sync starts with the next owner, like the Qt window after a restart.
+        live.harness.stop()
+        let client = EngineClient(launch: live.harness.launch, journal: live.harness.journal, requestTimeout: 15)
+        live.harness.client = client
+        let restarted = AppModel(engine: client, configuration: nil)
+        client.start()
+        expect(live.harness.pump(20) { client.isReady && restarted.subjects.list != nil }, "restarted")
+        live.harness.pump(20) { restarted.sync.title.hasPrefix("Offline") }
+        expect(restarted.sync.title.hasPrefix("Offline") && restarted.sync.enabled, "offline status: \(restarted.sync.title)")
+        expect(!restarted.sync.detail.contains("check-token"), "token never shown")
+        let reading = restarted.subjects.subjects.first { $0.name == "Reading" }!
+        let response = live.harness.send("subject.update", ["subject_uid": .string(reading.uid), "name": "Reading list", "color": .string(reading.color), "notes": ""], kind: .mutation)
+        expect(response?.outcome == .applied, "local save succeeds offline")
+        live.harness.pump(10) { restarted.sync.pending > 0 }
+        expect(restarted.sync.pending > 0, "queued for the server")
+    }
 }
