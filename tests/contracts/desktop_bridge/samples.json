@@ -1,0 +1,2889 @@
+{
+ "engine.info": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "92eef326-c9ad-459d-a437-2ab2c63faedb",
+  "result": {
+   "commands": [
+    {
+     "kind": "action",
+     "name": "app.foreground",
+     "topics": []
+    },
+    {
+     "kind": "action",
+     "name": "app.quit",
+     "topics": []
+    },
+    {
+     "kind": "action",
+     "name": "backup.export",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "backup.import",
+     "topics": [
+      "subjects",
+      "sessions",
+      "goals",
+      "templates",
+      "weight",
+      "settings",
+      "appearance",
+      "graphs",
+      "timer"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "engine.info",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.add",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.complete",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.delete",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.reorder",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.save",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.toggle_focus",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.uncomplete",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goal.update",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "goals.generate_due",
+     "topics": [
+      "goals",
+      "templates"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "goals.list",
+     "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "graphs.agenda",
+     "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "graphs.breakdown",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "milestone.add",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "milestone.delete",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "milestone.reorder",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "milestone.set_done",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "milestone.update",
+     "topics": [
+      "goals"
+     ]
+    },
+    {
+     "kind": "action",
+     "name": "recovery.dismiss",
+     "topics": [
+      "timer"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "recovery.resolve",
+     "topics": [
+      "timer",
+      "subjects",
+      "sessions",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.add",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.add_slot",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.delete",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs",
+      "timer"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.duplicate",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "session.get",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "session.quick_add",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.shift",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "session.update",
+     "topics": [
+      "sessions",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "sessions.for_day",
+     "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "sessions.for_subject",
+     "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "settings.get",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "settings.set",
+     "topics": [
+      "settings"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.add",
+     "topics": [
+      "subjects"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.archive",
+     "topics": [
+      "subjects",
+      "timer",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.delete",
+     "topics": [
+      "subjects",
+      "timer",
+      "sessions",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "subject.deletion_summary",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.reorder",
+     "topics": [
+      "subjects"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.unarchive",
+     "topics": [
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "subject.update",
+     "topics": [
+      "subjects",
+      "timer",
+      "sessions",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "subjects.list",
+     "topics": []
+    },
+    {
+     "kind": "action",
+     "name": "sync.configure",
+     "topics": [
+      "sync"
+     ]
+    },
+    {
+     "kind": "action",
+     "name": "sync.now",
+     "topics": [
+      "sync"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "sync.status",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "template.add",
+     "topics": [
+      "templates",
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "template.delete",
+     "topics": [
+      "templates",
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "template.set_active",
+     "topics": [
+      "templates",
+      "goals"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "template.update",
+     "topics": [
+      "templates",
+      "goals"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "templates.list",
+     "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "timer.get",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "timer.start",
+     "topics": [
+      "timer",
+      "subjects",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "timer.stop",
+     "topics": [
+      "timer",
+      "subjects",
+      "sessions",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "timer.switch",
+     "topics": [
+      "timer",
+      "subjects",
+      "sessions",
+      "graphs"
+     ]
+    },
+    {
+     "kind": "mutation",
+     "name": "weight.delete",
+     "topics": [
+      "weight"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "weight.list",
+     "topics": []
+    },
+    {
+     "kind": "mutation",
+     "name": "weight.upsert",
+     "topics": [
+      "weight"
+     ]
+    },
+    {
+     "kind": "read",
+     "name": "weight.view",
+     "topics": []
+    }
+   ],
+   "db_path": "/synthetic/store.db",
+   "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+   "mode": "isolated",
+   "pid": 0,
+   "qt_loaded": false,
+   "receipts_backup": null,
+   "revision": 0,
+   "store_id": "96f8a857-8e6e-5d45-b047-8d9353eaf8fb",
+   "sync_enabled": false
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "goals.list": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "d5092590-3f7a-4fb9-b955-900a02609eae",
+  "result": {
+   "completed": false,
+   "goals": [
+    {
+     "can_complete": false,
+     "completed": false,
+     "created_at": "2026-10-22 14:18:33",
+     "deadline": "2026-11-15",
+     "focused": true,
+     "milestones": [
+      {
+       "done": true,
+       "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+       "note": "",
+       "sort_order": 1,
+       "title": "Outline",
+       "uid": "6a64715a-f32e-5923-a98b-556b1149521a"
+      },
+      {
+       "done": false,
+       "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+       "note": "",
+       "sort_order": 2,
+       "title": "First draft",
+       "uid": "6c93cc2c-51b4-56ff-a32a-f1a9dbd832da"
+      },
+      {
+       "done": false,
+       "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+       "note": "",
+       "sort_order": 3,
+       "title": "Revision",
+       "uid": "774f3daf-c641-5d99-b9a6-f3048673a90b"
+      }
+     ],
+     "name": "Submit thesis chapter",
+     "notes": "Draft, revise and submit chapter three.",
+     "progress": [
+      1,
+      3
+     ],
+     "sort_order": 1,
+     "template_uid": null,
+     "uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306"
+    },
+    {
+     "can_complete": true,
+     "completed": false,
+     "created_at": "2026-10-22 14:18:33",
+     "deadline": null,
+     "focused": false,
+     "milestones": [],
+     "name": "Read four books",
+     "notes": "One per week of the month.",
+     "progress": [
+      0,
+      0
+     ],
+     "sort_order": 2,
+     "template_uid": null,
+     "uid": "8d95bb94-aa32-530b-b16a-89d29fb2f048"
+    },
+    {
+     "can_complete": true,
+     "completed": false,
+     "created_at": "2026-10-22 14:18:33",
+     "deadline": null,
+     "focused": false,
+     "milestones": [],
+     "name": "Run 10k",
+     "notes": "",
+     "progress": [
+      0,
+      0
+     ],
+     "sort_order": 3,
+     "template_uid": null,
+     "uid": "9d8eeb30-9598-540f-931a-8a5cd607ab0e"
+    },
+    {
+     "can_complete": true,
+     "completed": false,
+     "created_at": "2026-10-22 14:18:33",
+     "deadline": null,
+     "focused": false,
+     "milestones": [],
+     "name": "Learn 200 Spanish words",
+     "notes": "",
+     "progress": [
+      0,
+      0
+     ],
+     "sort_order": 4,
+     "template_uid": null,
+     "uid": "63615742-2af9-5793-8a4f-4e677e105ef1"
+    },
+    {
+     "can_complete": true,
+     "completed": false,
+     "created_at": "2026-10-22 14:18:33",
+     "deadline": "2026-12-01",
+     "focused": false,
+     "milestones": [],
+     "name": "Renew passport",
+     "notes": "",
+     "progress": [
+      0,
+      0
+     ],
+     "sort_order": 5,
+     "template_uid": null,
+     "uid": "6984844a-8f2f-54f6-961e-b7128f321d85"
+    }
+   ]
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "graphs.agenda": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "1312c38f-2491-4717-8a10-63634d8c9b43",
+  "result": {
+   "day_start_hour": 3.0,
+   "days": [
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24"
+   ],
+   "fit_width": true,
+   "hour_end": 23,
+   "hour_start": 6,
+   "now_day": "2026-10-22",
+   "now_hour": 16.309444444444445,
+   "range_label": "Weeks",
+   "sessions": [
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 8.55,
+     "start_h": 8.0,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "30295cd3-73b2-5dd9-9ed9-dcf87dcd21bd"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 9.133333333333333,
+     "start_h": 8.583333333333334,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "d3c4272d-a3da-590c-8c39-5aefd68f41cc"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 9.716666666666667,
+     "start_h": 9.166666666666666,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "6e996dd8-6d53-5eb9-8405-57c41bb2de83"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 10.3,
+     "start_h": 9.75,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "3e301c75-0c6d-5144-952b-02295a62d8e3"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 10.883333333333333,
+     "start_h": 10.333333333333334,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "be34c5be-5b95-5279-84f5-a1be9c158c8b"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 11.466666666666667,
+     "start_h": 10.916666666666666,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "89113e19-a615-5649-91a1-a5310c8eb204"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 12.05,
+     "start_h": 11.5,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "c3ab2ee7-cb08-5369-906c-edf42c75cbdd"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 12.633333333333333,
+     "start_h": 12.083333333333334,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "6a8a345f-92b9-5d2d-a450-f94623ecdec2"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 13.216666666666667,
+     "start_h": 12.666666666666666,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "ced559b1-d42e-5651-8687-fd0ef021f208"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 13.8,
+     "start_h": 13.25,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "ba9f2ea4-c59b-5c16-a7c1-5d54780757af"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 14.383333333333333,
+     "start_h": 13.833333333333334,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "b1664190-2eb8-56a0-be76-d580a14a093e"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 14.966666666666667,
+     "start_h": 14.416666666666666,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "b50e1ab4-9acc-524c-8c80-c3bb3ebec92b"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 15.55,
+     "start_h": 15.0,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "6153ade1-6b8f-59e6-8380-f57b044ed796"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-13",
+     "duration_seconds": 1980,
+     "end_h": 16.133333333333333,
+     "start_h": 15.583333333333334,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "ba628091-c9e9-5f14-a3a8-13a545bcd8b9"
+    },
+    {
+     "color": "#64748B",
+     "day": "2026-10-14",
+     "duration_seconds": 5400,
+     "end_h": 11.5,
+     "start_h": 10.0,
+     "subject_name": "Old project",
+     "subject_uid": "047e0cc8-a0b5-5e82-be12-f4354cf12904",
+     "uid": "7969e864-68cc-5760-8005-352bdf5bb14b"
+    },
+    {
+     "color": "#EF4444",
+     "day": "2026-10-16",
+     "duration_seconds": 1500,
+     "end_h": 18.416666666666668,
+     "start_h": 18.0,
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "9cff9ea0-2ba5-5436-8dfb-cf609af48e1a"
+    },
+    {
+     "color": "#A855F7",
+     "day": "2026-10-17",
+     "duration_seconds": 39600,
+     "end_h": 19.5,
+     "start_h": 8.5,
+     "subject_name": "Thesis writing",
+     "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54",
+     "uid": "ca6a0792-bc08-51c0-91c2-dcf2c99956e9"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-18",
+     "duration_seconds": 3600,
+     "end_h": 10.5,
+     "start_h": 9.5,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "bb0e8d55-b776-5c8e-bbb9-f0a0101cb547"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-19",
+     "duration_seconds": 28440,
+     "end_h": 17.9,
+     "start_h": 10.0,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "55dea0b1-8a8c-5e7d-a441-8d6ae59b4607"
+    },
+    {
+     "color": "#A855F7",
+     "day": "2026-10-20",
+     "duration_seconds": 18000,
+     "end_h": 14.0,
+     "start_h": 9.0,
+     "subject_name": "Thesis writing",
+     "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54",
+     "uid": "1f34c16a-23e9-509e-9c55-77f4e7c773f9"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-20",
+     "duration_seconds": 3000,
+     "end_h": 10.833333333333334,
+     "start_h": 10.0,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "d87a9457-9f07-5eea-8048-23e7de6c3527"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-20",
+     "duration_seconds": 10500,
+     "end_h": 17.916666666666668,
+     "start_h": 15.0,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "425301ec-5dcd-5837-8763-5fa5e50f5da9"
+    },
+    {
+     "color": "#EF4444",
+     "day": "2026-10-20",
+     "duration_seconds": 2700,
+     "end_h": 20.75,
+     "start_h": 20.0,
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "8389c6dd-725b-5db1-a441-a8eb7a41ed0e"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-21",
+     "duration_seconds": 10800,
+     "end_h": 11.0,
+     "start_h": 8.0,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "cc35fd59-f97e-5c56-aa61-125d99ef2088"
+    },
+    {
+     "color": "#22C55E",
+     "day": "2026-10-21",
+     "duration_seconds": 14400,
+     "end_h": 17.0,
+     "start_h": 13.0,
+     "subject_name": "Linear Algebra and a deliberately long subject name for elision",
+     "subject_uid": "d8d55c0f-e281-55ef-a582-d1989561242c",
+     "uid": "de0110e2-a149-5ef8-b675-d1ed7774ecf6"
+    },
+    {
+     "color": "#EF4444",
+     "day": "2026-10-21",
+     "duration_seconds": 1800,
+     "end_h": 19.5,
+     "start_h": 19.0,
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "87bd76b9-85de-5970-9945-f32e752d9f84"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-21",
+     "duration_seconds": 9000,
+     "end_h": 25.0,
+     "start_h": 22.5,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "6df6127a-5cd9-5a66-a38e-f0cc73c29ee1"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-22",
+     "duration_seconds": 5700,
+     "end_h": 10.583333333333334,
+     "start_h": 9.0,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "5e70a8a7-4752-5afa-be83-056380d9ab66"
+    },
+    {
+     "color": "#A855F7",
+     "day": "2026-10-22",
+     "duration_seconds": 7200,
+     "end_h": 13.5,
+     "start_h": 11.5,
+     "subject_name": "Thesis writing",
+     "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54",
+     "uid": "ccd4b58d-5fdf-5d4d-a5db-75e48fc440b5"
+    },
+    {
+     "color": "#F59E0B",
+     "day": "2026-10-22",
+     "duration_seconds": 2700,
+     "end_h": 15.0,
+     "start_h": 14.25,
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "fcffba91-1508-5129-b6ef-4d0e0c851628"
+    },
+    {
+     "color": "#EF4444",
+     "day": "2026-10-24",
+     "duration_seconds": 2400,
+     "end_h": 10.666666666666666,
+     "start_h": 10.0,
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "b0e71c9f-9e99-5212-a537-b9e0f4e0a721"
+    },
+    {
+     "color": "#3B82F6",
+     "day": "2026-10-22",
+     "duration_seconds": 1501,
+     "end_h": 16.309444444444445,
+     "start_h": 15.8925,
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": null
+    }
+   ]
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "graphs.breakdown": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "5dbb83fd-2176-4693-8d4b-4eeb39550d51",
+  "result": {
+   "buckets": [
+    {
+     "date": "2026-10-12",
+     "intensity_seconds": 0.0,
+     "period_days": 1,
+     "segments": [],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 0
+    },
+    {
+     "date": "2026-10-13",
+     "intensity_seconds": 27720.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T08:33:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T08:00:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T09:08:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T08:35:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T09:43:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T09:10:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T10:18:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T09:45:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T10:53:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T10:20:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T11:28:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T10:55:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T12:03:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T11:30:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T12:38:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T12:05:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T13:13:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T12:40:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T13:48:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T13:15:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T14:23:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T13:50:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T14:58:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T14:25:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-13T15:33:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T15:00:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-13T16:08:00",
+       "seconds": 1980,
+       "start_time": "2026-10-13T15:35:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 27720
+    },
+    {
+     "date": "2026-10-14",
+     "intensity_seconds": 5400.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#64748B",
+       "end_time": "2026-10-14T11:30:00",
+       "seconds": 5400,
+       "start_time": "2026-10-14T10:00:00",
+       "subject_name": "Old project",
+       "subject_uid": "047e0cc8-a0b5-5e82-be12-f4354cf12904"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 5400
+    },
+    {
+     "date": "2026-10-15",
+     "intensity_seconds": 0.0,
+     "period_days": 1,
+     "segments": [],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 0
+    },
+    {
+     "date": "2026-10-16",
+     "intensity_seconds": 1500.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#EF4444",
+       "end_time": "2026-10-16T18:25:00",
+       "seconds": 1500,
+       "start_time": "2026-10-16T18:00:00",
+       "subject_name": "Spanish",
+       "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 1500
+    },
+    {
+     "date": "2026-10-17",
+     "intensity_seconds": 39600.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#A855F7",
+       "end_time": "2026-10-17T19:30:00",
+       "seconds": 39600,
+       "start_time": "2026-10-17T08:30:00",
+       "subject_name": "Thesis writing",
+       "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 39600
+    },
+    {
+     "date": "2026-10-18",
+     "intensity_seconds": 3600.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-18T10:30:00",
+       "seconds": 3600,
+       "start_time": "2026-10-18T09:30:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 3600
+    },
+    {
+     "date": "2026-10-19",
+     "intensity_seconds": 28440.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-19T17:54:00",
+       "seconds": 28440,
+       "start_time": "2026-10-19T10:00:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 28440
+    },
+    {
+     "date": "2026-10-20",
+     "intensity_seconds": 34200.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#A855F7",
+       "end_time": "2026-10-20T14:00:00",
+       "seconds": 18000,
+       "start_time": "2026-10-20T09:00:00",
+       "subject_name": "Thesis writing",
+       "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-20T10:50:00",
+       "seconds": 3000,
+       "start_time": "2026-10-20T10:00:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-20T17:55:00",
+       "seconds": 10500,
+       "start_time": "2026-10-20T15:00:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#EF4444",
+       "end_time": "2026-10-20T20:45:00",
+       "seconds": 2700,
+       "start_time": "2026-10-20T20:00:00",
+       "subject_name": "Spanish",
+       "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 34200
+    },
+    {
+     "date": "2026-10-21",
+     "intensity_seconds": 36000.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-21T11:00:00",
+       "seconds": 10800,
+       "start_time": "2026-10-21T08:00:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#22C55E",
+       "end_time": "2026-10-21T17:00:00",
+       "seconds": 14400,
+       "start_time": "2026-10-21T13:00:00",
+       "subject_name": "Linear Algebra and a deliberately long subject name for elision",
+       "subject_uid": "d8d55c0f-e281-55ef-a582-d1989561242c"
+      },
+      {
+       "color": "#EF4444",
+       "end_time": "2026-10-21T19:30:00",
+       "seconds": 1800,
+       "start_time": "2026-10-21T19:00:00",
+       "subject_name": "Spanish",
+       "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-22T01:00:00",
+       "seconds": 9000,
+       "start_time": "2026-10-21T22:30:00",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 36000
+    },
+    {
+     "date": "2026-10-22",
+     "intensity_seconds": 17101.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-22T10:35:00",
+       "seconds": 5700,
+       "start_time": "2026-10-22T09:00:00",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      },
+      {
+       "color": "#A855F7",
+       "end_time": "2026-10-22T13:30:00",
+       "seconds": 7200,
+       "start_time": "2026-10-22T11:30:00",
+       "subject_name": "Thesis writing",
+       "subject_uid": "72c388f9-efcb-5358-a033-ee19632c4c54"
+      },
+      {
+       "color": "#F59E0B",
+       "end_time": "2026-10-22T15:00:00.250000",
+       "seconds": 2700,
+       "start_time": "2026-10-22T14:15:00.250000",
+       "subject_name": "Reading",
+       "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+      },
+      {
+       "color": "#3B82F6",
+       "end_time": "2026-10-22T16:18:34.007596",
+       "seconds": 1501,
+       "start_time": "2026-10-22T15:53:33",
+       "subject_name": "Physics",
+       "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 17101
+    },
+    {
+     "date": "2026-10-23",
+     "intensity_seconds": 0.0,
+     "period_days": 1,
+     "segments": [],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 0
+    },
+    {
+     "date": "2026-10-24",
+     "intensity_seconds": 2400.0,
+     "period_days": 1,
+     "segments": [
+      {
+       "color": "#EF4444",
+       "end_time": "2026-10-24T10:40:00",
+       "seconds": 2400,
+       "start_time": "2026-10-24T10:00:00",
+       "subject_name": "Spanish",
+       "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db"
+      }
+     ],
+     "threshold_days": 1,
+     "threshold_factor": 1.0,
+     "total_seconds": 2400
+    }
+   ],
+   "end_day": "2026-10-24",
+   "fit_width": true,
+   "grouping": "daily",
+   "range_label": "Weeks",
+   "start_day": "2026-10-12"
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "hello": {
+  "commands": [
+   {
+    "kind": "action",
+    "name": "app.foreground",
+    "topics": []
+   },
+   {
+    "kind": "action",
+    "name": "app.quit",
+    "topics": []
+   },
+   {
+    "kind": "action",
+    "name": "backup.export",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "backup.import",
+    "topics": [
+     "subjects",
+     "sessions",
+     "goals",
+     "templates",
+     "weight",
+     "settings",
+     "appearance",
+     "graphs",
+     "timer"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "engine.info",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.add",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.complete",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.delete",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.reorder",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.save",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.toggle_focus",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.uncomplete",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goal.update",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "goals.generate_due",
+    "topics": [
+     "goals",
+     "templates"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "goals.list",
+    "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "graphs.agenda",
+    "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "graphs.breakdown",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "milestone.add",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "milestone.delete",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "milestone.reorder",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "milestone.set_done",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "milestone.update",
+    "topics": [
+     "goals"
+    ]
+   },
+   {
+    "kind": "action",
+    "name": "recovery.dismiss",
+    "topics": [
+     "timer"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "recovery.resolve",
+    "topics": [
+     "timer",
+     "subjects",
+     "sessions",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.add",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.add_slot",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.delete",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs",
+     "timer"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.duplicate",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "session.get",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "session.quick_add",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.shift",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "session.update",
+    "topics": [
+     "sessions",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "sessions.for_day",
+    "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "sessions.for_subject",
+    "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "settings.get",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "settings.set",
+    "topics": [
+     "settings"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.add",
+    "topics": [
+     "subjects"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.archive",
+    "topics": [
+     "subjects",
+     "timer",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.delete",
+    "topics": [
+     "subjects",
+     "timer",
+     "sessions",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "subject.deletion_summary",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.reorder",
+    "topics": [
+     "subjects"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.unarchive",
+    "topics": [
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "subject.update",
+    "topics": [
+     "subjects",
+     "timer",
+     "sessions",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "subjects.list",
+    "topics": []
+   },
+   {
+    "kind": "action",
+    "name": "sync.configure",
+    "topics": [
+     "sync"
+    ]
+   },
+   {
+    "kind": "action",
+    "name": "sync.now",
+    "topics": [
+     "sync"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "sync.status",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "template.add",
+    "topics": [
+     "templates",
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "template.delete",
+    "topics": [
+     "templates",
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "template.set_active",
+    "topics": [
+     "templates",
+     "goals"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "template.update",
+    "topics": [
+     "templates",
+     "goals"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "templates.list",
+    "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "timer.get",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "timer.start",
+    "topics": [
+     "timer",
+     "subjects",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "timer.stop",
+    "topics": [
+     "timer",
+     "subjects",
+     "sessions",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "timer.switch",
+    "topics": [
+     "timer",
+     "subjects",
+     "sessions",
+     "graphs"
+    ]
+   },
+   {
+    "kind": "mutation",
+    "name": "weight.delete",
+    "topics": [
+     "weight"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "weight.list",
+    "topics": []
+   },
+   {
+    "kind": "mutation",
+    "name": "weight.upsert",
+    "topics": [
+     "weight"
+    ]
+   },
+   {
+    "kind": "read",
+    "name": "weight.view",
+    "topics": []
+   }
+  ],
+  "db_path": "/synthetic/store.db",
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "hello",
+  "mode": "isolated",
+  "pid": 0,
+  "protocol_version": 1,
+  "qt_loaded": false,
+  "receipts_backup": null,
+  "revision": 0,
+  "store_id": "96f8a857-8e6e-5d45-b047-8d9353eaf8fb",
+  "sync_enabled": false
+ },
+ "session.missing": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "error": "session_uid 00000000-0000-4000-8000-000000000000 no longer exists",
+  "kind": "response",
+  "outcome": "missing",
+  "protocol_version": 1,
+  "request_id": "840ec8a5-a827-4feb-afe8-63a6abc5a7a2",
+  "result": {
+   "reason": "session_uid 00000000-0000-4000-8000-000000000000 no longer exists"
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "sessions.for_day": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "2f62af6d-9ede-4c10-842d-06adf657c76b",
+  "result": {
+   "day": "2026-10-21",
+   "sessions": [
+    {
+     "color": "#3B82F6",
+     "duration_seconds": 10800,
+     "end_time": "2026-10-21T11:00:00",
+     "open": false,
+     "start_time": "2026-10-21T08:00:00",
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "cc35fd59-f97e-5c56-aa61-125d99ef2088"
+    },
+    {
+     "color": "#22C55E",
+     "duration_seconds": 14400,
+     "end_time": "2026-10-21T17:00:00",
+     "open": false,
+     "start_time": "2026-10-21T13:00:00",
+     "subject_name": "Linear Algebra and a deliberately long subject name for elision",
+     "subject_uid": "d8d55c0f-e281-55ef-a582-d1989561242c",
+     "uid": "de0110e2-a149-5ef8-b675-d1ed7774ecf6"
+    },
+    {
+     "color": "#EF4444",
+     "duration_seconds": 1800,
+     "end_time": "2026-10-21T19:30:00",
+     "open": false,
+     "start_time": "2026-10-21T19:00:00",
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "87bd76b9-85de-5970-9945-f32e752d9f84"
+    },
+    {
+     "color": "#F59E0B",
+     "duration_seconds": 9000,
+     "end_time": "2026-10-22T01:00:00",
+     "open": false,
+     "start_time": "2026-10-21T22:30:00",
+     "subject_name": "Reading",
+     "subject_uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973",
+     "uid": "6df6127a-5cd9-5a66-a38e-f0cc73c29ee1"
+    }
+   ]
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "sessions.for_subject": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "34dbd8ac-298b-4cd2-b877-32e40559da86",
+  "result": {
+   "next_offset": null,
+   "offset": 0,
+   "sessions": [
+    {
+     "color": "#22C55E",
+     "duration_seconds": 14400,
+     "end_time": "2026-10-21T17:00:00",
+     "open": false,
+     "owned": true,
+     "start_time": "2026-10-21T13:00:00",
+     "subject_name": "Linear Algebra and a deliberately long subject name for elision",
+     "subject_uid": "d8d55c0f-e281-55ef-a582-d1989561242c",
+     "uid": "de0110e2-a149-5ef8-b675-d1ed7774ecf6"
+    }
+   ],
+   "total": 1
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "settings.get": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "307afc5f-bc5d-498f-ab8f-d4d6479abd63",
+  "result": {
+   "day_start_time": "03:00",
+   "fx_names": [
+    "Base",
+    "Clean",
+    "Glow",
+    "Space",
+    "Checkerboard"
+   ],
+   "palette_names": [
+    "Dark",
+    "Light",
+    "Ocean",
+    "Emerald",
+    "Rose",
+    "Amber",
+    "Violet",
+    "Slate",
+    "Arctic",
+    "Sunset",
+    "Obsidian",
+    "Lagoon"
+   ],
+   "themes": [
+    {
+     "fx": "Clean",
+     "name": "OLED Midnight",
+     "palette": "Obsidian"
+    },
+    {
+     "fx": "Clean",
+     "name": "Carbon Dark",
+     "palette": "Dark"
+    },
+    {
+     "fx": "Clean",
+     "name": "Ocean",
+     "palette": "Ocean"
+    },
+    {
+     "fx": "Clean",
+     "name": "Slate",
+     "palette": "Slate"
+    },
+    {
+     "fx": "Glow",
+     "name": "Ocean Aura",
+     "palette": "Ocean"
+    },
+    {
+     "fx": "Space",
+     "name": "Violet Space",
+     "palette": "Violet"
+    }
+   ],
+   "values": {
+    "graph_autofit_hours": "",
+    "graph_custom_end": "",
+    "graph_custom_start": "",
+    "graph_fit_horizontal": "",
+    "graph_grouping": "",
+    "graph_hour_end": "",
+    "graph_hour_start": "",
+    "graph_range": "",
+    "graph_view_mode": "",
+    "subject_stats_filter": "",
+    "theme_fx": "Clean",
+    "theme_palette": "Ocean",
+    "ui_reduce_motion": "",
+    "weight_chart_historic": "",
+    "weight_chart_points": "",
+    "weight_chart_range": "",
+    "weight_chart_smoothing": "",
+    "weight_chart_span": "",
+    "weight_picker_decimal": "",
+    "weight_picker_whole": "",
+    "weight_ui_contrast": "",
+    "weight_ui_density": ""
+   }
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "subjects.list": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "0c737608-b108-4002-8ff9-76a1e7efc38c",
+  "result": {
+   "archived": false,
+   "filter": "Total",
+   "resume_subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+   "subjects": [
+    {
+     "archived": false,
+     "color": "#3B82F6",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Physics",
+     "notes": "Mechanics and waves",
+     "sort_order": 1,
+     "total_seconds": 124801,
+     "uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+    },
+    {
+     "archived": false,
+     "color": "#22C55E",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Linear Algebra and a deliberately long subject name for elision",
+     "notes": "",
+     "sort_order": 2,
+     "total_seconds": 14400,
+     "uid": "d8d55c0f-e281-55ef-a582-d1989561242c"
+    },
+    {
+     "archived": false,
+     "color": "#A855F7",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Thesis writing",
+     "notes": "Chapter drafts",
+     "sort_order": 3,
+     "total_seconds": 90000,
+     "uid": "72c388f9-efcb-5358-a033-ee19632c4c54"
+    },
+    {
+     "archived": false,
+     "color": "#F59E0B",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Reading",
+     "notes": "",
+     "sort_order": 4,
+     "total_seconds": 39360,
+     "uid": "5a4748c3-2c83-50a1-83f3-0d8bc0317973"
+    },
+    {
+     "archived": false,
+     "color": "#EF4444",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Spanish",
+     "notes": "",
+     "sort_order": 5,
+     "total_seconds": 8400,
+     "uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db"
+    }
+   ],
+   "suggested_colors": [
+    "#84CC16",
+    "#EC4899",
+    "#06B6D4"
+   ],
+   "timer": {
+    "active": {
+     "color": "#3B82F6",
+     "duration_seconds": 0,
+     "end_time": null,
+     "open": true,
+     "owned": true,
+     "start_time": "2026-10-22T15:53:33",
+     "subject_name": "Physics",
+     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+     "uid": "124c026a-69bc-5d56-8f24-de364ff4c5e6"
+    },
+    "elapsed_seconds": 1501,
+    "engine_now": "2026-10-22T16:18:34.007092",
+    "foreign_open": [
+     {
+      "color": "#EF4444",
+      "duration_seconds": 0,
+      "end_time": null,
+      "open": true,
+      "owned": false,
+      "start_time": "2026-10-22T15:18:33",
+      "subject_name": "Spanish",
+      "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+      "uid": "b7762b75-6aeb-459a-9ea4-bf65ac6ead80"
+     }
+    ],
+    "recovery": null,
+    "subject": {
+     "archived": false,
+     "color": "#3B82F6",
+     "created_at": "2026-10-22 14:18:33",
+     "name": "Physics",
+     "notes": "Mechanics and waves",
+     "sort_order": 1,
+     "total_seconds": null,
+     "uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+    }
+   },
+   "today_seconds": 19501
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "sync.status": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "2f451345-2018-45e4-b3bd-8b0bf172c495",
+  "result": {
+   "action": "Settings",
+   "busy": false,
+   "connected": false,
+   "detail": "Changes are saved on this Mac. Open Settings to enable sync.",
+   "enabled": false,
+   "error": "",
+   "has_token": false,
+   "last_sync_at": "",
+   "pending": 0,
+   "server_url": "",
+   "title": "Local only \u00b7 Sync off"
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "templates.list": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "42adf978-13a2-4169-a248-4f8ccba5afbd",
+  "result": {
+   "templates": [
+    {
+     "active": true,
+     "last_generated": null,
+     "milestones": [
+      {
+       "note": "",
+       "title": "Inbox zero"
+      },
+      {
+       "note": "",
+       "title": "Plan week"
+      }
+     ],
+     "notes": "",
+     "recurrence": "weekly",
+     "recurrence_day": 1,
+     "sort_order": 1,
+     "title": "Weekly review {date}",
+     "uid": "9c6c98bc-3616-56fb-a52e-15819df8c67e"
+    }
+   ]
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "timer.get": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "ffba0f2f-7438-4b04-8a63-5244c5237218",
+  "result": {
+   "active": {
+    "color": "#3B82F6",
+    "duration_seconds": 0,
+    "end_time": null,
+    "open": true,
+    "owned": true,
+    "start_time": "2026-10-22T15:53:33",
+    "subject_name": "Physics",
+    "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
+    "uid": "124c026a-69bc-5d56-8f24-de364ff4c5e6"
+   },
+   "elapsed_seconds": 1501,
+   "engine_now": "2026-10-22T16:18:34.007178",
+   "foreign_open": [
+    {
+     "color": "#EF4444",
+     "duration_seconds": 0,
+     "end_time": null,
+     "open": true,
+     "owned": false,
+     "start_time": "2026-10-22T15:18:33",
+     "subject_name": "Spanish",
+     "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
+     "uid": "b7762b75-6aeb-459a-9ea4-bf65ac6ead80"
+    }
+   ],
+   "recovery": null,
+   "subject": {
+    "archived": false,
+    "color": "#3B82F6",
+    "created_at": "2026-10-22 14:18:33",
+    "name": "Physics",
+    "notes": "Mechanics and waves",
+    "sort_order": 1,
+    "total_seconds": null,
+    "uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
+   }
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "weight.view": {
+  "engine_instance": "4a905c14-76a0-498a-a769-0b11c6a42bbb",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "95569b43-6e0f-4794-95e7-bba7ddd8f4b6",
+  "result": {
+   "axis": {
+    "end_label": "22 Oct",
+    "fallback_year": "2026",
+    "first": 739824.3440162037,
+    "last": 739911.3462152778,
+    "start_label": "27 Jul",
+    "years": []
+   },
+   "badge": {
+    "delta": 0.6,
+    "exact": 0.5630000000000024,
+    "from": "2026-09-25",
+    "to": "2026-10-22"
+   },
+   "historic": false,
+   "points": [
+    {
+     "measured_at": "2026-07-27T08:15:23",
+     "source": "scale",
+     "uid": "ec72b0ff-5437-58ee-9c3e-cf1aad82fb11",
+     "x": 739824.3440162037,
+     "y": 78.977
+    },
+    {
+     "measured_at": "2026-07-30T08:18:26",
+     "source": "scale",
+     "uid": "36468a08-1f52-5c88-a5f6-5ec1bc027173",
+     "x": 739827.3461342592,
+     "y": 79.344
+    },
+    {
+     "measured_at": "2026-08-02T08:14:29",
+     "source": "scale",
+     "uid": "a0a80da0-4ff6-518f-98df-edd4716e56d0",
+     "x": 739830.3433912037,
+     "y": 79.026
+    },
+    {
+     "measured_at": "2026-08-05T08:17:32",
+     "source": "scale",
+     "uid": "cf4d4e0d-abdc-5afc-8554-3a03c5024ad1",
+     "x": 739833.3455092593,
+     "y": 79.393
+    },
+    {
+     "measured_at": "2026-08-08T08:13:24",
+     "source": "scale",
+     "uid": "c57e63e0-99c0-5b09-8787-596ab75601b9",
+     "x": 739836.3426388889,
+     "y": 79.075
+    },
+    {
+     "measured_at": "2026-08-11T08:16:27",
+     "source": "scale",
+     "uid": "73421aa3-8afa-593d-a104-937be107d9be",
+     "x": 739839.3447569445,
+     "y": 79.442
+    },
+    {
+     "measured_at": "2026-08-14T08:12:30",
+     "source": "scale",
+     "uid": "d5b83029-7f0b-5e2b-8124-1b12945e3039",
+     "x": 739842.3420138889,
+     "y": 79.809
+    },
+    {
+     "measured_at": "2026-08-17T08:15:33",
+     "source": "scale",
+     "uid": "95078cd3-4def-53ae-bef5-3768f11a8b7e",
+     "x": 739845.3441319445,
+     "y": 79.491
+    },
+    {
+     "measured_at": "2026-08-20T08:18:25",
+     "source": "scale",
+     "uid": "0d604325-3a94-5edd-9fc5-b1afd3d6c351",
+     "x": 739848.3461226852,
+     "y": 79.858
+    },
+    {
+     "measured_at": "2026-08-23T08:14:28",
+     "source": "scale",
+     "uid": "62b71058-2791-5b07-828c-6913e2884451",
+     "x": 739851.3433796297,
+     "y": 79.54
+    },
+    {
+     "measured_at": "2026-08-26T08:17:31",
+     "source": "scale",
+     "uid": "c4dfd841-6d14-5217-8d6e-131c59b351a8",
+     "x": 739854.3454976851,
+     "y": 79.907
+    },
+    {
+     "measured_at": "2026-08-29T08:13:23",
+     "source": "scale",
+     "uid": "1dfb0e9f-1843-5caa-967a-5c3fc0a7ed29",
+     "x": 739857.3426273149,
+     "y": 80.274
+    },
+    {
+     "measured_at": "2026-09-01T08:16:26",
+     "source": "scale",
+     "uid": "65096195-96e9-525e-ae22-dbe19d9e9e2d",
+     "x": 739860.3447453703,
+     "y": 79.956
+    },
+    {
+     "measured_at": "2026-09-04T08:12:29",
+     "source": "scale",
+     "uid": "87abe93b-ea1b-55cf-85bc-ae3224b9e039",
+     "x": 739863.3420023149,
+     "y": 80.323
+    },
+    {
+     "measured_at": "2026-09-07T08:15:32",
+     "source": "scale",
+     "uid": "8c8f1a07-e02d-5021-b951-fbfe5d3a6fca",
+     "x": 739866.3441203703,
+     "y": 80.005
+    },
+    {
+     "measured_at": "2026-09-10T08:18:24",
+     "source": "scale",
+     "uid": "e20a438b-0e14-52ce-8d38-6028b8b6d82e",
+     "x": 739869.3461111111,
+     "y": 80.372
+    },
+    {
+     "measured_at": "2026-09-13T08:14:27",
+     "source": "scale",
+     "uid": "25337b11-f030-5f04-80de-be70fb8cc2df",
+     "x": 739872.3433680555,
+     "y": 80.739
+    },
+    {
+     "measured_at": "2026-09-16T08:17:30",
+     "source": "scale",
+     "uid": "c765fb59-4f89-511d-b43c-0dc5b109ea0a",
+     "x": 739875.3454861111,
+     "y": 80.421
+    },
+    {
+     "measured_at": "2026-09-19T08:13:33",
+     "source": "scale",
+     "uid": "f309abbc-7040-5bb1-af88-b908abe87de6",
+     "x": 739878.3427430555,
+     "y": 80.788
+    },
+    {
+     "measured_at": "2026-09-22T08:16:25",
+     "source": "scale",
+     "uid": "aa81b702-ea58-5993-8071-36d2d4b94cac",
+     "x": 739881.3447337963,
+     "y": 80.47
+    },
+    {
+     "measured_at": "2026-09-25T08:12:28",
+     "source": "scale",
+     "uid": "35741078-36a0-52d0-9864-bce3660dd3ac",
+     "x": 739884.3419907407,
+     "y": 80.837
+    },
+    {
+     "measured_at": "2026-09-28T08:15:31",
+     "source": "scale",
+     "uid": "5768a121-bb63-5267-9ebc-6f3a7a4e20fc",
+     "x": 739887.3441087963,
+     "y": 81.204
+    },
+    {
+     "measured_at": "2026-10-01T08:18:23",
+     "source": "scale",
+     "uid": "7c269b17-ff03-54e1-b64f-ee8b0e34c233",
+     "x": 739890.346099537,
+     "y": 80.886
+    },
+    {
+     "measured_at": "2026-10-04T08:14:26",
+     "source": "scale",
+     "uid": "f277325e-73a1-5051-a2d6-c96b40288848",
+     "x": 739893.3433564815,
+     "y": 81.253
+    },
+    {
+     "measured_at": "2026-10-07T08:17:29",
+     "source": "scale",
+     "uid": "30ea046e-2e36-5c28-86a4-0caf1620db10",
+     "x": 739896.345474537,
+     "y": 80.935
+    },
+    {
+     "measured_at": "2026-10-10T08:13:32",
+     "source": "scale",
+     "uid": "4a44e491-4dc7-5d94-a8d7-e0636e765866",
+     "x": 739899.3427314815,
+     "y": 81.302
+    },
+    {
+     "measured_at": "2026-10-13T08:16:24",
+     "source": "scale",
+     "uid": "c08883dd-cf01-5c46-9b50-d9c2f68dfe15",
+     "x": 739902.3447222222,
+     "y": 81.669
+    },
+    {
+     "measured_at": "2026-10-16T08:12:27",
+     "source": "scale",
+     "uid": "cb595a92-20e5-5ab5-a956-fc3a7791516e",
+     "x": 739905.3419791666,
+     "y": 81.351
+    },
+    {
+     "measured_at": "2026-10-19T08:15:30",
+     "source": "scale",
+     "uid": "4e5d015d-afc7-57d7-b08a-9ee935fd512b",
+     "x": 739908.3440972222,
+     "y": 81.718
+    },
+    {
+     "measured_at": "2026-10-22T07:30:33",
+     "source": "manual",
+     "uid": "b9534420-e7f8-4f7d-9f46-4b41d7b0161f",
+     "x": 739911.3128819445,
+     "y": 78.6
+    },
+    {
+     "measured_at": "2026-10-22T08:18:33",
+     "source": "scale",
+     "uid": "617debe5-55c9-5f36-8249-db96ff069273",
+     "x": 739911.3462152778,
+     "y": 81.4
+    }
+   ],
+   "range": "90",
+   "rows": [
+    {
+     "change": 2.8000000000000114,
+     "created_at": "2026-10-22T16:18:34.001766",
+     "measured_at": "2026-10-22T08:18:33",
+     "source": "scale",
+     "uid": "617debe5-55c9-5f36-8249-db96ff069273",
+     "weight_kg": 81.4
+    },
+    {
+     "change": -3.118000000000009,
+     "created_at": "2026-10-22 14:18:34",
+     "measured_at": "2026-10-22T07:30:33",
+     "source": "manual",
+     "uid": "b9534420-e7f8-4f7d-9f46-4b41d7b0161f",
+     "weight_kg": 78.6
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001781",
+     "measured_at": "2026-10-19T08:15:30",
+     "source": "scale",
+     "uid": "4e5d015d-afc7-57d7-b08a-9ee935fd512b",
+     "weight_kg": 81.718
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001789",
+     "measured_at": "2026-10-16T08:12:27",
+     "source": "scale",
+     "uid": "cb595a92-20e5-5ab5-a956-fc3a7791516e",
+     "weight_kg": 81.351
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001795",
+     "measured_at": "2026-10-13T08:16:24",
+     "source": "scale",
+     "uid": "c08883dd-cf01-5c46-9b50-d9c2f68dfe15",
+     "weight_kg": 81.669
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001801",
+     "measured_at": "2026-10-10T08:13:32",
+     "source": "scale",
+     "uid": "4a44e491-4dc7-5d94-a8d7-e0636e765866",
+     "weight_kg": 81.302
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001807",
+     "measured_at": "2026-10-07T08:17:29",
+     "source": "scale",
+     "uid": "30ea046e-2e36-5c28-86a4-0caf1620db10",
+     "weight_kg": 80.935
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001812",
+     "measured_at": "2026-10-04T08:14:26",
+     "source": "scale",
+     "uid": "f277325e-73a1-5051-a2d6-c96b40288848",
+     "weight_kg": 81.253
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001818",
+     "measured_at": "2026-10-01T08:18:23",
+     "source": "scale",
+     "uid": "7c269b17-ff03-54e1-b64f-ee8b0e34c233",
+     "weight_kg": 80.886
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001823",
+     "measured_at": "2026-09-28T08:15:31",
+     "source": "scale",
+     "uid": "5768a121-bb63-5267-9ebc-6f3a7a4e20fc",
+     "weight_kg": 81.204
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001829",
+     "measured_at": "2026-09-25T08:12:28",
+     "source": "scale",
+     "uid": "35741078-36a0-52d0-9864-bce3660dd3ac",
+     "weight_kg": 80.837
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001834",
+     "measured_at": "2026-09-22T08:16:25",
+     "source": "scale",
+     "uid": "aa81b702-ea58-5993-8071-36d2d4b94cac",
+     "weight_kg": 80.47
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001839",
+     "measured_at": "2026-09-19T08:13:33",
+     "source": "scale",
+     "uid": "f309abbc-7040-5bb1-af88-b908abe87de6",
+     "weight_kg": 80.788
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001844",
+     "measured_at": "2026-09-16T08:17:30",
+     "source": "scale",
+     "uid": "c765fb59-4f89-511d-b43c-0dc5b109ea0a",
+     "weight_kg": 80.421
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001850",
+     "measured_at": "2026-09-13T08:14:27",
+     "source": "scale",
+     "uid": "25337b11-f030-5f04-80de-be70fb8cc2df",
+     "weight_kg": 80.739
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001855",
+     "measured_at": "2026-09-10T08:18:24",
+     "source": "scale",
+     "uid": "e20a438b-0e14-52ce-8d38-6028b8b6d82e",
+     "weight_kg": 80.372
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001860",
+     "measured_at": "2026-09-07T08:15:32",
+     "source": "scale",
+     "uid": "8c8f1a07-e02d-5021-b951-fbfe5d3a6fca",
+     "weight_kg": 80.005
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001865",
+     "measured_at": "2026-09-04T08:12:29",
+     "source": "scale",
+     "uid": "87abe93b-ea1b-55cf-85bc-ae3224b9e039",
+     "weight_kg": 80.323
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001870",
+     "measured_at": "2026-09-01T08:16:26",
+     "source": "scale",
+     "uid": "65096195-96e9-525e-ae22-dbe19d9e9e2d",
+     "weight_kg": 79.956
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001876",
+     "measured_at": "2026-08-29T08:13:23",
+     "source": "scale",
+     "uid": "1dfb0e9f-1843-5caa-967a-5c3fc0a7ed29",
+     "weight_kg": 80.274
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001892",
+     "measured_at": "2026-08-26T08:17:31",
+     "source": "scale",
+     "uid": "c4dfd841-6d14-5217-8d6e-131c59b351a8",
+     "weight_kg": 79.907
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001906",
+     "measured_at": "2026-08-23T08:14:28",
+     "source": "scale",
+     "uid": "62b71058-2791-5b07-828c-6913e2884451",
+     "weight_kg": 79.54
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001914",
+     "measured_at": "2026-08-20T08:18:25",
+     "source": "scale",
+     "uid": "0d604325-3a94-5edd-9fc5-b1afd3d6c351",
+     "weight_kg": 79.858
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001920",
+     "measured_at": "2026-08-17T08:15:33",
+     "source": "scale",
+     "uid": "95078cd3-4def-53ae-bef5-3768f11a8b7e",
+     "weight_kg": 79.491
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001925",
+     "measured_at": "2026-08-14T08:12:30",
+     "source": "scale",
+     "uid": "d5b83029-7f0b-5e2b-8124-1b12945e3039",
+     "weight_kg": 79.809
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001931",
+     "measured_at": "2026-08-11T08:16:27",
+     "source": "scale",
+     "uid": "73421aa3-8afa-593d-a104-937be107d9be",
+     "weight_kg": 79.442
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001936",
+     "measured_at": "2026-08-08T08:13:24",
+     "source": "scale",
+     "uid": "c57e63e0-99c0-5b09-8787-596ab75601b9",
+     "weight_kg": 79.075
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001942",
+     "measured_at": "2026-08-05T08:17:32",
+     "source": "scale",
+     "uid": "cf4d4e0d-abdc-5afc-8554-3a03c5024ad1",
+     "weight_kg": 79.393
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001948",
+     "measured_at": "2026-08-02T08:14:29",
+     "source": "scale",
+     "uid": "a0a80da0-4ff6-518f-98df-edd4716e56d0",
+     "weight_kg": 79.026
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001953",
+     "measured_at": "2026-07-30T08:18:26",
+     "source": "scale",
+     "uid": "36468a08-1f52-5c88-a5f6-5ec1bc027173",
+     "weight_kg": 79.344
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001959",
+     "measured_at": "2026-07-27T08:15:23",
+     "source": "scale",
+     "uid": "ec72b0ff-5437-58ee-9c3e-cf1aad82fb11",
+     "weight_kg": 78.977
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001966",
+     "measured_at": "2026-07-24T08:12:31",
+     "source": "scale",
+     "uid": "3e314271-4619-56d2-bb71-2c67ca737287",
+     "weight_kg": 78.61
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001972",
+     "measured_at": "2026-07-21T08:16:28",
+     "source": "scale",
+     "uid": "de7a1fc5-3630-50ac-9e3c-0449bc434351",
+     "weight_kg": 78.928
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001978",
+     "measured_at": "2026-07-18T08:13:25",
+     "source": "scale",
+     "uid": "ac70b7ba-3322-5315-82eb-683e7e3d1aee",
+     "weight_kg": 78.561
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001983",
+     "measured_at": "2026-07-15T08:17:33",
+     "source": "scale",
+     "uid": "5f0d07a3-4fca-5c4f-b4d2-0a341a6a2f8a",
+     "weight_kg": 78.879
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.001989",
+     "measured_at": "2026-07-12T08:14:30",
+     "source": "scale",
+     "uid": "dde37a34-d5f3-50f5-a33e-a71dd3355c17",
+     "weight_kg": 78.512
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.001994",
+     "measured_at": "2026-07-09T08:18:27",
+     "source": "scale",
+     "uid": "5ea53d0f-386e-5b67-90f5-3079f13c4a07",
+     "weight_kg": 78.145
+    },
+    {
+     "change": 0.3669999999999902,
+     "created_at": "2026-10-22T16:18:34.001999",
+     "measured_at": "2026-07-06T08:15:24",
+     "source": "scale",
+     "uid": "c531cf8b-6d43-502a-97ee-b8bef0dace89",
+     "weight_kg": 78.463
+    },
+    {
+     "change": -0.31799999999999784,
+     "created_at": "2026-10-22T16:18:34.002004",
+     "measured_at": "2026-07-03T08:12:32",
+     "source": "scale",
+     "uid": "294170aa-4e93-5c32-bc06-b739a061b4aa",
+     "weight_kg": 78.096
+    },
+    {
+     "change": 0.36700000000000443,
+     "created_at": "2026-10-22T16:18:34.002009",
+     "measured_at": "2026-06-30T08:16:29",
+     "source": "scale",
+     "uid": "db8c9f23-abba-5d1a-958f-dc116ad935ec",
+     "weight_kg": 78.414
+    },
+    {
+     "change": null,
+     "created_at": "2026-10-22T16:18:34.002014",
+     "measured_at": "2026-06-27T08:13:26",
+     "source": "scale",
+     "uid": "25ad4267-ec3d-5341-9601-2ff9b4fad086",
+     "weight_kg": 78.047
+    }
+   ],
+   "smoothing": "loess",
+   "span": 0.04,
+   "summary": {
+    "change": 2.423000000000002,
+    "count": 31,
+    "latest": 81.4
+   },
+   "trend": [
+    [
+     739824.3440162037,
+     78.977
+    ],
+    [
+     739827.3461342592,
+     79.344
+    ],
+    [
+     739830.3433912037,
+     79.026
+    ],
+    [
+     739833.3455092593,
+     79.393
+    ],
+    [
+     739836.3426388889,
+     79.075
+    ],
+    [
+     739839.3447569445,
+     79.442
+    ],
+    [
+     739842.3420138889,
+     79.809
+    ],
+    [
+     739845.3441319445,
+     79.491
+    ],
+    [
+     739848.3461226852,
+     79.858
+    ],
+    [
+     739851.3433796297,
+     79.54
+    ],
+    [
+     739854.3454976851,
+     79.907
+    ],
+    [
+     739857.3426273149,
+     80.274
+    ],
+    [
+     739860.3447453703,
+     79.956
+    ],
+    [
+     739863.3420023149,
+     80.323
+    ],
+    [
+     739866.3441203703,
+     80.005
+    ],
+    [
+     739869.3461111111,
+     80.372
+    ],
+    [
+     739872.3433680555,
+     80.739
+    ],
+    [
+     739875.3454861111,
+     80.421
+    ],
+    [
+     739878.3427430555,
+     80.788
+    ],
+    [
+     739881.3447337963,
+     80.47
+    ],
+    [
+     739884.3419907407,
+     80.837
+    ],
+    [
+     739887.3441087963,
+     81.204
+    ],
+    [
+     739890.346099537,
+     80.886
+    ],
+    [
+     739893.3433564815,
+     81.253
+    ],
+    [
+     739896.345474537,
+     80.935
+    ],
+    [
+     739899.3427314815,
+     81.302
+    ],
+    [
+     739902.3447222222,
+     81.669
+    ],
+    [
+     739905.3419791666,
+     81.351
+    ],
+    [
+     739908.3440972222,
+     81.718
+    ],
+    [
+     739911.3128819445,
+     78.6
+    ],
+    [
+     739911.3462152778,
+     81.4
+    ]
+   ]
+  },
+  "revision": 0,
+  "topics": []
+ }
+}

@@ -527,19 +527,15 @@ class WeightView(QWidget):
             # 30-calendar-day window, using the chart's historic filter. A
             # years-old baseline must never masquerade as a 30-day change.
             latest_day = timeutils.parse_iso(points[-1].row["measured_at"]).date()
-            recent = weight_plot.points_for(
-                self._rows, start=weight_plot.range_start(latest_day, 30),
-                end=latest_day, historic=self._historic.isChecked(),
-            )
-            self._delta_badge.setVisible(len(recent) >= 2)
-            if len(recent) >= 2:
-                badge_delta = round(recent[-1].y - recent[0].y, 1) or 0.0
+            badge = weight_plot.thirty_day_change(self._rows, latest_day, historic=self._historic.isChecked())
+            self._delta_badge.setVisible(badge is not None)
+            if badge is not None:
+                badge_delta = badge["delta"]
                 badge_color = "#38BDF8" if badge_delta < 0 else "#F87171" if badge_delta > 0 else self._tokens["TEXT_SECONDARY"]
                 self._delta_badge.setText(f"30d {badge_delta:+.1f} kg")
                 self._delta_badge.setToolTip(
-                    f"Change between {recent[0].row['measured_at'][:10]} and "
-                    f"{recent[-1].row['measured_at'][:10]} within the latest reading's "
-                    f"30-day window: {recent[-1].y - recent[0].y:+.2f} kg"
+                    f"Change between {badge['from']} and {badge['to']} within the latest reading's "
+                    f"30-day window: {badge['exact']:+.2f} kg"
                 )
                 self._delta_badge.setStyleSheet(
                     f"color: {badge_color}; background: {self._tokens['BG_PRIMARY']};"

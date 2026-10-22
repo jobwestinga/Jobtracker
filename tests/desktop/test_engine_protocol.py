@@ -71,3 +71,26 @@ def test_shared_fixtures_cover_every_command_name():
         assert spec["kind"] == commands.REGISTRY[name].kind, name
         assert spec["topics"] == list(commands.REGISTRY[name].topics), name
     assert set(fixture["outcomes"]) == set(protocol.OUTCOMES)
+
+
+def _keys(value, prefix=""):
+    if isinstance(value, dict):
+        out = set()
+        for key, item in value.items():
+            out.add(prefix + key)
+            out |= _keys(item, prefix + key + ".")
+        return out
+    if isinstance(value, list) and value:
+        return _keys(value[0], prefix + "[].")
+    return set()
+
+
+def test_shared_samples_match_live_engine_shapes():
+    from tests.support.bridge_fixture import SAMPLES, live_samples
+
+    stored = json.loads(SAMPLES.read_text())
+    live = live_samples()
+    assert set(stored) == set(live)
+    for name in stored:
+        # Same synthetic data, so the field sets must agree exactly.
+        assert _keys(live[name]) == _keys(stored[name]), f"{name}: run python -m tests.support.bridge_fixture"

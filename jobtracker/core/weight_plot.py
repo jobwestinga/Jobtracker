@@ -161,3 +161,32 @@ def trend_for(points, mode="loess", span=0.04):
     fitted = loess(dense, span)
     old = [point for point in historic if point.x < fitted[0].x]
     return pchip(old + fitted[:20], until=fitted[0].x) + fitted if old else fitted
+
+
+def thirty_day_change(rows, latest: date, *, historic=False) -> dict | None:
+    """First-to-last change inside the latest reading's trailing 30 days.
+
+    Uses the chart's historic filter. A years-old baseline must never
+    masquerade as a 30-day change, so fewer than two readings gives None.
+    """
+    recent = points_for(rows, start=range_start(latest, 30), end=latest, historic=historic)
+    if len(recent) < 2:
+        return None
+    exact = recent[-1].y - recent[0].y
+    return {
+        "delta": round(exact, 1) or 0.0,
+        "exact": exact,
+        "from": recent[0].row["measured_at"][:10],
+        "to": recent[-1].row["measured_at"][:10],
+    }
+
+
+def history_changes(rows) -> list[dict]:
+    """Newest-first rows with the change from the previous reading."""
+    ordered = [point.row for point in points_for(rows, historic=True)]
+    out = []
+    for index in range(len(ordered) - 1, -1, -1):
+        row = ordered[index]
+        previous = ordered[index - 1]["weight_kg"] if index > 0 else None
+        out.append({**row, "change": (row["weight_kg"] - previous) if previous is not None else None})
+    return out

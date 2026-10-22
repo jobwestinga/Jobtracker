@@ -20,11 +20,12 @@ import os
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from ..core import export_bundle, sync_policy, timeutils
+from ..core import export_bundle, recovery, sync_policy, timeutils, weight_plot
+from ..core.colors import suggest_colors
 from ..core.themes import THEME_PRESETS, FX_NAMES, PALETTE_NAMES
 from ..services import graph_window
 from ..sync import settings as sync_settings
@@ -230,13 +231,17 @@ def subjects_list(ctx, params):
         raise Invalid("filter must be one of " + ", ".join(STATS_FILTERS))
     service = ctx.service
     totals = service.get_subject_stats_map(stats_filter)
+    today = totals if stats_filter == "Today" else service.get_subject_stats_map("Today")
     rows = service.get_all_subjects(archived=archived)
     resume = None if archived else service.get_last_tracked_subject()
+    active_colors = [row.color for row in (service.get_all_subjects(archived=False) if archived else rows)]
     return {
         "archived": archived,
         "filter": stats_filter,
         "subjects": [dto.subject(service.db, row, totals.get(row.id, 0)) for row in rows],
         "resume_subject_uid": resume.uid if resume is not None else None,
+        "today_seconds": sum(today.values()),
+        "suggested_colors": suggest_colors(active_colors, count=3),
         "timer": ctx.timer_snapshot(),
     }
 
@@ -338,11 +343,26 @@ def timer_switch(ctx, params):
 
 @command("recovery.resolve", MUTATION, ("timer", "subjects", "sessions", "graphs"))
 def recovery_resolve(ctx, params):
+    """Close the recovered session using the prompt's choice.
+
+    The end time comes from ``core.recovery.end_time_for_choice`` against the
+    moment the prompt was shown, so custom values are clamped exactly as in the
+    Qt dialog and the client never computes an end time itself.
+    """
     session_id = _id(ctx, params, "session_uid", "sessions")
     active = ctx.service._persisted_active_session()
     if active is None or active.id != session_id:
         raise Refused("This session is no longer the recovered timer")
-    ctx.service.resolve_recovery(_moment(params, "end_time"), session_id=session_id)
+    choice = params.get("choice")
+    if choice not in (recovery.CHOICE_LAST, recovery.CHOICE_NOW, recovery.CHOICE_CUSTOM_END, recovery.CHOICE_CUSTOM_LENGTH):
+        raise Invalid("choice must be last, now, custom_end or custom_length")
+    info = ctx.service.get_active_recovery_info(now=_moment(params, "prompt_now"), gap_threshold_seconds=0)
+    if info is None:
+        raise Refused("This session no longer needs recovery")
+    custom_end = _moment(params, "custom_end", required=False) if choice == recovery.CHOICE_CUSTOM_END else None
+    length = _int(params, "custom_length_seconds", low=0, high=400 * 86400) if choice == recovery.CHOICE_CUSTOM_LENGTH else None
+    end = recovery.end_time_for_choice(info, choice, custom_end=custom_end, custom_length_seconds=length)
+    ctx.service.resolve_recovery(end, session_id=session_id)
     if ctx.service.active_session is not None and ctx.service.active_session.id == session_id:
         raise Refused("The chosen end time is outside the session")
     ctx.recovery_settled()
@@ -394,6 +414,39 @@ def session_add(ctx, params):
     created = ctx.service.add_session(subject_id, _moment(params, "start_time"), _moment(params, "end_time"))
     if created is None:
         raise Refused("Sessions must end after they start and last at least 30 seconds")
+    return {"session": _session_dto(ctx, created)}
+
+
+@command("session.quick_add", MUTATION, ("sessions", "subjects", "graphs"))
+def session_quick_add(ctx, params):
+    """A session of exactly ``minutes`` ending at the captured click time.
+
+    Like the Qt quick add, the start is not clamped to midnight: the logical
+    day attributes it to the day it began.
+    """
+    subject_id = _id(ctx, params, "subject_uid", "tasks")
+    minutes = _int(params, "minutes", low=1, high=99 * 60 + 59)
+    end = _moment(params, "at")
+    created = ctx.service.add_session(subject_id, end - timedelta(minutes=minutes), end)
+    if created is None:
+        raise Refused("The session was not saved. Check that its subject still exists and its duration is at least 30 seconds.")
+    return {"session": _session_dto(ctx, created)}
+
+
+@command("session.add_slot", MUTATION, ("sessions", "subjects", "graphs"))
+def session_add_slot(ctx, params):
+    """A fixed whole-hour slot on the captured click's calendar date."""
+    subject_id = _id(ctx, params, "subject_uid", "tasks")
+    start_hour = _int(params, "start_hour", low=0, high=23)
+    end_hour = _int(params, "end_hour", low=1, high=24)
+    if end_hour <= start_hour:
+        raise Invalid("end_hour must be after start_hour")
+    day = _moment(params, "at").date()
+    start = datetime.combine(day, time(hour=start_hour))
+    end = datetime.combine(day, time()) + timedelta(hours=end_hour)
+    created = ctx.service.add_session(subject_id, start, end)
+    if created is None:
+        raise Refused("The session was not saved. Check that its subject still exists.")
     return {"session": _session_dto(ctx, created)}
 
 
@@ -471,6 +524,49 @@ def goal_update(ctx, params):
     if updated is None:
         raise Refused("A goal needs a title")
     return {"goal": dto.goal(ctx.service, updated)}
+
+
+@command("goal.save", MUTATION, ("goals",))
+def goal_save(ctx, params):
+    """Create or edit a goal with its complete milestone list in one commit.
+
+    Mirrors the Qt editor's ``apply_goal_edits``: unlisted milestones are
+    deleted, listed ones updated, new ones appended, all through the facade so
+    each change queues its usual operation, inside one receipt-backed scope.
+    """
+    name = _text(params, "name", limit=500)
+    notes = _text(params, "notes", required=False)
+    deadline = _optional_text(params, "deadline")
+    entries = params.get("milestones", [])
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        raise Invalid("milestones must be a list of objects")
+    service = ctx.service
+    if params.get("goal_uid") is None:
+        goal = service.add_todo_task(name, notes, deadline)
+        if goal is None:
+            raise Refused("A goal needs a title")
+        goal_id = goal.id
+    else:
+        goal_id = _id(ctx, params, "goal_uid", "todo_tasks")
+        if service.update_todo_task(goal_id, name, notes, deadline) is None:
+            raise Refused("A goal needs a title")
+    existing = {m.uid: m for m in service.get_goal_milestones(goal_id)}
+    submitted = {entry.get("uid") for entry in entries if entry.get("uid")}
+    unknown = submitted - set(existing)
+    if unknown:
+        raise Missing("A milestone was removed elsewhere; reopen the goal to edit it")
+    for uid in set(existing) - submitted:
+        service.delete_milestone(existing[uid].id)
+    for entry in entries:
+        title = _text(entry, "title", limit=500).strip()
+        if not title:
+            raise Invalid("Every milestone needs a title")
+        note = _text(entry, "note", required=False)
+        if entry.get("uid"):
+            service.update_milestone(existing[entry["uid"]].id, title, note)
+        elif service.add_milestone(goal_id, title, note) is None:
+            raise Refused("A milestone could not be added")
+    return {"goal": dto.goal(service, service.get_goal(goal_id))}
 
 
 @command("goal.delete", MUTATION, ("goals",))
@@ -667,6 +763,52 @@ def graphs_agenda(ctx, params):
 @command("weight.list", READ)
 def weight_list(ctx, params):
     return {"measurements": ctx.service.list_weight_measurements()}
+
+
+@command("weight.view", READ)
+def weight_view(ctx, params):
+    """History, plot points, fitted trend, axes, summary and 30-day badge.
+
+    Uses ``core.weight_plot`` exactly as the Qt chart does; the client draws
+    the returned calendar-ordinal coordinates and never re-fits a trend.
+    """
+    get = ctx.service.get_setting
+    choice = params.get("range", get("weight_chart_range", "90"))
+    mode = params.get("smoothing", get("weight_chart_smoothing", "loess"))
+    historic = params.get("historic", get("weight_chart_historic", "0") == "1")
+    try:
+        span = float(params.get("span", get("weight_chart_span", "0.04")))
+    except (TypeError, ValueError):
+        span = 0.04
+    if choice not in ("30", "90", "365", "all") or mode not in ("loess", "mean7", "none") or not isinstance(historic, bool):
+        raise Invalid("range, smoothing or historic is not supported")
+    rows = [point.row for point in weight_plot.points_for(ctx.service.list_weight_measurements(), historic=True)]
+    end = date.today()
+    start = weight_plot.range_start(end, int(choice)) if choice != "all" else None
+    points = weight_plot.points_for(rows, start=start, end=end if start else None, historic=historic)
+    trend = weight_plot.trend_for(points, mode, span)
+    result = {
+        "rows": weight_plot.history_changes(rows),
+        "points": [{"x": p.x, "y": p.y, "uid": p.row.get("uid"), "measured_at": p.row["measured_at"], "source": p.row.get("source")} for p in points],
+        "trend": [[p.x, p.y] for p in trend],
+        "range": choice, "smoothing": mode, "span": span, "historic": historic,
+        "summary": None, "badge": None, "axis": None,
+    }
+    if points:
+        first, last = points[0].x, points[-1].x
+        if first == last:
+            first, last = first - 0.5, last + 0.5
+        result["axis"] = {
+            "first": first, "last": last,
+            "start_label": weight_plot.date_label(points[0].x, "%d %b"),
+            "end_label": weight_plot.date_label(points[-1].x, "%d %b"),
+            "years": [[ordinal, year] for ordinal, year in weight_plot.year_ticks(first, last)],
+            "fallback_year": weight_plot.date_label(points[0].x, "%Y"),
+        }
+        result["summary"] = {"count": len(points), "latest": points[-1].y, "change": points[-1].y - points[0].y}
+        latest_day = timeutils.parse_iso(points[-1].row["measured_at"]).date()
+        result["badge"] = weight_plot.thirty_day_change(rows, latest_day, historic=historic)
+    return result
 
 
 @command("weight.upsert", MUTATION, ("weight",))

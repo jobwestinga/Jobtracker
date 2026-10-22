@@ -275,8 +275,26 @@ def test_recovery_prompt_suppresses_heartbeat_until_settled(database, tmp_path):
     before = engine.service.db.get_open_session().last_active_at
     engine.host._fire("heartbeat")
     assert engine.service.db.get_open_session().last_active_at == before
-    resolved = engine.ok("recovery.resolve", {"session_uid": snapshot["active"]["uid"], "end_time": snapshot["recovery"]["last_active"]})
-    assert resolved["active"] is None and resolved["recovery"] is None
+    beyond = engine.call("recovery.resolve", {"session_uid": snapshot["active"]["uid"], "choice": "custom_length",
+                                               "custom_length_seconds": 10 * 3600, "prompt_now": snapshot["recovery"]["now"]})
+    assert beyond["outcome"] == protocol.APPLIED  # clamped to the prompt's "now", like the Qt dialog
+    stored = engine.service.get_session(engine.service.db.id_for_uid("sessions", snapshot["active"]["uid"]))
+    assert stored.end_time == snapshot["recovery"]["now"]
+    assert beyond["result"]["active"] is None and beyond["result"]["recovery"] is None
+
+
+def test_recovery_last_active_choice_keeps_the_known_work(database, tmp_path):
+    from jobtracker.services.tracker_service import TrackerService
+
+    seed = TrackerService(database)
+    subject = seed.add_subject("Physics", "#3B82F6", "")
+    start = datetime.now() - timedelta(hours=3)
+    seed.start_subject(subject.id, start_time=start)
+    seed.heartbeat_active_session(start + timedelta(minutes=30))
+    engine = InProcessEngine(database, tmp_path)
+    snapshot = engine.ok("timer.get")
+    resolved = engine.ok("recovery.resolve", {"session_uid": snapshot["active"]["uid"], "choice": "last", "prompt_now": snapshot["recovery"]["now"]})
+    assert resolved["active"] is None
     stored = engine.service.get_session(engine.service.db.id_for_uid("sessions", snapshot["active"]["uid"]))
     assert stored.duration_seconds == 30 * 60
 
@@ -323,3 +341,51 @@ def test_receipt_install_backs_up_an_existing_store_once(tmp_path):
         assert receipts.install(store.connection, backup_dir=tmp_path / "migrations") is None
     finally:
         store.connection.close()
+
+
+def test_quick_add_ends_at_the_captured_click_and_crosses_midnight(engine):
+    subject = engine.ok("subject.add", {"name": "Physics", "color": "#3B82F6", "notes": ""})["subject"]
+    at = datetime(2026, 10, 2, 0, 30)
+    created = engine.ok("session.quick_add", {"subject_uid": subject["uid"], "minutes": 120, "at": at.isoformat()})["session"]
+    assert created["start_time"] == "2026-10-01T22:30:00" and created["end_time"] == "2026-10-02T00:30:00"
+    assert created["duration_seconds"] == 7200
+    slot = engine.ok("session.add_slot", {"subject_uid": subject["uid"], "start_hour": 9, "end_hour": 11, "at": at.isoformat()})["session"]
+    assert slot["start_time"] == "2026-10-02T09:00:00" and slot["end_time"] == "2026-10-02T11:00:00"
+    assert engine.call("session.add_slot", {"subject_uid": subject["uid"], "start_hour": 11, "end_hour": 9, "at": at.isoformat()})["outcome"] == protocol.INVALID
+
+
+def test_goal_save_applies_the_whole_edit_atomically(synced_engine, monkeypatch):
+    created = synced_engine.ok("goal.save", {"name": "Thesis", "notes": "", "deadline": None,
+                                             "milestones": [{"title": "Outline"}, {"title": "Draft", "note": "ch. 3"}]})["goal"]
+    assert [m["title"] for m in created["milestones"]] == ["Outline", "Draft"]
+    outline, draft = created["milestones"]
+    before = _outbox(synced_engine)
+    edited = synced_engine.ok("goal.save", {"goal_uid": created["uid"], "name": "Thesis v2", "notes": "", "deadline": "2026-12-01",
+                                            "milestones": [{"uid": draft["uid"], "title": "Draft", "note": "ch. 3"}, {"title": "Submit"}]})["goal"]
+    assert [m["title"] for m in edited["milestones"]] == ["Draft", "Submit"]
+    assert edited["deadline"] == "2026-12-01"
+    assert _outbox(synced_engine)[len(before):] == ["update_goal", "delete_milestone", "update_milestone", "add_milestone"]
+    # A failing milestone rolls back the goal rename and earlier deletions.
+    failing = synced_engine.call("goal.save", {"goal_uid": created["uid"], "name": "Renamed", "notes": "", "deadline": None,
+                                               "milestones": [{"title": "  "}]})
+    assert failing["outcome"] == protocol.INVALID
+    goal = synced_engine.ok("goals.list")["goals"][0]
+    assert goal["name"] == "Thesis v2" and len(goal["milestones"]) == 2
+
+
+def test_weight_view_reuses_plot_rules_and_keeps_imported_precision(engine, database):
+    from jobtracker.core import weight_plot
+
+    today = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+    rows = [{"measured_at": (today - timedelta(days=d)).isoformat(), "weight_kg": 80 + d * 0.123, "source": "scale"} for d in (0, 10, 20, 45)]
+    database._weights.import_rows(rows)
+    view = engine.ok("weight.view", {"range": "90", "smoothing": "loess", "span": 0.5, "historic": False})
+    assert [r["weight_kg"] for r in view["rows"]] == [80.0, 81.23, 82.46, 85.535]
+    assert view["rows"][0]["change"] == pytest.approx(80.0 - 81.23)
+    stored = database._weights.list_rows()
+    expected = weight_plot.trend_for(weight_plot.points_for([dict(r) for r in stored], start=weight_plot.range_start(today.date(), 90), end=today.date()), "loess", 0.5)
+    assert view["trend"] == [[p.x, p.y] for p in expected]
+    assert view["badge"]["from"] == (today - timedelta(days=20)).date().isoformat()
+    assert view["badge"]["delta"] == round(80.0 - 82.46, 1)
+    assert view["summary"]["count"] == 4
+    assert engine.call("weight.view", {"range": "7"})["outcome"] == protocol.INVALID

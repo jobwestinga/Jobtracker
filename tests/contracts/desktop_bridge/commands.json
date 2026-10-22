@@ -66,6 +66,12 @@
         "goals"
       ]
     },
+    "goal.save": {
+      "kind": "mutation",
+      "topics": [
+        "goals"
+      ]
+    },
     "goal.toggle_focus": {
       "kind": "mutation",
       "topics": [
@@ -156,6 +162,14 @@
         "graphs"
       ]
     },
+    "session.add_slot": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
     "session.delete": {
       "kind": "mutation",
       "topics": [
@@ -176,6 +190,14 @@
     "session.get": {
       "kind": "read",
       "topics": []
+    },
+    "session.quick_add": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
     },
     "session.shift": {
       "kind": "mutation",
@@ -357,6 +379,10 @@
       "topics": [
         "weight"
       ]
+    },
+    "weight.view": {
+      "kind": "read",
+      "topics": []
     }
   }
 }
