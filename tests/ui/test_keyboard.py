@@ -1,11 +1,11 @@
 """Offscreen native keyboard regressions on isolated databases."""
-from datetime import (datetime, timedelta)
 import time
-from PySide6.QtCore import (QSize, Qt)
+from PySide6.QtCore import (QEvent, QSize, Qt)
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtTest import (QTest)
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QLineEdit, QListWidget, QMessageBox)
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton)
 from jobtracker.ui.widgets.dialog_utils import (open_dialog)
-from jobtracker.ui.widgets.goal_dialog import (GoalDetailDialog)
+from jobtracker.ui.widgets.goal_dialog import (GoalDetailDialog, GoalDialog)
 from jobtracker.ui.widgets.reorderable_list import (ReorderableCardList)
 from tests.support.native import (_application, _window)
 
@@ -25,13 +25,22 @@ def test_left_right_arrows_switch_main_pages_but_not_text_cursor(
         QTest.keyClick(window, Qt.Key_Right)
         assert window._pages.currentIndex() == 2
 
+        # A previously focused sidebar tab must follow arrow navigation rather
+        # than leaving a second accent ring on the old tab.
+        window._nav_buttons[3].setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(window._nav_buttons[3], Qt.Key_Left)
+        assert window._pages.currentIndex() == 1
+        assert [button.hasFocus() for button in window._nav_buttons] == [False, True, False, False]
+        assert [button.isChecked() for button in window._nav_buttons] == [False, True, False, False]
+
         editor = QLineEdit(window)
         editor.setText("abc")
         editor.show()
         editor.setFocus()
         qt_app.processEvents()
         QTest.keyClick(editor, Qt.Key_Left)
-        assert window._pages.currentIndex() == 2
+        assert window._pages.currentIndex() == 1
     finally:
         window._graph_live_timer.stop()
         window._heartbeat_timer.stop()
@@ -75,97 +84,45 @@ def test_arrow_reversal_scrolls_viewport_on_first_opposite_step(
         qt_app.processEvents()
 
 
-def test_number_shortcuts_are_context_sensitive_and_switching_needs_confirm(
-    database, monkeypatch
-):
-    import jobtracker.ui.subjects_mixin as subjects_mixin_module
-
+def test_number_shortcuts_only_open_the_exact_goal_and_move_focus(database, monkeypatch):
     qt_app, window = _window(database, monkeypatch)
     try:
-        first_subject = window.service.add_subject("First", "#111111", "")
-        second_subject = window.service.add_subject("Second", "#222222", "")
+        subject = window.service.add_subject("First subject", "#111111", "")
         window._reload_subjects()
         window.activateWindow()
         window.setFocus()
         qt_app.processEvents()
-
-        QTest.keyClick(window, Qt.Key_1)
-        assert window.service.active_subject.id == first_subject.id
-        active_session_id = window.service.active_session.id
-
-        # A different number offers a switch; declining changes nothing.
-        prompts: list[str] = []
-        monkeypatch.setattr(
-            subjects_mixin_module,
-            "question",
-            lambda _parent, _title, text, on_finished, **_kw: (
-                prompts.append(text),
-                on_finished(QMessageBox.No),
-            ),
-        )
-        QTest.keyClick(window, Qt.Key_2)
-        qt_app.processEvents()
-        assert prompts and "Second" in prompts[0]
-        assert window.service.active_subject.id == first_subject.id
-        assert window.service.active_session.id == active_session_id
-        assert len(window.service.db.get_open_sessions()) == 1
-
-        # Confirming stops the old session and starts the new one.
-        monkeypatch.setattr(
-            subjects_mixin_module,
-            "question",
-            lambda _parent, _title, _text, on_finished, **_kw: on_finished(
-                QMessageBox.Yes
-            ),
-        )
-        QTest.keyClick(window, Qt.Key_2)
-        qt_app.processEvents()
-        assert window.service.active_subject.id == second_subject.id
-        assert len(window.service.db.get_open_sessions()) == 1
-
-        started = datetime.fromisoformat(window.service.active_session.start_time)
-        window.service.stop_active_subject(started + timedelta(seconds=31))
-        window._reload_subjects()
-
-        # Archived subjects are never startable through number shortcuts.
-        window.service.archive_subject(second_subject.id)
-        window._showing_archived = True
-        window._reload_subjects()
         QTest.keyClick(window, Qt.Key_1)
         assert window.service.active_session is None
 
-        window._showing_archived = False
-        first_goal = window.service.add_todo_task("First goal", "", None)
-        second_goal = window.service.add_todo_task("Second goal", "", None)
+        window._start_tracking(subject.id)
+        active_session_id = window.service.active_session.id
+        QTest.keyClick(window, Qt.Key_2)
+        assert window.service.active_session.id == active_session_id
+        assert not int(window.property("_jt_inline_dialog_count") or 0)
+        window.service.stop_active_subject()
+
+        goals = [window.service.add_todo_task(f"Goal {number}", "", None)
+                 for number in range(1, 7)]
         window._switch_page(0)
         window._reload_tasks()
         opened = []
         window._open_goal = opened.append
-        window.activateWindow()
-        window.setFocus()
+        unrelated = window._todo_list.card_widget(goals[1].id)
+        target = window._todo_list.card_widget(goals[4].id)
+        unrelated.focus_btn.setFocus()
+        QTest.mouseMove(unrelated.focus_btn, unrelated.focus_btn.rect().center())
         qt_app.processEvents()
-        QTest.keyClick(window, Qt.Key_2)
-        # Shortcut feedback schedules the open; a busy event loop can deliver
-        # its timer later than the nominal 140 ms animation delay.
+        QTest.keyClick(unrelated.focus_btn, Qt.Key_5)
+        assert target.hasFocus()
+        assert not unrelated.focus_btn.hasFocus()
+        assert unrelated.graphicsEffect() is None
         deadline = time.monotonic() + 2
         while not opened and time.monotonic() < deadline:
             QTest.qWait(20)
-        assert opened == [second_goal.id]
-        assert first_goal.id != second_goal.id
-
-        window._switch_page(2)
-        window.activateWindow()
-        window.setFocus()
-        qt_app.processEvents()
-        for key, mode in (
-            (Qt.Key_1, "bar"),
-            (Qt.Key_2, "agenda"),
-        ):
-            QTest.keyClick(window, key)
-            assert window._graph_view_mode == mode
+        assert opened == [goals[4].id]
+        assert all(not window.service.get_goal(goal.id).is_focused for goal in goals)
     finally:
-        window._graph_live_timer.stop()
-        window._heartbeat_timer.stop()
         window.close()
         qt_app.processEvents()
 
@@ -181,8 +138,8 @@ def test_escape_graph_ranges_and_shortcut_badges(database, monkeypatch):
         subject_card = window._subjects_list.itemWidget(
             window._subjects_list.item(0)
         )
-        assert any(
-            label.text() == "1"
+        assert not any(
+            label.property("_jt_shortcut_badge")
             for label in subject_card.findChildren(QLabel)
         )
         goal_card = window._todo_list.itemWidget(window._todo_list.item(0))
@@ -190,7 +147,9 @@ def test_escape_graph_ranges_and_shortcut_badges(database, monkeypatch):
             label.text() == "1"
             for label in goal_card.findChildren(QLabel)
         )
-        assert window._graph_mode_buttons["bar"].text().startswith("1")
+        assert window._graph_mode_buttons["bar"].text() == "Stacked Bar"
+        assert window._graph_mode_buttons["agenda"].text() == "Agenda"
+        assert not any(button._shortcut_hint for button in window._nav_buttons)
         assert subject.id is not None and goal.id is not None
 
         window._switch_page(1)
@@ -293,7 +252,62 @@ def test_goal_detail_number_shortcuts_toggle_matching_milestones(service):
     host.close()
 
 
-def test_switch_prompt_quick_confirms_with_repeated_number(database, monkeypatch):
+def test_goal_detail_digits_work_with_window_shortcuts_and_header_focus(database, monkeypatch):
+    qt_app, window = _window(database, monkeypatch)
+    try:
+        goal = window.service.add_todo_task("Three milestones", "", None)
+        milestones = [window.service.add_milestone(goal.id, f"Milestone {i}")
+                      for i in range(1, 4)]
+        window._switch_page(0)
+        detail = GoalDetailDialog(window.service, goal.id, window)
+        open_dialog(detail)
+        qt_app.processEvents()
+        assert detail._jt_inline_layer.isAncestorOf(qt_app.focusWidget())
+        header_close = detail._jt_inline_layer.findChild(QPushButton, "jtInlineDialogClose")
+        header_close.setFocus()
+        qt_app.processEvents()
+        for key in (Qt.Key_1, Qt.Key_2, Qt.Key_3):
+            QTest.keyClick(header_close, key)
+        assert [window.service.db.get_milestone(m.id).is_done for m in milestones] == [1, 1, 1]
+
+        # Held digits must not repeatedly toggle a checkbox.
+        repeat = QKeyEvent(QEvent.KeyPress, Qt.Key_1, Qt.NoModifier, "1", True, 1)
+        qt_app.sendEvent(header_close, repeat)
+        assert window.service.db.get_milestone(milestones[0].id).is_done == 1
+
+        # Both tab directions stay in the panel rather than putting an accent
+        # outline on another goal behind its backdrop.
+        for key, modifiers in ((Qt.Key_Tab, Qt.NoModifier), (Qt.Key_Backtab, Qt.ShiftModifier)):
+            for _ in range(12):
+                QTest.keyClick(qt_app.focusWidget(), key, modifiers)
+                assert detail._jt_inline_layer.isAncestorOf(qt_app.focusWidget())
+
+        # The nested definition editor owns its text and never toggles the
+        # underlying checklist, even when its header has focus.
+        detail._edit_goal()
+        qt_app.processEvents()
+        editor = window.findChild(GoalDialog)
+        editor.title_input.setFocus()
+        QTest.keyClicks(editor.title_input, "123")
+        assert editor.title_input.text().endswith("123")
+        nested_close = editor._jt_inline_layer.findChild(QPushButton, "jtInlineDialogClose")
+        nested_close.setFocus()
+        QTest.keyClick(nested_close, Qt.Key_1)
+        assert window.service.db.get_milestone(milestones[0].id).is_done == 1
+        editor.reject()
+        qt_app.processEvents()
+        assert detail._jt_inline_layer.isAncestorOf(qt_app.focusWidget())
+        header_close.setFocus()
+        QTest.keyClick(header_close, Qt.Key_1)
+        assert window.service.db.get_milestone(milestones[0].id).is_done == 0
+        detail.reject()
+        qt_app.processEvents()
+    finally:
+        window.close()
+        qt_app.processEvents()
+
+
+def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
     qt_app, window = _window(database, monkeypatch)
     try:
         first = window.service.add_subject("First", "#111111", "")
@@ -303,40 +317,7 @@ def test_switch_prompt_quick_confirms_with_repeated_number(database, monkeypatch
         window.setFocus()
         qt_app.processEvents()
 
-        QTest.keyClick(window, Qt.Key_1)
-        qt_app.processEvents()
-        assert window.service.active_subject.id == first.id
-
-        QTest.keyClick(window, Qt.Key_2)  # opens the switch prompt
-        QTest.qWait(50)
-        assert int(window.property("_jt_inline_dialog_count") or 0) == 1
-
-        QTest.keyClick(window, Qt.Key_2)  # same number again = Yes
-        QTest.qWait(50)
-        qt_app.processEvents()
-        assert window.service.active_subject.id == second.id
-        assert int(window.property("_jt_inline_dialog_count") or 0) == 0
-        assert len(window.service.db.get_open_sessions()) == 1
-
-        window.service.stop_active_subject()
-    finally:
-        window._graph_live_timer.stop()
-        window._heartbeat_timer.stop()
-        window.close()
-        qt_app.processEvents()
-
-
-def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
-    qt_app, window = _window(database, monkeypatch)
-    try:
-        window.service.add_subject("First", "#111111", "")
-        second = window.service.add_subject("Second", "#222222", "")
-        window._reload_subjects()
-        window.activateWindow()
-        window.setFocus()
-        qt_app.processEvents()
-
-        QTest.keyClick(window, Qt.Key_1)
+        window._start_tracking(first.id)
         qt_app.processEvents()
         window._start_tracking(second.id)
         QTest.qWait(50)
@@ -352,7 +333,7 @@ def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
         ]
         assert default_buttons, "switch prompt must have a default (Enter) button"
         assert default_buttons[0].text() in ("Yes", "&Yes")
-        box.done(int(QMessageBox.Yes))
+        QTest.keyClick(default_buttons[0], Qt.Key_Return)
         QTest.qWait(50)
         qt_app.processEvents()
         assert window.service.active_subject.id == second.id
@@ -364,22 +345,49 @@ def test_switch_prompt_defaults_to_yes_for_enter(database, monkeypatch):
         qt_app.processEvents()
 
 
-def test_graph_number_shortcuts_cover_only_the_two_views(database, monkeypatch):
+def test_graph_up_down_switch_views_without_hijacking_editors_or_other_pages(database, monkeypatch):
     qt_app, window = _window(database, monkeypatch)
     try:
         window._switch_page(2)
         window.activateWindow()
         window.setFocus()
         qt_app.processEvents()
+        QTest.keyClick(window, Qt.Key_Down)
+        assert window._graph_view_mode == "agenda"
+        assert window._graph_mode_buttons["agenda"].hasFocus()
+        QTest.keyClick(window._graph_mode_buttons["agenda"], Qt.Key_Up)
+        assert window._graph_view_mode == "bar"
         QTest.keyClick(window, Qt.Key_2)
-        assert window._graph_view_mode == "agenda"
-        # 3 used to be the heatmap; it must now do nothing rather than break.
-        QTest.keyClick(window, Qt.Key_3)
-        assert window._graph_view_mode == "agenda"
+        assert window._graph_view_mode == "bar"
+        QTest.keyClick(window, Qt.Key_1, Qt.ControlModifier)
+        assert window._pages.currentIndex() == 2
+
+        editor = QLineEdit(window)
+        editor.show()
+        editor.setFocus()
+        qt_app.processEvents()
+        QTest.keyClick(editor, Qt.Key_Down)
+        assert window._graph_view_mode == "bar"
+        editor.hide()
+
+        # A nested checklist scrolls in place while Graphs remains behind it.
+        goal = window.service.add_todo_task("Goal", "", None)
+        window.service.add_milestone(goal.id, "Milestone")
+        detail = GoalDetailDialog(window.service, goal.id, window)
+        open_dialog(detail)
+        qt_app.processEvents()
+        detail._ms_list.setFocus()
+        QTest.keyClick(detail._ms_list, Qt.Key_Down)
+        assert window._graph_view_mode == "bar"
+        detail.reject()
+        qt_app.processEvents()
+        window._switch_page(0)
+        window.setFocus()
+        QTest.keyClick(window, Qt.Key_Down)
+        assert window._graph_view_mode == "bar"
     finally:
-        window._graph_live_timer.stop()
-        window._heartbeat_timer.stop()
         window.close()
+        qt_app.processEvents()
 
 
 def test_weight_fullscreen_escape_and_navigation_restore_draft_and_sidebar(database, monkeypatch):

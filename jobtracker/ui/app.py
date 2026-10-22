@@ -71,7 +71,7 @@ logger = logging.getLogger("jobtracker")
 
 
 class _SidebarNavButton(QPushButton):
-    """Left-sidebar navigation button with custom vector icon and shortcut hint.
+    """Left-sidebar navigation button with a custom vector icon.
 
     Preserves ``button.text() == label`` for accessibility and test contracts.
     """
@@ -471,10 +471,10 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         nav.addSpacing(4)
 
         specs = [
-            ("Goals", "goals", "⌘1"),
-            ("Subjects", "subjects", "⌘2"),
-            ("Graphs", "graphs", "⌘3"),
-            ("Weight", "weight", "⌘4"),
+            ("Goals", "goals", ""),
+            ("Subjects", "subjects", ""),
+            ("Graphs", "graphs", ""),
+            ("Weight", "weight", ""),
         ]
         self._nav_buttons: list[QPushButton] = []
 
@@ -484,7 +484,7 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
             btn.setCheckable(True)
             btn.setFocusPolicy(Qt.StrongFocus)
             btn.setAccessibleName(f"{label} tab")
-            btn.setToolTip(f"{label} ({hint} or Left/Right arrows)")
+            btn.setToolTip(f"{label} (Left/Right arrows)")
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(
                 lambda _checked=False, i=idx: self._queue_ui_action(
@@ -537,6 +537,8 @@ class MainWindow(SubjectsMixin, GoalsMixin, GraphsMixin, QMainWindow):
         self._pages.setCurrentIndex(index)
         for i, btn in enumerate(self._nav_buttons):
             btn.setChecked(i == index)
+        if any(btn.hasFocus() for btn in self._nav_buttons):
+            self._nav_buttons[index].setFocus(Qt.ShortcutFocusReason)
         if index == 0:
             # Generate due recurring goals when entering the Goals tab (plus on
             # launch). Cheaper than the old every-minute check; idempotent.

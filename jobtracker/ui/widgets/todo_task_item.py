@@ -16,7 +16,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPolygonF
+from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QStyle,
+    QStyleOptionButton,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -126,7 +128,53 @@ def _star_polygon(radius: float, points: int = 5) -> QPolygonF:
     return poly
 
 
-class _CheckButton(QPushButton):
+class _GoalIconButton(QPushButton):
+    """Paint goal actions as scalable strokes while retaining button semantics."""
+
+    def __init__(self, kind: str, tokens: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._icon_kind = kind
+        self._icon_tokens = tokens
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ""
+        self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
+        t = self._icon_tokens
+        if self._icon_kind == "check":
+            color = t.get("ACCENT_GREEN", "#22C55E") if self.underMouse() else t.get("TEXT_DIMMED", "#6F7D90")
+        elif self._icon_kind == "star" and self.text() == "★":
+            color = t.get("ACCENT", "#3B82F6")
+        else:
+            color = t.get("TEXT_PRIMARY", "#FFFFFF") if self.underMouse() else t.get("TEXT_SECONDARY", "#94A3B8")
+        painter.setPen(QPen(QColor(color), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        painter.translate(self.width() / 2, self.height() / 2)
+        if self._icon_kind == "star":
+            if self.text() == "★":
+                painter.setBrush(QColor(color))
+            painter.drawPolygon(_star_polygon(7))
+        elif self._icon_kind == "check":
+            path = QPainterPath(QPointF(-4, 0))
+            path.lineTo(-1, 3)
+            path.lineTo(4.5, -3)
+            painter.drawPath(path)
+        else:
+            pencil = QPainterPath(QPointF(-5, 5))
+            pencil.lineTo(-4, 1)
+            pencil.lineTo(3, -6)
+            pencil.lineTo(6, -3)
+            pencil.lineTo(-1, 4)
+            pencil.closeSubpath()
+            pencil.moveTo(1, -4)
+            pencil.lineTo(4, -1)
+            painter.drawPath(pencil)
+
+
+class _CheckButton(_GoalIconButton):
     """Quiet completion ring that only turns green on hover.
 
     A permanently saturated green circle fought with the card's own palette;
@@ -134,8 +182,8 @@ class _CheckButton(QPushButton):
     """
 
     def __init__(self, tokens: dict | None = None, parent=None) -> None:
-        super().__init__(parent)
         tokens = tokens or {}
+        super().__init__("check", tokens, parent)
         self.setFixedSize(22, 22)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Complete goal")
@@ -247,7 +295,7 @@ class TodoTaskItemWidget(QFrame):
         layout.addLayout(info, 1)
 
         # Weekly-focus star: quiet outline when off, theme accent when on.
-        self.focus_btn = QPushButton(self)
+        self.focus_btn = _GoalIconButton("star", t, self)
         self.focus_btn.setFixedSize(22, 22)
         self.focus_btn.setCursor(Qt.PointingHandCursor)
         self.focus_btn.setFlat(True)
@@ -259,7 +307,8 @@ class TodoTaskItemWidget(QFrame):
         self.focus_btn.clicked.connect(self._on_focus_clicked)
         layout.addWidget(self.focus_btn, 0, Qt.AlignVCenter)
 
-        self.edit_btn = QPushButton("✎", self)
+        self.edit_btn = _GoalIconButton("edit", t, self)
+        self.edit_btn.setText("✎")
         self.edit_btn.setFixedSize(24, 24)
         self.edit_btn.setCursor(Qt.PointingHandCursor)
         self.edit_btn.setFlat(True)

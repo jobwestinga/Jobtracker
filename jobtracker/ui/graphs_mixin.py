@@ -86,18 +86,15 @@ class GraphsMixin:
         view_controls.setSpacing(7)
 
         self._graph_mode_buttons: dict[str, QPushButton] = {}
-        for shortcut_number, (label, mode) in enumerate(
-            (
-                ("Stacked Bar", "bar"),
-                ("Agenda", "agenda"),
-            ),
-            start=1,
+        for label, mode, arrow in (
+            ("Stacked Bar", "bar", "Up"),
+            ("Agenda", "agenda", "Down"),
         ):
-            button = QPushButton(f"{shortcut_number}  {label}")
+            button = QPushButton(label)
             button.setMinimumHeight(34)
             button.setCursor(Qt.PointingHandCursor)
             button.setToolTip(
-                f"Press {shortcut_number} to switch to {label}"
+                f"Press {arrow} to switch to {label}"
             )
             button.clicked.connect(
                 lambda _checked=False, selected=mode: self._queue_ui_action(

@@ -37,12 +37,11 @@ gated on `_shortcut_focus_allows_navigation()` (no inline dialog, popup, modal,
 or text-entry widget focused):
 
 - `←` / `→` — move between the pages in stack order.
-- `⌘1`–`⌘4` — open Goals, Subjects, Graphs or Weight directly.
-- `1`–`9` — act on that row of the current page: open the goal (Goals page) or
-  start/switch to that subject (Subjects page). Kept as **per-digit**
-  `QShortcut`s so the switch-confirm prompt can disable the one conflicting key
-  while it is open (two live shortcuts on one key are ambiguous to Qt and
-  neither fires). Badges renumber with the list order.
+- `1`–`9` — focus and open that exact Goals row. Goal badges renumber with the
+  list order; Subjects, sidebar tabs and graph mode controls have no number
+  badges or numeric actions.
+- `↑` / `↓` — select Stacked Bar / Agenda while Graphs owns input. Text fields,
+  popup menus and inline editors keep their own arrow keys.
 - `Esc` — leave the Completed-goals or Archived-subjects view.
 - In the expanded Weight plot, `Esc` restores the sidebar, entry and history,
   including an unfinished weight draft. An open inline editor or combo popup
@@ -50,6 +49,13 @@ or text-entry widget focused):
 - `W` / `M` / `Y` / `A` — graph range presets (Graphs page only); they write
   `graph_range` and clear any custom range.
 - `Ctrl+Z` / `⌘Z` — the undo.
+
+Moving pages also moves an existing sidebar focus outline to the selected tab.
+Opening a numbered goal focuses that card before feedback; inline panels place
+focus inside their own controls and contain Tab/Shift+Tab. Only the topmost
+panel handles milestone digits, including when its shared close button has
+focus. A held digit toggles once, and text fields keep numeric typing. Closing a
+nested panel restores focus to its parent rather than a background control.
 
 Undo is **one in-memory step, not a stack**: `_register_undo(callback)` stores a
 single reversible action and `_perform_undo()` consumes it and reloads.

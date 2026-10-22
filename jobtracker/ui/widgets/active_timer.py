@@ -95,7 +95,7 @@ class ActiveTimerWidget(QFrame):
         )
         idle_text_col.addWidget(self._idle_label)
 
-        self._idle_hint = ElidedLabel("Click a subject or press 1–9 to start")
+        self._idle_hint = ElidedLabel("Click a subject to start")
         self._idle_hint.setObjectName("idleHint")
         self._idle_hint.setStyleSheet(
             "font-size: 11px; font-weight: 500; background: transparent;"

@@ -16,12 +16,16 @@ from PySide6.QtCore import QEasingCurve, QEvent, QTimer, QVariantAnimation, Qt, 
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractSpinBox,
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QPlainTextEdit,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -98,12 +102,47 @@ class InlineDialog(QWidget):
             event.type() not in (QEvent.KeyPress, QEvent.ShortcutOverride)
             or not isinstance(event, QKeyEvent)
             or not isinstance(watched, QWidget)
-            or (watched is not self and not self.isAncestorOf(watched))
         ):
             return False
+        layer = getattr(self, "_jt_inline_layer", None)
+        if layer is not None:
+            stack = getattr(layer._host, "_jt_inline_dialog_stack", [])
+            if (
+                not stack or stack[-1] is not self or self._jt_finished
+                or watched.window() is not layer._host.window()
+            ):
+                return False
+        elif watched is not self and not self.isAncestorOf(watched):
+            return False
+        if (
+            event.key() in (Qt.Key_Tab, Qt.Key_Backtab)
+            and not event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+            and layer is not None
+        ):
+            if event.type() == QEvent.KeyPress:
+                backwards = event.key() == Qt.Key_Backtab or bool(event.modifiers() & Qt.ShiftModifier)
+                candidate = QApplication.focusWidget() or self
+                start = candidate
+                while True:
+                    candidate = candidate.previousInFocusChain() if backwards else candidate.nextInFocusChain()
+                    if (
+                        layer.isAncestorOf(candidate) and candidate.isVisible()
+                        and candidate.isEnabled() and candidate.focusPolicy() & Qt.TabFocus
+                    ):
+                        candidate.setFocus(Qt.BacktabFocusReason if backwards else Qt.TabFocusReason)
+                        break
+                    if candidate is start:
+                        break
+            event.accept()
+            return True
+        # A panel's close button sits beside the dialog content. It must route
+        # checklist digits too, while text fields and nested editors keep theirs.
+        editing = isinstance(watched, (
+            QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QComboBox,
+        ))
         if event.type() == QEvent.ShortcutOverride:
             if (
-                self.claims_inline_key(event)
+                (not editing and self.claims_inline_key(event))
                 or event.key() == Qt.Key_Escape
                 or event.key() in (Qt.Key_Return, Qt.Key_Enter)
             ):
@@ -112,7 +151,7 @@ class InlineDialog(QWidget):
                 event.accept()
                 return True
             return False
-        if self.handle_inline_key(event):
+        if not editing and self.handle_inline_key(event):
             return True
         if event.key() == Qt.Key_Escape:
             self.reject()
@@ -121,7 +160,7 @@ class InlineDialog(QWidget):
             return False
         # Text editors own Return for line breaks. Single-line editors use the
         # same default-button behavior as QDialog.
-        if isinstance(watched, QTextEdit):
+        if isinstance(watched, (QTextEdit, QPlainTextEdit)):
             return False
         for button in self.findChildren(QPushButton):
             if button.isVisible() and button.isEnabled() and button.isDefault():
@@ -156,6 +195,8 @@ class _InlineDialogLayer(QWidget):
         super().__init__(host)
         self._host = host
         self.dialog = dialog
+        dialog._jt_inline_layer = self
+        self._previous_focus = QApplication.focusWidget()
         self.setObjectName("jtInlineDialogLayer")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(
@@ -203,6 +244,10 @@ class _InlineDialogLayer(QWidget):
         host.installEventFilter(self)
         count = int(host.property("_jt_inline_dialog_count") or 0)
         host.setProperty("_jt_inline_dialog_count", count + 1)
+        stack = getattr(host, "_jt_inline_dialog_stack", None)
+        if stack is None:
+            host._jt_inline_dialog_stack = stack = []
+        stack.append(dialog)
         self._host_released = False
         self.destroyed.connect(lambda: self._release_host())
 
@@ -235,6 +280,24 @@ class _InlineDialogLayer(QWidget):
             self._host.removeEventFilter(self)
             count = int(self._host.property("_jt_inline_dialog_count") or 1)
             self._host.setProperty("_jt_inline_dialog_count", max(0, count - 1))
+            stack = getattr(self._host, "_jt_inline_dialog_stack", [])
+            if self.dialog in stack:
+                stack.remove(self.dialog)
+            target_layer = getattr(stack[-1], "_jt_inline_layer", None) if stack else None
+            previous = self._previous_focus
+            try:
+                restore = (
+                    previous is not None and previous.isVisible() and previous.isEnabled()
+                    and (target_layer is None or target_layer.isAncestorOf(previous))
+                )
+            except RuntimeError:
+                restore = False
+            if restore:
+                previous.setFocus(Qt.OtherFocusReason)
+            elif target_layer is not None:
+                target_layer._focus_content()
+            else:
+                self._host.setFocus(Qt.OtherFocusReason)
         except RuntimeError:
             pass
 
@@ -250,7 +313,7 @@ class _InlineDialogLayer(QWidget):
         self.dialog.show()
         self.dialog.raise_()
         self.dialog._install_key_filter()
-        self.dialog.focusNextChild()
+        self._focus_content()
         if not reduced_motion(self._host):
             anim = QVariantAnimation(self)
             anim.setDuration(140)
@@ -264,6 +327,20 @@ class _InlineDialogLayer(QWidget):
             )
             self._backdrop_anim = anim
             anim.start()
+
+    def _focus_content(self) -> None:
+        """Focus an editor control without traversing the window's background."""
+        focus = self.dialog.focusWidget()
+        if not (
+            focus is not None and self.dialog.isAncestorOf(focus)
+            and focus.isVisible() and focus.isEnabled()
+        ):
+            focus = next((
+                child for child in self.dialog.findChildren(QWidget)
+                if child.isVisible() and child.isEnabled() and child.focusPolicy() & Qt.TabFocus
+            ), self._panel.findChild(QPushButton, "jtInlineDialogClose"))
+        if focus is not None:
+            focus.setFocus(Qt.OtherFocusReason)
 
 
 class _InlineMessageDialog(InlineDialog):

@@ -181,29 +181,7 @@ class SubjectItemWidget(QFrame):
             self._action_buttons.append(btn)
 
     def install_shortcut_badge(self) -> None:
-        """Create the keycap only after the card is owned by its list."""
-        if self._shortcut_number is None or self._shortcut_badge is not None:
-            return
-        t = self._t
-        shortcut = QLabel(str(self._shortcut_number), self)
-        shortcut.setProperty("_jt_shortcut_badge", True)
-        shortcut.setProperty(
-            "_jt_shortcut_tooltip",
-            "Press {number} to start tracking",
-        )
-        shortcut.setAlignment(Qt.AlignCenter)
-        shortcut.setFixedSize(22, 22)
-        shortcut.setToolTip(
-            f"Press {self._shortcut_number} to start tracking"
-        )
-        shortcut.setStyleSheet(
-            f"background: {t.get('BG_TERTIARY', t['BG_SECONDARY'])};"
-            f" border: 1px solid {t['BORDER_COLOR']}; border-radius: 6px;"
-            f" color: {t['TEXT_SECONDARY']}; font-size: 10px; font-weight: 750;"
-        )
-        self._root_layout.insertWidget(0, shortcut, 0, Qt.AlignVCenter)
-        self._shortcut_badge = shortcut
-
+        """Retain the list adapter without showing a numeric subject shortcut."""
         # Keep a stable size hint so active border style changes do not shift
         # neighboring cards in the list.
         self._base_size_hint = super().sizeHint()

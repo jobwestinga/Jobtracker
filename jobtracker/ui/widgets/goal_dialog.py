@@ -567,7 +567,8 @@ class GoalDetailDialog(InlineDialog):
             return False
         text = event.text()
         if len(text) == 1 and text in "123456789":
-            self._toggle_milestone_by_number(int(text) - 1)
+            if not event.isAutoRepeat():
+                self._toggle_milestone_by_number(int(text) - 1)
             return True
         return False
 

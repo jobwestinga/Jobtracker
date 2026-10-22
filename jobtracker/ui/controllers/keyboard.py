@@ -57,6 +57,11 @@ class _LatestArrowDirectionFilter(QObject):
             else:
                 self._held.add(key)
                 self._preferred = key
+            window = watched.window() if isinstance(watched, QWidget) else None
+            keyboard = getattr(window, "_keyboard", None)
+            if keyboard is not None and keyboard._handle_graph_view_arrow(key):
+                event.accept()
+                return True
             if view is not None:
                 if view.property("_jt_direct_arrow_scroll"):
                     view.scroll_one_card(key)
@@ -146,10 +151,6 @@ class KeyboardController:
         for sequence, callback in (
             ("Left", lambda: window._navigate_pages(-1)),
             ("Right", lambda: window._navigate_pages(1)),
-            ("Ctrl+1", lambda: window._navigate_to_page(0)),
-            ("Ctrl+2", lambda: window._navigate_to_page(1)),
-            ("Ctrl+3", lambda: window._navigate_to_page(2)),
-            ("Ctrl+4", lambda: window._navigate_to_page(3)),
             ("Escape", window._handle_escape_shortcut),
             ("W", lambda: window._handle_graph_range_shortcut("weeks")),
             ("M", lambda: window._handle_graph_range_shortcut("months")),
@@ -175,9 +176,8 @@ class KeyboardController:
             shortcut.activated.connect(window._perform_undo)
             window._shortcuts.append(shortcut)
 
-        # Kept per-digit so the switch-confirm prompt can temporarily disable
-        # the one conflicting key (two live shortcuts on the same key would be
-        # ambiguous to Qt and neither would fire).
+        # Digits belong to the Goals checklist only. Inline dialogs reserve
+        # their own keys before these window shortcuts can consume them.
         window._number_shortcuts: dict[int, QShortcut] = {}
         for number in range(1, 10):
             shortcut = QShortcut(QKeySequence(str(number)), window)
@@ -238,25 +238,28 @@ class KeyboardController:
             goal_id = window._todo_list.item(row).data(Qt.UserRole)
             if goal_id is not None:
                 goal_id = int(goal_id)
+                card = window._todo_list.card_widget(goal_id)
+                if card is not None:
+                    window._todo_list.scrollToItem(window._todo_list.item(row))
+                    card.setFocus(Qt.ShortcutFocusReason)
                 window._todo_list.pulse_card(goal_id)
                 window._open_goal_after_shortcut_feedback(goal_id)
             return
-        if page == 1:
-            # Number shortcuts start tracking when idle; while a session is
-            # active they ask to switch (handled inside _start_tracking) and
-            # never stop silently. Archived subjects cannot be started.
-            if window._showing_archived or row >= window._subjects_list.count():
-                return
-            subject_id = window._subjects_list.item(row).data(Qt.UserRole)
-            if subject_id is not None:
-                window._start_tracking(
-                    int(subject_id), shortcut_feedback=True
-                )
-            return
-        if page == 2 and 1 <= number <= 2:
-            mode = ("bar", "agenda")[number - 1]
+
+    def _handle_graph_view_arrow(self, key: int) -> bool:
+        """Reserve vertical arrows only while the Graphs page owns input."""
+        window = self.window
+        if (
+            key not in (Qt.Key_Up, Qt.Key_Down)
+            or window._pages.currentIndex() != 2
+            or not window._shortcut_focus_allows_navigation()
+        ):
+            return False
+        mode = "bar" if key == Qt.Key_Up else "agenda"
+        if mode != window._graph_view_mode:
             window._set_graph_view_mode(mode)
-            window._pulse_widget(window._graph_mode_buttons[mode])
+        window._graph_mode_buttons[mode].setFocus(Qt.ShortcutFocusReason)
+        return True
 
     def _open_goal_after_shortcut_feedback(self, goal_id: int) -> None:
         window = self.window
