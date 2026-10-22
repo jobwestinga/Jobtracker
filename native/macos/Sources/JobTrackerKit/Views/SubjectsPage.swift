@@ -35,6 +35,11 @@ struct SubjectsPage: View {
                 SubjectList(app: app, store: store)
             }
         }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+            // Card totals include the live session; refresh them about once a
+            // minute while tracking, without rebuilding the timer clock.
+            if app.timer.active != nil && !store.showingArchived { Task { @MainActor in await store.reload() } }
+        }
     }
 }
 

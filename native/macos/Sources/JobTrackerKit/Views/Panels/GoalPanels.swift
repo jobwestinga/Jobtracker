@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Goal detail: description, numbered milestones (digits 1–9 toggle them while
 /// this panel is on top), Edit Goal and Mark Complete / Reopen.
@@ -7,6 +8,7 @@ struct GoalDetailPanel: View {
     let id: UUID
     @ObservedObject var model: GoalEditorModel
     @Environment(\.theme) private var theme
+    @StateObject private var dragging = ViewState<String?>(nil)
 
     var body: some View {
         let goal = model.goal
@@ -34,6 +36,10 @@ struct GoalDetailPanel: View {
                 .onChange(of: model.burstUid) { _ in
                     if model.burstUid != nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.burstUid = nil } }
                 }
+                .onDrag { dragging.value = milestone.uid; return NSItemProvider(object: milestone.uid as NSString) }
+                .onDrop(of: [UTType.text], delegate: ReorderDropDelegate(
+                    target: milestone.uid, ordered: goal.milestones.map(\.uid), dragging: $dragging.value,
+                    commit: { order in Task { @MainActor in await model.reorder(order) } }))
             }
             InlineMessage(text: model.message)
         } footer: {
