@@ -1049,6 +1049,86 @@
         "sync.replication",
         "timer.sessions"
       ]
+    },
+    {
+      "id": "native.mac",
+      "title": "Native SwiftUI Mac frontend (A4)",
+      "keywords": [
+        "native",
+        "swift",
+        "swiftui",
+        "appkit",
+        "mac",
+        "a4",
+        "w1",
+        "s1",
+        "r1",
+        "bold agenda",
+        "pilot"
+      ],
+      "entrypoints": [
+        {
+          "path": "native/macos/Sources/JobTracker/main.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/JobTrackerMain.swift"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/desktop/host.py",
+        "symbol": "EngineHost"
+      },
+      "persistence": [
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Bridge/EngineClient.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Bridge/RequestJournal.swift"
+        }
+      ],
+      "supporting": [
+        {
+          "path": "native/macos/README.md"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/AppModel.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/SessionPanelModel.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Charts/BarChart.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Charts/AgendaChart.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/KeyRouter.swift"
+        },
+        {
+          "path": "design/ui_roles.json"
+        },
+        {
+          "path": "scripts/generate_ui_tokens.py"
+        }
+      ],
+      "guide": "native/macos/README.md",
+      "operations": [],
+      "tables": [],
+      "contracts": [
+        "native.local-bridge"
+      ],
+      "routes": [],
+      "tests": [
+        "tests/desktop/test_engine_protocol.py",
+        "native/macos/Sources/JobTrackerChecks/main.swift"
+      ],
+      "related": [
+        "native.engine",
+        "native.shell",
+        "graphs.tracking",
+        "sessions.edit"
+      ]
     }
   ]
 }

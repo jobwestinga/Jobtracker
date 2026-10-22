@@ -90,6 +90,25 @@ def validate_python(executable: str, dependencies: list[str]) -> str:
     return executable
 
 
+NATIVE_PACKAGE = ROOT / "native/macos"
+NATIVE_SCRATCH = Path.home() / "Library/Caches/JobTracker/native-build"
+
+
+def native_checks(python: str, name_filter: str | None = None) -> int:
+    """Build with SwiftPM (Command Line Tools suffice) and run JobTrackerChecks.
+
+    The scratch path stays outside the repository and iCloud. Engine checks
+    start ``python -m jobtracker.desktop`` on disposable isolated stores.
+    """
+    executable = validate_python(python, [])
+    swift = ["swift", "run", "--package-path", str(NATIVE_PACKAGE), "--scratch-path", str(NATIVE_SCRATCH), "JobTrackerChecks"]
+    if name_filter:
+        swift.append(name_filter)
+    environment = dict(os.environ, JOBTRACKER_ENGINE_PYTHON=executable)
+    environment.pop("JOBTRACKER_DB_PATH", None)
+    return subprocess.run(swift, cwd=ROOT, env=environment).returncode
+
+
 def status() -> int:
     paths = [ROOT / "data/jobtracker.db", Path.home() / "Library/Application Support/JobTracker/jobtracker.db"]
     for label, path in zip(("Development database", "Installed database"), paths):
@@ -124,6 +143,9 @@ def main(argv=None):
     tests.add_argument("feature", nargs="?")
     tests.add_argument("--python", default=argparse.SUPPRESS)
     sub.add_parser("mobile", help="Run all dependency-free Node contract tests.")
+    native = sub.add_parser("native", help="Build the native Mac app outside iCloud and run its checks against the engine.")
+    native.add_argument("--python", default=argparse.SUPPRESS)
+    native.add_argument("filter", nargs="?", help="Only run checks whose name contains this text.")
     sub.add_parser("browser", help="Run the optional Playwright browser harness.")
     build = sub.add_parser("build", help="Build and sign outside iCloud; installation is explicit and guarded.")
     build.add_argument("--python", default=argparse.SUPPRESS)
@@ -150,10 +172,10 @@ def main(argv=None):
             return 0
         if args.command == "check":
             try:
-                from . import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps
+                from . import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps, generate_ui_tokens, native_checks_index
             except ImportError:
-                import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps
-            results = [generate_phone_apps.check(ROOT, write=args.write), check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT), check_privacy.check(ROOT)]
+                import check_references, check_boundaries, check_web_assets, check_privacy, generate_phone_apps, generate_ui_tokens, native_checks_index
+            results = [generate_phone_apps.check(ROOT, write=args.write), generate_ui_tokens.check(ROOT, write=args.write), native_checks_index.check(ROOT, write=args.write), check_references.check(ROOT, write=args.write), check_boundaries.check(ROOT), check_web_assets.check(ROOT), check_privacy.check(ROOT)]
             errors = [error for result in results for error in result]
             print("\n".join(errors) if errors else "References, layer boundaries, offline assets and privacy guard pass.")
             return int(bool(errors))
@@ -164,6 +186,8 @@ def main(argv=None):
             dependencies = ["pytest", "PySide6", "fastapi", "httpx"]
             executable = validate_python(args.python, dependencies)
             return run([executable, "-m", "pytest", "-o", "addopts=", "-q", *paths])
+        if args.command == "native":
+            return native_checks(args.python, args.filter)
         if args.command == "mobile":
             return run(["node", "--test", *[str(path.relative_to(ROOT)) for path in sorted((ROOT / "tests/mobile").glob("*.test.mjs"))]])
         if args.command == "browser":

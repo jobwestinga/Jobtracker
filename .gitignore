@@ -58,3 +58,7 @@ sync_token
 .env
 .env.*
 !.env.example
+
+# Native Swift build products (always built outside iCloud)
+/native/macos/.build/
+/native/macos/.swiftpm/
