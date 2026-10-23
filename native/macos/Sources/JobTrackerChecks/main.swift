@@ -36,6 +36,7 @@ let checks: [(String, () throws -> Void)] = [
     ("EngineIntegrationTests.journaledRequestIsReplayedAfterRestart", { try EngineIntegrationTests().journaledRequestIsReplayedAfterRestart() }),
     ("EngineIntegrationTests.crashedEngineRestartsWithNewInstance", { try EngineIntegrationTests().crashedEngineRestartsWithNewInstance() }),
     ("EngineIntegrationTests.secondOwnerIsRefused", { try EngineIntegrationTests().secondOwnerIsRefused() }),
+    ("FeatureStateTests.sessionSaveKeepsNewerInputBoundToTheConfirmedSession", { try FeatureStateTests().sessionSaveKeepsNewerInputBoundToTheConfirmedSession() }),
     ("FeatureStateTests.closeAndEscapeKeepAPanelWhoseSaveIsInFlight", { try FeatureStateTests().closeAndEscapeKeepAPanelWhoseSaveIsInFlight() }),
     ("FeatureStateTests.weightSaveCannotRetargetADateChosenWhileWaiting", { try FeatureStateTests().weightSaveCannotRetargetADateChosenWhileWaiting() }),
     ("FeatureStateTests.failedSyncSetupKeepsTheSettingsPanelAndTokenDraft", { try FeatureStateTests().failedSyncSetupKeepsTheSettingsPanelAndTokenDraft() }),
@@ -52,6 +53,7 @@ let checks: [(String, () throws -> Void)] = [
     ("FeatureStateTests.weightEditsKeepImportedPrecisionAndDailyIdentity", { try FeatureStateTests().weightEditsKeepImportedPrecisionAndDailyIdentity() }),
     ("FeatureStateTests.movingTheSelectionOutOfTheDayClearsItWithoutReselecting", { try FeatureStateTests().movingTheSelectionOutOfTheDayClearsItWithoutReselecting() }),
     ("FeatureStateTests.unreachableServerShowsOfflineWhileLocalSavesSucceed", { try FeatureStateTests().unreachableServerShowsOfflineWhileLocalSavesSucceed() }),
+    ("NativeSyncTests.remoteSessionChangeKeepsTheNativeDraftAndExactIdentity", { try NativeSyncTests().remoteSessionChangeKeepsTheNativeDraftAndExactIdentity() }),
 ]
 
 exit(runChecks(checks))

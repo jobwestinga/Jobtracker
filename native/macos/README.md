@@ -71,3 +71,9 @@ the first page and keeps unsaved text if a target disappears. Date fields reject
 invalid/zoned input and preserve naive wall-clock fields across DST; duration
 validation remains with the Python engine. Close/Escape cannot discard a save
 in progress, and an unconfirmed quit is not treated as successful.
+
+Ordinary delayed session saves use the same draft rebasing as late replies:
+newly typed fields remain edits of the confirmed session, rather than creating
+another row. The native checks also run two separate engine stores against a
+disposable loopback API, exercising remote moves during an open session draft,
+explicit conflict resolution, settled queues and foreign timer ownership.
