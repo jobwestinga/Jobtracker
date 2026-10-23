@@ -4,6 +4,11 @@ Companion to the [A4 guide](a4-native-mac-overhaul.md). One compact record per
 milestone: what was run, on what, with which result. Synthetic data only;
 captures and timings live in the ignored `.local/a4-evidence/` folder.
 
+The subsequent [independent correctness review](a4-review-2026-10-22.md) records
+regressions found and fixed after `165d6e4`. Historical test counts below describe
+that earlier implementation. A row with outstanding runtime evidence is Partial,
+even when its available unit/model checks pass; this is not a native cutover signoff.
+
 ## M0 — baseline (P00), 22 October 2026
 
 ### Reproducibility
@@ -136,9 +141,9 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 
 | ID | Status | Evidence | Remaining |
 | --- | --- | --- | --- |
-| A01 | Pass | N key routing (Left/Right, held key) | Real-keyboard XCUI run |
+| A01 | Partial | N key routing (Left/Right, held key) | Real-keyboard XCUI run |
 | A02 | Pass | N digits ignored outside Goals; V no numbers in sidebar/Subjects/graph modes | — |
-| A03 | Pass | N digit opens exact row; router ignores pointer hover | XCUI with hover |
+| A03 | Partial | N digit opens exact row; router ignores pointer hover | XCUI with hover |
 | A04 | Partial | N digit toggles milestone in top panel; repeat ignored in router | Text-entry and held-key UI run |
 | A05 | Partial | N Escape closes panel and restores theme; fullscreen/view order in `AppModel.escape` | Real fullscreen Space run |
 | A06 | Pass | E resume history; N stop → Resume | — |
@@ -154,20 +159,20 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 | A16 | Pass | N/P honest overlap lanes; synthetic future/overlap rows | — |
 | A17 | Pass | No client date rules; engine reuses services/graph window | — |
 | A18 | Pass | N Up/Down only with Graphs owning input | — |
-| A19 | Pass | N tiers/scale/peak/bloom cache; P red bloom; V captures | 200% text on Mac |
-| A20 | Pass | N proportional, contiguous, non-overlapping labels | Long-history timing |
+| A19 | Partial | N tiers/scale/peak/bloom cache; P red bloom; V captures | 200% text on Mac |
+| A20 | Partial | N proportional, contiguous, non-overlapping labels | Long-history timing |
 | A21 | Pass | N/P adjacency tolerance and lanes; V no divider | — |
 | A22 | Pass | N preview, Escape rollback, save pair | — |
 | A23 | Partial | P untouched colour kept exactly; native editor starts from saved value | Native colour UI run |
 | A24 | Pass | N imported precision and daily identity; E weight.view | — |
 | A25 | Partial | E trend/badge from `weight_plot`; fullscreen/Escape in code | Native fullscreen UI run |
 | A26 | Pass | E local-only and synced queueing; engine thread owns network | — |
-| A27 | Pass | N unreachable server shows Offline, token hidden, local save queued; shared wording | Blocked-server UI run |
-| A28 | Pass | E export bundle, import merge, malformed import | Native file-dialog cancel run |
+| A27 | Partial | N unreachable server shows Offline, token hidden, local save queued; shared wording | Blocked-server UI run |
+| A28 | Partial | E export bundle, import merge, malformed import | Native file-dialog cancel run |
 | A29 | Not done | V half-width only | **M** VoiceOver, display scaling, reduced motion |
 | A30 | Partial | N drafts bound to UID; epochs | Sync-during-edit UI run |
 | A31 | Pass | P profiles unchanged | — |
-| A32 | Pass | E Qt entry lock, installer guards; rollback rehearsal; signed package | Live guarded install |
+| A32 | Partial | E Qt entry lock, installer guards; rollback rehearsal; signed package | Live guarded install |
 
 ## Failure matrix status
 
@@ -198,8 +203,9 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 - **XCUI automation and VoiceOver (A29, P16.4).** Full Xcode is not installed;
   the guide forbids installing it silently. The Command Line Tools also lack
   the SwiftUI/Testing macro plugins, so native checks run as an executable and
-  drive stores and the key router directly. A manual VoiceOver and keyboard
-  pass remains required before any default switch.
+  drive stores and the key router directly. VoiceOver itself is built into
+  macOS and does not require Xcode. A manual VoiceOver and keyboard pass remains
+  required before any default switch.
 - **Production pilot install and default switch (P17.3–P17.6).** The signed
   production-identity package is staged and accepted by the installer's
   verifier, but nothing was installed: the guide does not let performing it
