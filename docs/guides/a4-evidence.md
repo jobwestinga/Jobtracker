@@ -9,7 +9,8 @@ regressions found and fixed after `165d6e4`. Historical test counts below descri
 that earlier implementation. A row with outstanding runtime evidence is Partial,
 even when its available unit/model checks pass. These historical rows describe
 the 22 October cutoff; the M6 continuation below records the subsequent pilot,
-scope decisions and actual cutover.
+scope decisions and actual cutover. M7 records the subsequent native interaction
+refinements and their separate update status.
 
 ## M0 — baseline (P00), 22 October 2026
 
@@ -314,3 +315,50 @@ above. Additional physical displays, native 200% text settings, overnight energy
 and long-term daily use were not exhaustively exercised. The source/fixtures
 and retained Qt route support follow-up checks without replacing or resetting
 the user's store. VoiceOver is excluded by the user's explicit instruction.
+
+## M7 — native interaction refinements, 23 October 2026
+
+The follow-up improves the narrow Mac window without changing saved history:
+
+- Subjects and Goals lift under the pointer, with an animated insertion gap.
+  Only the final drop writes an order. Escape and outside drops cancel; Undo
+  restores the prior order. The lifted copy settles into its gap before an
+  animation-free handoff, avoiding the release fade reported in the pilot.
+  Earlier list reads cannot restore a pre-drop order. A live check caught and
+  corrected child-button activation during a drag: dragging from Complete no
+  longer completes a goal, while an ordinary click still works.
+- Starred active goals appear first, preserving order within focus groups.
+  Session-panel Up/Down selects and scrolls history rows; text fields and menus
+  keep their keys, and dirty drafts retain the existing confirmation.
+- Hour labels use a smaller 11-point common base with the same intensity scale,
+  colours and glow. Each total stays directly above its own bar. Dense charts
+  scroll instead of hiding totals or moving them into a floating header lane.
+  Agenda durations take priority over displaced start-time text; tall narrow
+  fortnight columns use compact labels such as `2h` and `90m`.
+- Weight accepts pinch zoom, two-finger panning, Shift for time-only zoom and
+  Option for weight-only zoom, including modifier-scroll alternatives. Reset
+  restores the loaded extent. Zoom stays through fullscreen and never edits a
+  measurement or the entry draft.
+
+| Check | Result |
+| --- | --- |
+| Full Python/Qt/server suite | 1095 passed, 22 existing skips, 717.17 s |
+| Native executable suite | 58 checks, 0 failures; includes delayed pre-drop reads and compact fortnight durations |
+| Final hour-size adjustment | All four bar-layout checks rerun successfully |
+| Phone Node suite | 155 passed |
+| Phone browser harnesses | All four pass; no phone assets changed in this follow-up |
+| Source, boundaries, generated maps/index, privacy and whitespace | Pass |
+| Signed production build | Signing and frozen-helper smoke pass; Qt-free helper, 60 commands, about 27.9 MB |
+
+Actual-window checks used disposable synthetic stores and exercised mid-drag
+preview without a premature database write, drop/Undo/Escape, dragging over
+Complete, ordinary completion clicks, session history arrows, both modifier-
+scroll zoom axes, Reset and fullscreen/Escape zoom retention. Pinch handling
+uses AppKit magnification events; a physical trackpad gesture was not generated
+by the automation. Private captures and results live in `.local/native-polish/`.
+
+The production update is **queued behind an active session**, rather than
+installed over a running timer. The guarded installer retains its normal
+session/outbox/native-request checks, fresh database backups, previous bundle
+and normal quit/relaunch. The queued executable is verified against the signed
+reviewed build. The preceding A4 native release remains installed until idle.
