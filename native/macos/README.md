@@ -80,3 +80,17 @@ disposable loopback API, exercising remote moves during an open session draft,
 explicit conflict resolution, settled queues and foreign timer ownership.
 Forms that close after Save disable their fields while that save is pending;
 the session panel instead keeps newer edits bound to the confirmed row.
+
+## Native interaction refinements
+
+Subjects and Goals lift under a mouse drag and preview the insertion gap. Only
+release commits the final order; Escape or a drop outside the list cancels.
+The lifted card travels to its slot before an animation-free handoff to the
+row. Drag gestures take priority over child buttons so a drag across Complete
+cannot also complete a goal. Ordinary button clicks retain their actions.
+Starred active goals appear first, preserving the existing order within each
+group; dragging stays within a focus group. Completed goals keep free ordering.
+Session panels accept Up/Down to select adjacent history rows and scroll them
+into view. Text fields and open menus keep their keys; dirty drafts still ask
+before changing selection.
+

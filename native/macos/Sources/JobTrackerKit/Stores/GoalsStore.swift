@@ -27,7 +27,9 @@ public final class GoalsStore: ObservableObject {
         let mine = epoch
         let response = await app.call("goals.list", ["completed": .bool(showingCompleted)], kind: .read)
         guard mine == epoch, let result = try? response.result(GoalsListDTO.self) else { return }
-        goals = result.goals
+        // Focus is a presentation group, preserving manual/deadline order
+        // within each group and leaving the stored order intact on unstar.
+        goals = showingCompleted ? result.goals : result.goals.filter(\.focused) + result.goals.filter { !$0.focused }
         if includeTemplates || templates.isEmpty { await reloadTemplates() }
     }
 
@@ -74,6 +76,9 @@ public final class GoalsStore: ObservableObject {
 
     @MainActor
     public func toggleFocus(_ goal: GoalDTO) async {
+        guard !busy.contains(goal.uid) else { return }
+        busy.insert(goal.uid)
+        defer { busy.remove(goal.uid) }
         let response = await app.mutate("goal.toggle_focus", ["goal_uid": .string(goal.uid)])
         if response.outcome == .applied {
             app.registerUndo("Toggle focus") { [weak self] in
@@ -86,6 +91,7 @@ public final class GoalsStore: ObservableObject {
     public func reorder(_ uids: [String]) async {
         let previous = goals.map(\.uid)
         guard previous != uids else { return }
+        epoch += 1  // A pre-drag read must not briefly restore the old order.
         let byUid = Dictionary(uniqueKeysWithValues: goals.map { ($0.uid, $0) })
         goals = uids.compactMap { byUid[$0] }
         let completed = showingCompleted

@@ -40,6 +40,10 @@ final class KeyRouter {
 
         if event.keyCode == 53 {  // Escape
             if event.isARepeat { return true }
+            if NSEvent.pressedMouseButtons & 1 != 0 {
+                NotificationCenter.default.post(name: .cancelCardDrag, object: nil)
+                return true
+            }
             if textInputFocused && model.panels.isEmpty {
                 window.makeFirstResponder(nil)
                 return true
@@ -51,6 +55,10 @@ final class KeyRouter {
 
         let digit = Int(key).flatMap { (1...9).contains($0) ? $0 : nil }
         if let top = model.topPanel {
+            if (event.keyCode == 125 || event.keyCode == 126), case .sessions(let panel) = top.kind {
+                if !event.isARepeat { panel.selectAdjacent(event.keyCode == 125 ? 1 : -1) }
+                return true
+            }
             guard let digit else { return false }
             if !event.isARepeat, case .goal(let goalModel) = top.kind { goalModel.toggleNumber(digit) }
             return true

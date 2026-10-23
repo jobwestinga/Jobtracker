@@ -213,6 +213,17 @@ public final class SessionPanelModel: ObservableObject {
 
     // MARK: selection
 
+    /// History arrows use the same dirty-draft confirmation as a row click.
+    public func selectAdjacent(_ direction: Int) {
+        guard pendingSelection == nil, inFlight.isEmpty else { return }
+        let selectable = rows.filter { $0.uid != nil && !$0.open }
+        guard !selectable.isEmpty else { return }
+        let current = selectable.firstIndex { $0.uid == selectedUid }
+        let next = current.map { max(0, min(selectable.count - 1, $0 + direction)) }
+            ?? (direction < 0 ? selectable.count - 1 : 0)
+        select(selectable[next])
+    }
+
     public func select(_ row: SessionDTO) {
         guard row.uid != selectedUid || row.uid == nil else { return }
         if let draft, draft.isDirty, draft.targetUid != row.uid {

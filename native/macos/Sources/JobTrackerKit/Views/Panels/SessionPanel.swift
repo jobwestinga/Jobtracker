@@ -71,16 +71,22 @@ struct SessionPanel: View {
                     .italic().foregroundColor(theme.textDimmed.color)
                     .frame(maxWidth: .infinity).padding(.vertical, 22)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(model.rows) { row in
-                            SessionRow(row: row, showDate: !model.isDayScope, showSubject: model.isDayScope,
-                                       selected: row.uid != nil && row.uid == model.selectedUid) { model.select(row) }
+                ScrollViewReader { reader in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(model.rows) { row in
+                                SessionRow(row: row, showDate: !model.isDayScope, showSubject: model.isDayScope,
+                                           selected: row.uid != nil && row.uid == model.selectedUid) { model.select(row) }
+                                    .id(row.id)
+                            }
+                            if model.nextOffset != nil {
+                                Button("Load older sessions") { Task { @MainActor in await model.loadMore() } }
+                                    .actionStyle(.quiet, compact: true).padding(.top, 4)
+                            }
                         }
-                        if model.nextOffset != nil {
-                            Button("Load older sessions") { Task { @MainActor in await model.loadMore() } }
-                                .actionStyle(.quiet, compact: true).padding(.top, 4)
-                        }
+                    }
+                    .onChange(of: model.selectedUid) { uid in
+                        if let uid { reader.scrollTo(uid) }
                     }
                 }
                 .frame(height: 200)

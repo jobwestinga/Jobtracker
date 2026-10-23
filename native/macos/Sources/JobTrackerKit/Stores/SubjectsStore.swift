@@ -160,6 +160,7 @@ public final class SubjectsStore: ObservableObject {
     public func reorder(_ uids: [String]) async {
         let previous = subjects.map(\.uid)
         guard previous != uids, let current = list else { return }
+        epoch += 1  // Ignore list reads captured before this final drop.
         let byUid = Dictionary(uniqueKeysWithValues: current.subjects.map { ($0.uid, $0) })
         list = SubjectsListDTO(archived: current.archived, filter: current.filter, subjects: uids.compactMap { byUid[$0] },
                                resumeSubjectUid: current.resumeSubjectUid, todaySeconds: current.todaySeconds,

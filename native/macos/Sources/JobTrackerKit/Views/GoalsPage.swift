@@ -5,7 +5,6 @@ struct GoalsPage: View {
     @ObservedObject var app: AppModel
     @ObservedObject var store: GoalsStore
     @Environment(\.theme) private var theme
-    @StateObject private var dragging = ViewState<String?>(nil)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -23,18 +22,12 @@ struct GoalsPage: View {
                     .frame(maxWidth: .infinity).padding(.vertical, 26)
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(Array(store.goals.enumerated()), id: \.element.uid) { index, goal in
-                            GoalCard(app: app, store: store, goal: goal, number: index < 9 ? index + 1 : nil)
-                                .onDrag { dragging.value = goal.uid; return NSItemProvider(object: goal.uid as NSString) }
-                                .onDrop(of: [UTType.text], delegate: ReorderDropDelegate(
-                                    target: goal.uid, ordered: store.goals.map(\.uid), dragging: $dragging.value,
-                                    commit: { order in Task { @MainActor in await store.reorder(order) } }))
-                        }
-                    }
-                    .padding(.bottom, 8)
+                ReorderableCards(items: store.goals, reduceMotion: app.reduceMotion,
+                                 canMove: { store.showingCompleted || store.goal($0)?.focused == store.goal($1)?.focused },
+                                 commit: { await store.reorder($0) }) { goal, index in
+                    GoalCard(app: app, store: store, goal: goal, number: index < 9 ? index + 1 : nil)
                 }
+                .animation(app.reduceMotion ? nil : .easeInOut(duration: 0.18), value: store.goals.map(\.uid))
             }
         }
     }

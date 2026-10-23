@@ -54,6 +54,9 @@ let checks: [(String, () throws -> Void)] = [
     ("FeatureStateTests.weightEditsKeepImportedPrecisionAndDailyIdentity", { try FeatureStateTests().weightEditsKeepImportedPrecisionAndDailyIdentity() }),
     ("FeatureStateTests.movingTheSelectionOutOfTheDayClearsItWithoutReselecting", { try FeatureStateTests().movingTheSelectionOutOfTheDayClearsItWithoutReselecting() }),
     ("FeatureStateTests.unreachableServerShowsOfflineWhileLocalSavesSucceed", { try FeatureStateTests().unreachableServerShowsOfflineWhileLocalSavesSucceed() }),
+    ("InteractionTests.anOlderReadCannotRestoreThePreDropOrder", { try InteractionTests().anOlderReadCannotRestoreThePreDropOrder() }),
+    ("InteractionTests.liftPreviewRetainsEveryIdentityAndRestrictsFocusGroups", { try InteractionTests().liftPreviewRetainsEveryIdentityAndRestrictsFocusGroups() }),
+    ("InteractionTests.starredGoalsFloatAndHistoryArrowsPreserveDrafts", { try InteractionTests().starredGoalsFloatAndHistoryArrowsPreserveDrafts() }),
     ("NativeSyncTests.remoteSessionChangeKeepsTheNativeDraftAndExactIdentity", { try NativeSyncTests().remoteSessionChangeKeepsTheNativeDraftAndExactIdentity() }),
 ]
 

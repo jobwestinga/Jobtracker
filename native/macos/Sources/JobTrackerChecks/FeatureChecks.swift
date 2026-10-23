@@ -303,11 +303,12 @@ struct FeatureStateTests: CheckSuite {
         let app = live.app!
         app.select(.goals)
         live.settle(1)
-        let second = app.goals.goals[1]
-        app.goals.openByNumber(2)
+        let index = app.goals.goals.firstIndex { $0.milestones.count == 3 }!
+        let second = app.goals.goals[index]
+        app.goals.openByNumber(index + 1)
         live.settle(0.5)
         guard case .goal(let detail) = app.topPanel?.kind else { expect(false, "goal opened"); return }
-        expect(detail.goal.uid == second.uid, "digit 2 opened row 2")
+        expect(detail.goal.uid == second.uid, "the digit opens the displayed row, including starred order")
         expect(detail.goal.milestones.count == 3, "three milestones")
         let firstDone = detail.goal.milestones[1].done
         detail.toggleNumber(2)
