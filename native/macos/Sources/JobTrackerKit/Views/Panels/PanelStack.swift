@@ -157,22 +157,19 @@ struct SubjectEditorPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome(model.isNew ? "New Subject" : "Edit Subject", width: 400, onClose: { app.dismiss(id) }) {
-            FieldLabel("Subject Name")
-            TextField("e.g. Physics, Marketing, Music Theory \u{2026}", text: $model.name)
+        PanelChrome(model.isNew ? "New Subject" : "Edit Subject", width: 440, onClose: { app.dismiss(id) }) {
+            FieldLabel("Name")
+            TextField("Subject name", text: $model.name)
                 .textFieldStyle(FieldStyle())
                 .onChange(of: model.name) { _ in model.draftChanged() }
                 .accessibilityLabel("Subject name")
             FieldLabel("Colour")
-            HStack(spacing: 6) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(model.swatches, id: \.self) { hex in
-                    Swatch(hex: hex, selected: hex.caseInsensitiveCompare(model.color) == .orderedSame,
-                           suggested: model.suggestions.contains(hex)) { model.color = hex }
+                    Swatch(hex: hex, selected: hex.caseInsensitiveCompare(model.color) == .orderedSame) { model.color = hex }
                 }
-                if model.currentIsCustom {
-                    Swatch(hex: model.color, selected: true, suggested: false) {}
-                        .accessibilityLabel("Current custom colour \(model.color)")
-                }
+            }
+            HStack {
                 ColorPicker("Custom", selection: Binding(
                     get: { RGBA(hex: model.color).color },
                     set: { newColor in
@@ -180,18 +177,17 @@ struct SubjectEditorPanel: View {
                             model.color = RGBA(r: Double(rgb.redComponent), g: Double(rgb.greenComponent), b: Double(rgb.blueComponent)).hexString
                         }
                     }), supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 34, height: 24)
+                    .fixedSize()
                     .help("Choose a custom colour")
                     .accessibilityLabel("Choose a custom subject colour")
-                Text(model.color.uppercased()).font(TypeRole.caption.font.monospacedDigit()).foregroundColor(theme.textSecondary.color)
-                    .fixedSize()
-            }
-            if !model.suggestions.isEmpty && !model.activeColors.isEmpty {
-                Text("Dotted hues stand apart from your active subjects.").font(TypeRole.caption.font).foregroundColor(theme.textDimmed.color)
+                Spacer()
+                if model.currentIsCustom {
+                    Circle().fill(RGBA(hex: model.color).color).frame(width: 14, height: 14)
+                    Text("Current colour").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
+                }
             }
             FieldLabel("Notes")
-            TextField("Optional \u{2014} add context or details \u{2026}", text: $model.notes)
+            TextField("Optional", text: $model.notes)
                 .textFieldStyle(FieldStyle())
                 .accessibilityLabel("Subject notes")
             InlineMessage(text: model.error)
@@ -211,25 +207,32 @@ struct SubjectEditorPanel: View {
 struct Swatch: View {
     let hex: String
     let selected: Bool
-    let suggested: Bool
     let action: () -> Void
     @Environment(\.theme) private var theme
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle().fill(RGBA(hex: hex).color).frame(width: 22, height: 22)
-                Circle().strokeBorder(selected ? theme.textPrimary.color : Color.clear, lineWidth: 2).frame(width: 28, height: 28)
-                if suggested && !selected {
-                    Circle().fill(theme.textPrimary.color).frame(width: 5, height: 5).offset(y: 15)
+            HStack(spacing: 6) {
+                ZStack {
+                    Circle().fill(RGBA(hex: hex).color).frame(width: 16, height: 16)
+                    if selected { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundColor(RGBA(hex: hex).contrastText.color) }
                 }
+                Text(name).font(.system(size: 11, weight: selected ? .semibold : .medium))
             }
-            .frame(width: 28, height: 34)
+            .foregroundColor(theme.textPrimary.color)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? theme.bgTertiary.color : theme.bgSecondary.color))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? theme.accent.color : theme.border.color, lineWidth: selected ? 1.5 : 1))
         }
         .buttonStyle(.plain)
-        .help(suggested ? "\(hex) \u{00B7} suggested" : hex)
-        .accessibilityLabel("Subject colour \(hex)\(suggested ? ", suggested" : "")")
+        .help(name)
+        .accessibilityLabel("Subject colour \(name)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var name: String {
+        ["#3B82F6": "Blue", "#8B5CF6": "Violet", "#EC4899": "Pink", "#EF4444": "Red",
+         "#F97316": "Orange", "#EAB308": "Yellow", "#22C55E": "Green", "#06B6D4": "Cyan"][hex.uppercased()] ?? "Current"
     }
 }
 

@@ -14,10 +14,19 @@ struct WeightPage: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: compact ? 6 : 8) {
                         PageHeader("Weight") {
-                            Button("Options") { store.showOptions.toggle() }.actionStyle(.secondary, selected: store.showOptions)
+                            Menu {
+                                Picker("Tile size", selection: Binding(get: { store.density }, set: { store.setAppearance(density: $0) })) {
+                                    Text("Comfortable").tag("comfortable")
+                                    Text("Compact").tag("compact")
+                                }
+                                Toggle("High contrast", isOn: Binding(get: { store.highContrast }, set: { store.setAppearance(contrast: $0) }))
+                            } label: {
+                                Image(systemName: "slider.horizontal.3").font(.system(size: 15))
+                            }
+                            .menuStyle(.borderlessButton).fixedSize()
+                            .help("Weight display settings")
                         }
                         entryCard(compact: compact)
-                        if store.showOptions { optionsCard }
                         chartCard(fullscreen: false).frame(height: 360)
                         historyCard(compact: compact)
                     }
@@ -64,6 +73,11 @@ struct WeightPage: View {
                         .help(String(format: "Change between %@ and %@ within the latest reading's 30-day window: %+.2f kg", badge.from, badge.to, badge.exact))
                 }
             }
+            HStack {
+                Text("Exact kg").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
+                PreciseField(value: store.value) { store.setPrecise($0) }
+                Spacer()
+            }
             HStack(spacing: 4) {
                 Button("\u{2039}") { store.shiftRange(-7) }.buttonStyle(TileStyle(selected: false, compact: compact, narrow: true)).help("Lower kilogram range")
                 ForEach(0..<7, id: \.self) { offset in
@@ -85,21 +99,6 @@ struct WeightPage: View {
                 .actionStyle(.primary, fill: true)
                 .disabled(!store.canSave)
             Text(store.status).font(.system(size: 12)).foregroundColor((store.highContrast ? theme.textPrimary : theme.textSecondary).color)
-        }
-    }
-
-    private var optionsCard: some View {
-        weightCard {
-            HStack(spacing: 10) {
-                Text("Density")
-                CompactSelector("Density", options: [("comfortable", "Comfortable"), ("compact", "Compact")], selection: store.density) { store.setAppearance(density: $0) }
-                Toggle("High contrast", isOn: Binding(get: { store.highContrast }, set: { store.setAppearance(contrast: $0) }))
-                Spacer()
-            }
-            HStack(spacing: 10) {
-                Text("Precise input (kg)")
-                PreciseField(value: store.value) { store.setPrecise($0) }
-            }
         }
     }
 

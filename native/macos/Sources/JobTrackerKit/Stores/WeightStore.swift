@@ -63,7 +63,6 @@ public final class WeightStore: ObservableObject {
     @Published public private(set) var saving = false
     @Published public var selectedHistoryUid: String?
     @Published public var search = ""
-    @Published public var showOptions = false
     @Published public var showDots = true
     @Published public var density = "comfortable"
     @Published public var highContrast = false

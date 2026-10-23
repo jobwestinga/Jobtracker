@@ -18,7 +18,7 @@ function colourPicker(content, { initial, used = new Set(), labelId }) {
   const label = el("p", "caption", "Colour");
   label.id = labelId;
   content.append(label);
-  const chips = el("div", "chips");
+  const chips = el("div", "chips subject-palette");
   chips.setAttribute("role", "group");
   chips.setAttribute("aria-labelledby", labelId);
   let value = initial;
@@ -34,7 +34,9 @@ function colourPicker(content, { initial, used = new Set(), labelId }) {
   function addSwatch(colour, name) {
     const chip = el("button", "chip swatch");
     chip.type = "button";
-    chip.style.background = colour;
+    const dot = el("span", "colour-dot");
+    dot.style.background = colour;
+    chip.append(dot, el("span", null, name));
     chip.dataset.colour = colour;
     const isUsed = [...used].some((entry) => same(entry, colour));
     chip.setAttribute("aria-label", isUsed ? `${name}, already used` : name);
@@ -45,13 +47,19 @@ function colourPicker(content, { initial, used = new Set(), labelId }) {
     return chip;
   }
   for (const [colour, name] of SUBJECT_PALETTE) addSwatch(colour, name);
-  if (initial && !SUBJECT_PALETTE.some(([colour]) => same(colour, initial))) addSwatch(initial, `Current colour ${initial}`);
+  if (initial && !SUBJECT_PALETTE.some(([colour]) => same(colour, initial))) {
+    const current = addSwatch(initial, "Current colour");
+    current.classList.add("current-colour");
+    current.setAttribute("aria-label", `Current colour ${initial}`);
+  }
   const custom = Object.assign(document.createElement("input"), { type: "color", className: "swatch-custom",
     value: /^#[0-9a-f]{6}$/i.test(initial || "") ? initial : "#3B82F6" });
   custom.setAttribute("aria-label", "Custom colour");
   custom.oninput = () => { value = custom.value; refresh(); };
-  chips.append(custom);
   content.append(chips);
+  const customLabel = el("label", "subject-custom-colour", "Custom colour");
+  customLabel.append(custom);
+  chips.append(customLabel);
   refresh();
   return { value: () => value };
 }

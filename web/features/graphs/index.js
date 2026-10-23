@@ -267,24 +267,24 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
 
       const tolerance = Math.max(30 / 3600, span / height / (window.devicePixelRatio || 1));
       const visible = byDay.get(day).filter((session) => session.end_h > lo && session.start_h < hi);
-      for (const { session, lane, lanes, joinsAbove, joinsBelow } of layoutAgendaDay(visible, tolerance)) {
-        const top = percentFor(Math.max(lo, session.start_h));
-        const blockHeight = Math.max(0, percentFor(Math.min(hi, session.end_h)) - top);
+      for (const { session, startH, endH, arranged, joinsAbove, joinsBelow } of layoutAgendaDay(visible, tolerance, { hourStart: lo, hourEnd: hi })) {
+        const top = percentFor(startH);
+        const blockHeight = Math.max(0, percentFor(endH) - top);
         const block = el("div", "agenda-block");
         block.style.top = `${top}%`;
         block.style.height = `${blockHeight}%`;
-        block.style.left = `calc(${(lane * 100) / lanes}% + 1px)`;
-        block.style.width = `calc(${100 / lanes}% - 2px)`;
+        block.style.left = "1px";
+        block.style.width = "calc(100% - 2px)";
         block.classList.toggle("joins-above", joinsAbove);
         block.classList.toggle("joins-below", joinsBelow);
         // Strong subject tint with an integrated subject edge (CSS).
         block.style.setProperty("--subject", safeColor(session.color));
         const pixels = blockHeight / 100 * height;
         if (pixels > 16) block.append(el("span", "agenda-title", session.subject_name));
-        if (pixels > 30) block.append(el("span", "agenda-dur", hm(session.duration_seconds)));
-        block.title = `${session.subject_name} · ${hm(session.duration_seconds)}`;
         const startClock = session.start_time?.slice(11, 16) || agendaHourLabel(session.start_h);
         const endClock = session.end_time?.slice(11, 16) || agendaHourLabel(session.end_h);
+        if (pixels > 30) block.append(el("span", "agenda-dur", `${arranged ? `${startClock} · ` : ""}${hm(session.duration_seconds)}`));
+        block.title = `${session.subject_name} · ${startClock}–${endClock} · ${hm(session.duration_seconds)}${arranged ? " · Arranged to avoid overlap; recorded times unchanged" : ""}`;
         block.setAttribute("aria-label", `${session.subject_name}, ${fullDay(day)}, ${startClock} to ${endClock}, ${hm(session.duration_seconds)}. Open session.`);
         block.dataset.focusKey = `session:${session.uid}`;
         block.onclick = (event) => {

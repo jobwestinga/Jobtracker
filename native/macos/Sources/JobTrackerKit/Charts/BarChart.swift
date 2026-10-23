@@ -195,7 +195,7 @@ struct BarChartView: View {
         Canvas { context, size in
             let outer = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
             context.fill(Path(roundedRect: outer, cornerRadius: Radius.chart), with: .color(theme.bgSecondary.alpha(238 / 255).color))
-            context.stroke(Path(roundedRect: outer, cornerRadius: Radius.chart), with: .color(theme.border.alpha(160 / 255).color), lineWidth: 1)
+            context.stroke(Path(roundedRect: outer, cornerRadius: Radius.chart), with: .color(theme.border.color), lineWidth: 1)
             let chart = layout.chart
             guard !data.buckets.isEmpty else {
                 context.draw(Text("No tracked data yet").foregroundColor(theme.textDimmed.color), at: CGPoint(x: chart.midX, y: chart.midY))
@@ -208,9 +208,13 @@ struct BarChartView: View {
                 line.addLine(to: CGPoint(x: chart.maxX, y: y.rounded() + 0.5))
                 context.stroke(line, with: .color(theme.border.alpha(90 / 255).color), lineWidth: 1)
             }
-            context.draw(Text(String(format: "%.1fh", Double(layout.maxTotal) / 3600)).font(.system(size: 9)).foregroundColor(theme.textDimmed.color),
+            var axis = Path()
+            axis.move(to: CGPoint(x: chart.minX, y: chart.minY))
+            axis.addLine(to: CGPoint(x: chart.minX, y: chart.maxY))
+            context.stroke(axis, with: .color(theme.textSecondary.alpha(0.65).color), lineWidth: 1)
+            context.draw(Text(String(format: "%.1fh", Double(layout.maxTotal) / 3600)).font(.system(size: 10, weight: .medium)).foregroundColor(theme.textSecondary.color),
                          at: CGPoint(x: 4, y: chart.minY), anchor: .leading)
-            context.draw(Text("0.0h").font(.system(size: 9)).foregroundColor(theme.textDimmed.color), at: CGPoint(x: 4, y: chart.maxY), anchor: .leading)
+            context.draw(Text("0.0h").font(.system(size: 10, weight: .medium)).foregroundColor(theme.textSecondary.color), at: CGPoint(x: 4, y: chart.maxY), anchor: .leading)
 
             for bar in layout.bars where bar.rect.height > 0 {
                 let clip = Path(roundedRect: bar.rect, cornerRadius: bar.radius, style: .continuous)

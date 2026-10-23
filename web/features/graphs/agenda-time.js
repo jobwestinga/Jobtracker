@@ -32,35 +32,45 @@ export function agendaHourLabel(hour) {
   return `${pad(Math.floor(hour) % 24)}:00${hour >= 24 ? " +1" : ""}`;
 }
 
-// Bold agenda: overlapping sessions keep their true times in side-by-side
-// lanes; same-lane blocks separated by at most the tolerance (max of 30 s and
-// one device pixel) join into one shape. Joining is drawing only: each block
-// keeps its own interval, target and identity, and no gap counts as work.
-export function layoutAgendaDay(sessions, toleranceHours) {
-  const placed = [];
-  let laneEnds = [], cluster = [], clusterEnd = -Infinity;
-  const close = () => {
-    const lanes = Math.max(1, ...cluster.map((item) => item.lane + 1));
-    for (const item of cluster) item.lanes = lanes;
-    cluster = []; laneEnds = [];
-  };
-  for (const session of [...sessions].sort((a, b) => a.start_h - b.start_h || a.end_h - b.end_h)) {
-    if (session.start_h >= clusterEnd - 1e-9) close();
-    let lane = laneEnds.findIndex((end) => end <= session.start_h + 1e-9);
-    if (lane < 0) { lane = laneEnds.length; laneEnds.push(session.end_h); } else laneEnds[lane] = session.end_h;
-    const item = { session, lane, lanes: 1, joinsAbove: false, joinsBelow: false };
-    placed.push(item); cluster.push(item);
-    clusterEnd = Math.max(clusterEnd, session.end_h);
-  }
-  close();
-  const lastInLane = new Map();
+// Arrange overlapping blocks vertically for readability. Only display endpoints
+// change: session objects, recorded times, duration and click targets stay exact.
+export function layoutAgendaDay(sessions, toleranceHours, { hourStart = 0, hourEnd = 27 } = {}) {
+  const placed = [...sessions].sort((a, b) => a.start_h - b.start_h || a.end_h - b.end_h ||
+    String(a.uid || "").localeCompare(String(b.uid || ""))).map((session) => {
+    const startH = Math.max(hourStart, session.start_h), endH = Math.min(hourEnd, session.end_h);
+    return { session, startH, endH, duration: endH - startH, lane: 0, lanes: 1, joinsAbove: false, joinsBelow: false };
+  }).filter((item) => item.duration > 0);
+  let cursor = hourStart;
   for (const item of placed) {
-    const key = `${item.lane}/${item.lanes}`;
-    const previous = lastInLane.get(key);
-    if (previous && Math.abs(item.session.start_h - previous.session.end_h) <= toleranceHours) {
+    item.startH = Math.max(item.startH, cursor);
+    cursor = item.endH = item.startH + item.duration;
+  }
+  if (cursor > hourEnd) {
+    const total = placed.reduce((sum, item) => sum + item.duration, 0);
+    if (total <= hourEnd - hourStart) {
+      cursor = hourEnd;
+      for (const item of [...placed].reverse()) {
+        item.endH = Math.min(item.endH, cursor);
+        cursor = item.startH = item.endH - item.duration;
+      }
+    } else {
+      // Too much recorded time for this visible window: compress the display
+      // consistently instead of hiding, overlapping or changing any session.
+      const scale = (hourEnd - hourStart) / total;
+      cursor = hourStart;
+      for (const item of placed) {
+        item.startH = cursor;
+        cursor = item.endH = cursor + item.duration * scale;
+      }
+    }
+  }
+  placed.forEach((item, index) => {
+    item.arranged = Math.abs(item.startH - Math.max(hourStart, item.session.start_h)) > 1e-9 ||
+      Math.abs(item.endH - Math.min(hourEnd, item.session.end_h)) > 1e-9;
+    const previous = placed[index - 1];
+    if (previous && Math.abs(item.startH - previous.endH) <= toleranceHours) {
       previous.joinsBelow = true; item.joinsAbove = true;
     }
-    lastInLane.set(key, item);
-  }
+  });
   return placed;
 }

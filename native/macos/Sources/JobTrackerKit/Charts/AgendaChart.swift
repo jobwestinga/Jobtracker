@@ -3,18 +3,19 @@ import SwiftUI
 
 /// Bold agenda layout. Blocks keep their exact interval and session identity.
 ///
-/// Visual adjacency: two blocks in the same lane join into one outer shape when
+/// Overlaps are arranged vertically for display; stored timestamps stay exact.
+/// Visual adjacency: two blocks join into one outer shape when
 /// the gap between them is at most `max(adjacency_seconds, one device pixel)`
 /// at the current zoom; anything larger stays a visible gap. Joining is drawing
 /// only: each block keeps its own rectangle, hit target and session UID, and a
-/// gap is never counted as work. Overlapping sessions are not moved: they
-/// share the column in side-by-side lanes at their true times.
+/// gap is never counted as work. Adjusted blocks show their recorded start time.
 public struct AgendaLayout {
     public struct Block: Identifiable {
         public let source: AgendaBlockDTO
         public let rect: CGRect
         public let lane: Int
         public let lanes: Int
+        public let arranged: Bool
         public var group: Int
         public var id: String { source.id }
     }
@@ -74,53 +75,47 @@ public struct AgendaLayout {
                 let start = max(Double(startHour), min(Double(endHour), block.startH))
                 let end = max(Double(startHour), min(Double(endHour), block.endH))
                 return end > start ? (block, start, end) : nil
-            }.sorted { ($0.1, $0.2) < ($1.1, $1.2) }
+            }.sorted { ($0.1, $0.2, $0.0.uid ?? "") < ($1.1, $1.2, $1.0.uid ?? "") }
 
-            // Lanes: an overlapping session takes the next free lane.
-            var laneEnds: [Double] = []
-            var clusterEnd = -Double.infinity
-            var cluster: [Int] = []
-            var assigned: [(AgendaBlockDTO, Double, Double, Int)] = []
-            var laneCounts: [Int] = []
-            func closeCluster() {
-                let lanes = max(1, cluster.map { assigned[$0].3 }.max().map { $0 + 1 } ?? 1)
-                for i in cluster { laneCounts[i] = lanes }
-                cluster = []
-                laneEnds = []
+            // Pack the display forwards, then pull it back inside the window.
+            // A completely full window uses one common display scale. The
+            // source DTO remains untouched and is always the editor target.
+            var assigned = visible
+            var cursor = Double(startHour)
+            for i in assigned.indices {
+                let duration = visible[i].2 - visible[i].1
+                assigned[i].1 = max(visible[i].1, cursor)
+                assigned[i].2 = assigned[i].1 + duration
+                cursor = assigned[i].2
             }
-            for item in visible {
-                if item.1 >= clusterEnd - 1e-9 { closeCluster() }
-                var lane = laneEnds.firstIndex { $0 <= item.1 + 1e-9 } ?? laneEnds.count
-                if lane == laneEnds.count { laneEnds.append(item.2) } else { laneEnds[lane] = item.2 }
-                assigned.append((item.0, item.1, item.2, lane))
-                laneCounts.append(1)
-                cluster.append(assigned.count - 1)
-                clusterEnd = max(clusterEnd, item.2)
-            }
-            closeCluster()
-
-            var blocks: [Block] = []
-            for (i, item) in assigned.enumerated() {
-                let lanes = laneCounts[i]
-                let inset = min(1, width / 10)
-                let laneWidth = (width - 2 * inset) / CGFloat(lanes)
-                let laneGap = lanes > 1 ? min(1, laneWidth / 5) : 0
-                let top = y(item.1), bottom = y(item.2)
-                let blockRect = CGRect(x: x + inset + CGFloat(item.3) * laneWidth, y: top, width: laneWidth - laneGap,
-                                       height: max(2, bottom - top))
-                blocks.append(Block(source: item.0, rect: blockRect, lane: item.3, lanes: lanes, group: -1))
-            }
-            // Adjacency groups per lane geometry.
-            var groupId = 0
-            var lastInLane: [String: Int] = [:]
-            for i in blocks.indices {
-                let key = "\(blocks[i].lane)/\(blocks[i].lanes)"
-                if let previous = lastInLane[key] {
-                    let prevEnd = assigned[previous].2
-                    if abs(assigned[i].1 - prevEnd) <= tolerance { blocks[i].group = blocks[previous].group }
+            if cursor > Double(endHour) {
+                let total = visible.reduce(0) { $0 + $1.2 - $1.1 }
+                if total <= Double(endHour - startHour) {
+                    cursor = Double(endHour)
+                    for i in assigned.indices.reversed() {
+                        assigned[i].2 = min(assigned[i].2, cursor)
+                        assigned[i].1 = assigned[i].2 - (visible[i].2 - visible[i].1)
+                        cursor = assigned[i].1
+                    }
+                } else {
+                    let scale = Double(endHour - startHour) / total
+                    cursor = Double(startHour)
+                    for i in assigned.indices {
+                        assigned[i].1 = cursor
+                        assigned[i].2 = cursor + (visible[i].2 - visible[i].1) * scale
+                        cursor = assigned[i].2
+                    }
                 }
-                if blocks[i].group < 0 { blocks[i].group = groupId; groupId += 1 }
-                lastInLane[key] = i
+            }
+            let inset = min(1, width / 10)
+            var blocks: [Block] = []
+            var groupId = 0
+            for (i, item) in assigned.enumerated() {
+                if i > 0 && abs(item.1 - assigned[i - 1].2) > tolerance { groupId += 1 }
+                let blockRect = CGRect(x: x + inset, y: y(item.1), width: width - 2 * inset,
+                                       height: max(0, y(item.2) - y(item.1)))
+                let arranged = abs(item.1 - visible[i].1) > 1e-9 || abs(item.2 - visible[i].2) > 1e-9
+                blocks.append(Block(source: item.0, rect: blockRect, lane: 0, lanes: 1, arranged: arranged, group: groupId))
             }
             let groups = Dictionary(grouping: blocks, by: \.group).sorted { $0.key < $1.key }.map(\.value)
             built.append(Column(day: day, rect: rect, label: LocalTime.format(day, "EEE dd"), blocks: blocks, groups: groups))
@@ -138,7 +133,8 @@ public struct AgendaLayout {
         let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
         let durationFont = NSFont.systemFont(ofSize: 10, weight: .medium)
         let seconds = block.source.durationSeconds
-        let duration = seconds >= 3600 ? String(format: "%.1fh", Double(seconds) / 3600) : "\(max(1, Int((Double(seconds) / 60).rounded())))m"
+        let durationText = seconds >= 3600 ? String(format: "%.1fh", Double(seconds) / 3600) : "\(max(1, Int((Double(seconds) / 60).rounded())))m"
+        let duration = block.arranged ? "\(timeLabel(block.source.startH)) · \(durationText)" : durationText
         let title = elided(block.source.subjectName, font: titleFont, width: width)
         // The duration falls back to smaller sizes rather than being clipped.
         let fittedDuration = [11.0, 10.0, 9.0].lazy
@@ -224,10 +220,9 @@ struct AgendaChartView: View {
                 let source = block.source
                 let tip = "\(source.subjectName)\n\(LocalTime.format(source.day, "EEEE, dd MMMM yyyy"))\n" +
                     "\(AgendaLayout.timeLabel(source.startH))\u{2013}\(AgendaLayout.timeLabel(source.endH)) \u{00B7} \(String(format: "%.1fh", Double(source.durationSeconds) / 3600))" +
-                    (source.uid != nil ? "\nClick to edit \u{00B7} click empty space for the whole day" : "")
-                // A very short block keeps a usable target without growing its drawing.
-                let target = block.rect.height < 6 ? block.rect.insetBy(dx: 0, dy: -(6 - block.rect.height) / 2) : block.rect
-                regions.append(.init(rect: target, tooltip: tip, clickable: true, action: { onBlock(source) }))
+                    (source.uid != nil ? "\nClick to edit \u{00B7} click empty space for the whole day" : "") +
+                    (block.arranged ? "\nArranged to avoid overlap; recorded times unchanged" : "")
+                regions.append(.init(rect: block.rect, tooltip: tip, clickable: true, action: { onBlock(source) }))
             }
         }
         return regions
