@@ -39,6 +39,30 @@ final class LiveApp {
 }
 
 struct FeatureStateTests: CheckSuite {
+    func sessionSaveKeepsNewerInputBoundToTheConfirmedSession() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        let subject = app.subjects.subjects.first { $0.name == "Reading" }!
+        let panel = SessionPanelModel(app: app, scope: .subject(uid: subject.uid, name: subject.name, color: subject.color))
+        live.harness.pump(5) { panel.loaded }
+        let before = panel.total
+        panel.beginNew()
+        let pid = pid_t(app.engine.hello!.pid)
+        kill(pid, SIGSTOP)
+        var finished = false
+        Task { @MainActor in await panel.save(); finished = true }
+        live.harness.pump(2) { panel.inFlight.contains("add") }
+        let newerEnd = LocalTime.isoString(Date().addingTimeInterval(600), microseconds: false).replacingOccurrences(of: "T", with: " ")
+        panel.draft?.end = newerEnd
+        kill(pid, SIGCONT)
+        live.harness.pump(10) { finished }
+        expect(finished && panel.draft?.isNew == false, "a normal delayed reply adopts the created UID")
+        expect(panel.draft?.end == newerEnd, "newer input survives the confirmation")
+        live.run { await panel.save() }
+        expect(panel.total == before + 1, "saving the newer input edits the same session")
+        expect(panel.draft?.isDirty == false, "the second save confirms the edited fields")
+    }
+
     func closeAndEscapeKeepAPanelWhoseSaveIsInFlight() {
         guard let live = LiveApp() else { expect(false, "live app"); return }
         let app = live.app!

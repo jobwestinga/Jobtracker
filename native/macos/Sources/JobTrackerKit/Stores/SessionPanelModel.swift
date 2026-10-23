@@ -286,19 +286,26 @@ public final class SessionPanelModel: ObservableObject {
         guard let key = requestIds.first(where: { $0.value == requestId })?.key else { return }
         let submitted = submittedDrafts[key]
         settle(key, response)
-        if response.outcome.succeeded, let submitted, let current = draft, current.id == submitted.id,
+        if response.outcome.succeeded, let submitted,
            let saved = try? response.result(SessionResult.self).session {
-            var rebased = Draft(session: saved)
-            if current.subjectUid != submitted.subjectUid { rebased.subjectUid = current.subjectUid }
-            if current.start != submitted.start { rebased.start = current.start }
-            if current.end != submitted.end { rebased.end = current.end }
-            selectedUid = saved.uid
-            draft = rebased
-            conflict = nil
+            adopt(saved, submitted: submitted)
             message = "The earlier save was confirmed. Any newer edits are kept."
         } else if !response.outcome.succeeded {
             message = response.error ?? "The earlier change was not applied. Your input is kept."
         }
+    }
+
+    /// Both ordinary and late replies confirm the captured draft. Retain any
+    /// fields typed since that capture, rebased onto the saved row's identity.
+    private func adopt(_ saved: SessionDTO, submitted: Draft) {
+        guard let current = draft, current.id == submitted.id else { return }
+        var rebased = Draft(session: saved)
+        if current.subjectUid != submitted.subjectUid { rebased.subjectUid = current.subjectUid }
+        if current.start != submitted.start { rebased.start = current.start }
+        if current.end != submitted.end { rebased.end = current.end }
+        selectedUid = saved.uid
+        draft = rebased
+        conflict = nil
     }
 
     @MainActor
@@ -320,7 +327,7 @@ public final class SessionPanelModel: ObservableObject {
     @MainActor
     public func save() async {
         guard conflict == nil else { message = "Resolve the changed session before saving your edits."; return }
-        guard var current = draft else { return }
+        guard let current = draft else { return }
         guard current.isNew || current.targetUid == selectedUid else {
             message = "The original session is no longer selected. Your unsaved input is kept."
             return
@@ -343,11 +350,7 @@ public final class SessionPanelModel: ObservableObject {
         conflict = nil
         // Only clear the draft that was submitted; a newer edit made while
         // waiting stays in place.
-        current = draft ?? submitted
-        if current == submitted {
-            selectedUid = saved.uid
-            draft = Draft(session: saved)
-        }
+        adopt(saved, submitted: submitted)
         await refresh()
     }
 
