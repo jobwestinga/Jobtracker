@@ -51,7 +51,15 @@ identity. Avoid tests that only repeat a low-impact implementation detail.
 python scripts/dev.py test --python /path/to/python
 python scripts/dev.py check
 python scripts/dev.py mobile
+python scripts/dev.py native --python /path/to/python   # when native/ or jobtracker/desktop changed
 ```
+
+`native` builds the SwiftPM package outside iCloud and runs `JobTrackerChecks`:
+layout and decoding checks, the shared bridge fixtures, and live-engine checks
+that start `python -m jobtracker.desktop` on disposable isolated stores
+(replay after a lost reply, journal recovery, crash restart, single owner and
+feature flows). It needs only the Command Line Tools; native UI automation and
+VoiceOver passes need full Xcode and remain manual.
 
 The full test command runs pytest. `check` also runs the repository privacy
 guard; enable its staged-content hook with `git config core.hooksPath .githooks`.
