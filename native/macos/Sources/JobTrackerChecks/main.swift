@@ -39,6 +39,8 @@ let checks: [(String, () throws -> Void)] = [
     ("FeatureStateTests.themePreviewRollsBackOnCancel", { try FeatureStateTests().themePreviewRollsBackOnCancel() }),
     ("FeatureStateTests.keyRoutingFollowsPageAndPanelOwnership", { try FeatureStateTests().keyRoutingFollowsPageAndPanelOwnership() }),
     ("FeatureStateTests.weightEditsKeepImportedPrecisionAndDailyIdentity", { try FeatureStateTests().weightEditsKeepImportedPrecisionAndDailyIdentity() }),
+    ("FeatureStateTests.movingTheSelectionOutOfTheDayClearsItWithoutReselecting", { try FeatureStateTests().movingTheSelectionOutOfTheDayClearsItWithoutReselecting() }),
+    ("FeatureStateTests.unreachableServerShowsOfflineWhileLocalSavesSucceed", { try FeatureStateTests().unreachableServerShowsOfflineWhileLocalSavesSucceed() }),
 ]
 
 exit(runChecks(checks))

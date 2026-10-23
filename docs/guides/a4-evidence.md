@@ -79,7 +79,7 @@ What exists now (commits `0201102`…`f0587ce`):
 
 | Check | Result |
 | --- | --- |
-| `dev.py native` (JobTrackerChecks: layouts, fixtures, journal, live engine, feature flows) | 35 checks, 0 failures |
+| `dev.py native` (JobTrackerChecks: layouts, fixtures, journal, live engine, feature flows) | 37 checks, 0 failures |
 | `pytest tests/desktop` (engine protocol, commands, lifecycle, synthetic store) | all pass |
 | `dev.py mobile` | 151 passed (148 + 3 agenda-layout) |
 | `dev.py browser` | all four harnesses passed (`voiceOverTested: false`) |
@@ -122,7 +122,7 @@ thin instead of overlapping; titles and durations fit or step down, never clip.
 | Check | Result |
 | --- | --- |
 | `dev.py test` (full pytest, Qt included) | 1086 passed, 22 skipped (the baseline's skips), 664 s |
-| `dev.py native` | 35 checks, 0 failures |
+| `dev.py native` | 37 checks, 0 failures |
 | `dev.py mobile` / `dev.py browser` | 151 passed / all four harnesses passed |
 | `dev.py check` | pass |
 
@@ -149,7 +149,7 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 | A11 | Pass | E launch/entry generation through the facade | — |
 | A12 | Pass | N agenda block and subject history select exact UID | — |
 | A13 | Pass | V W1 presets visible without disclosure; P phone presets | — |
-| A14 | Partial | N two +15m moves keep UID and duration | Native leave-the-day selection check |
+| A14 | Pass | N two +15m moves keep UID and duration; moving out of the day clears selection and later taps act on nothing | — |
 | A15 | Pass | E/N short edit refused, original intact, exact unchanged endpoints | — |
 | A16 | Pass | N/P honest overlap lanes; synthetic future/overlap rows | — |
 | A17 | Pass | No client date rules; engine reuses services/graph window | — |
@@ -162,7 +162,7 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 | A24 | Pass | N imported precision and daily identity; E weight.view | — |
 | A25 | Partial | E trend/badge from `weight_plot`; fullscreen/Escape in code | Native fullscreen UI run |
 | A26 | Pass | E local-only and synced queueing; engine thread owns network | — |
-| A27 | Partial | Shared status wording; engine status events | Native offline/blocked UI run |
+| A27 | Pass | N unreachable server shows Offline, token hidden, local save queued; shared wording | Blocked-server UI run |
 | A28 | Pass | E export bundle, import merge, malformed import | Native file-dialog cancel run |
 | A29 | Not done | V half-width only | **M** VoiceOver, display scaling, reduced motion |
 | A30 | Partial | N drafts bound to UID; epochs | Sync-during-edit UI run |
