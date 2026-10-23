@@ -50,7 +50,7 @@ are split by domain so unrelated implementation history stays out of a task.
 
 - [A4 native Mac overhaul guide](guides/a4-native-mac-overhaul.md): complete
   staged implementation plan, selected designs, recent fixes to preserve,
-  feature parity, validation and guarded cutover. Progress and results are in
+  feature parity, validation and guarded cutover. Implementation and release results are in
   the [A4 evidence record](guides/a4-evidence.md); the
   [correctness review](guides/a4-review-2026-10-22.md) records subsequent fixes
   and remaining verification gates.

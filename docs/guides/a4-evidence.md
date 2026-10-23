@@ -7,7 +7,9 @@ captures and timings live in the ignored `.local/a4-evidence/` folder.
 The subsequent [independent correctness review](a4-review-2026-10-22.md) records
 regressions found and fixed after `165d6e4`. Historical test counts below describe
 that earlier implementation. A row with outstanding runtime evidence is Partial,
-even when its available unit/model checks pass; this is not a native cutover signoff.
+even when its available unit/model checks pass. These historical rows describe
+the 22 October cutoff; the M6 continuation below records the subsequent pilot,
+scope decisions and actual cutover.
 
 ## M0 — baseline (P00), 22 October 2026
 
@@ -198,7 +200,7 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
 | Install fails mid-replacement | Pass (existing) | Installer rollback tests |
 | Phone storage/credential failure | Pass (existing) | Phone harnesses |
 
-## Not done, and why
+## Initial cutoff — 22 October 2026
 
 - **XCUI automation and VoiceOver (A29, P16.4).** Full Xcode is not installed;
   the guide forbids installing it silently. The Command Line Tools also lack
@@ -212,3 +214,103 @@ Evidence kinds: **E** engine/Python test, **N** native check (`dev.py native`),
   trigger installation, and A29 and the manual pilot are open gates.
 - **Phone deployment (P14.6).** Assets are tested locally (shell v26) but not
   deployed to the server for the same reason.
+
+## M6 — native cutover and phone delivery, 23 October 2026
+
+The user authorized completing the plan, tried the isolated native pilot and
+reported that navigation, Weight, graphs, Subjects, Goals and Settings worked
+well. The requested follow-up changes are shipped: Weight display preferences
+use a compact menu, subject colours are eight named choices without suggested
+markers, small chart totals and the left axis are clearer, and overlapping
+agenda blocks are arranged vertically **for display only**. The user explicitly
+chose to retain every saved timestamp and removed VoiceOver testing from scope.
+
+The delayed-session-save regression found during this continuation is fixed:
+typing newer fields before the ordinary save reply returns now keeps those
+fields bound to the newly saved UID. Saving again edits that row. Both ordinary
+and late replies use the same rebasing path.
+Closing forms also disable their fields while Save is pending. An actual-window
+check suspended the disposable engine, confirmed the field was disabled, then
+resumed it and verified that the captured Subject was saved once.
+
+### Final verification
+
+| Check | Result |
+| --- | --- |
+| Full Python/Qt/server suite | 1095 passed, 22 existing skips, 718.08 s |
+| Native executable suite | 51 checks, 0 failures |
+| Phone Node suite | 155 passed, no skips |
+| Browser harnesses | All four pass; includes 320px reflow, 200% text, red bloom, exact-session editing, offline/retry and queued-write retention |
+| Source, boundaries, generated tokens/index, privacy and whitespace | Pass |
+| SQLite full-store failure | Real `max_page_count` limit: mutation, outbox and receipt roll back; restoring capacity allows the original request to succeed exactly once |
+| Two-device rehearsal | Two independent engine stores and a disposable loopback API; remote move preserves native selection/draft, requires conflict resolution, settles queues and preserves timer ownership |
+| Native runtime input | Actual arrow navigation, numbered goal/milestone, numeric text input, physical drag reorder, fullscreen Space with nested Settings/Escape, Weight fullscreen/Escape and native backup-dialog cancellation |
+| Native colour control | Named palette reviewed at narrow width; native custom well opens; untouched stored colours remain exact |
+| Offline native window | Unreachable loopback API displays Offline; a new Subject saves locally and stays queued; normal quit retains both pending operations |
+| Native visual review | Updated subject form, Weight and agenda at 560×760 on Retina; existing six-theme/full-width captures remain applicable |
+
+The phone browser pass initially caught a flattened size hierarchy at 200% text
+and an oversized peak label. The final common label base and minimum column
+width retain relative sizes and keep labels inside their columns. All four
+harnesses were rerun successfully on the final assets.
+
+### Release performance
+
+Both **signed release bundles** used the same synthetic SQLite fixture and
+started on Subjects. One common window-capture/OCR observer waited for Physics
+to become visible. The first pair warmed caches; three further pairs were
+interleaved. Times include observer/capture overhead and are not raw engine
+startup times. These small samples on one Mac indicate no launch/memory
+regression; they are not a general benchmark.
+
+| Measure | Qt | Native |
+| --- | --- | --- |
+| Median observed first data | 2.718 s | 0.815 s |
+| Median combined resident memory at observation | 165.9 MB | 131.2 MB, UI plus helper |
+| Signed application size | About 96 MB | 27.8 MB |
+
+Release layout-only measurements, 25 warm iterations at a 680×700 canvas:
+120 monthly bars median 27.25 ms; 36,520 agenda sessions over 1,826 days median
+407.32 ms. This measures geometry/text layout, not whole-window paint. A static
+native offline window consumed 0.01 CPU-seconds across UI/helper in a five-second
+idle sample. Private fixtures, captures, timings and logs live in ignored
+`.local/a4-finish/` or temporary files.
+
+### Delivered and verified
+
+- Installed `/Applications/JobTracker.app` using the guarded installer at safe
+  idle. It retained `com.jobtracker.app`, the existing icon and production store,
+  verified signing, backed up both affected databases and retained the previous
+  Qt application. Backup: `~/JobTracker-updates/backups/20261023-091110-bd23dfcf/`.
+  The final guarded form-save correction also retained its preceding native
+  bundle and new store backups under
+  `~/JobTracker-updates/backups/20261023-093400-01c270e0/`.
+- The running installed executable matches the reviewed native production
+  bundle. The window is responsive and sync reports Up to date; no operations
+  or native request acknowledgements remain pending.
+- Read-only fingerprints before/after cutover match for Subjects (including
+  colours and order), every stored session and timestamp, Weight history,
+  selected local preferences and the credential file. No real sample history
+  was created, deleted or retimed during smoke checks.
+- Phone shell **v28** is deployed. Own-server health and authenticated context /
+  weight reads return 200. All **67 shell assets**, including both phone profiles,
+  match the local source byte-for-byte. Existing browser storage/queues were
+  retained; an iPhone receives the shell through its normal connected refresh.
+- `python main.py` and the Qt build route remain available. The actual retained
+  signed Qt bundle opened a private online-backup copy of the post-cutover store
+  with sync disabled. Its session timestamps stayed identical, and the private
+  copy was removed afterwards. A code rollback must never restore an old
+  database over current data.
+
+Local code commits in this continuation: `9e6a205` (save identity and two-device
+checks), `bbb4c28` (SQLite-full regression), `8adf5d3` (pilot feedback and phone
+v28), `f46e161` (pending form controls). Nothing was pushed.
+
+### Verification limits
+
+XCUIAutomation under full Xcode was not run; full Xcode was not installed.
+Real-window input checks and the user's pilot provided the runtime evidence
+above. Additional physical displays, native 200% text settings, overnight energy
+and long-term daily use were not exhaustively exercised. The source/fixtures
+and retained Qt route support follow-up checks without replacing or resetting
+the user's store. VoiceOver is excluded by the user's explicit instruction.
