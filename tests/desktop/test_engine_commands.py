@@ -78,6 +78,33 @@ def test_receipt_failure_rolls_back_the_mutation_and_its_outbox_entry(synced_eng
     assert _outbox(synced_engine) == before
 
 
+def test_sqlite_full_rolls_back_and_same_request_can_succeed_after_space_returns(synced_engine):
+    connection = synced_engine.service.db.connection
+    before = _outbox(synced_engine)
+    rid = request_id()
+    params = {"name": "Physics", "color": "#3B82F6", "notes": "x" * 20_000}
+    original_limit = connection.execute("PRAGMA max_page_count").fetchone()[0]
+    pages = connection.execute("PRAGMA page_count").fetchone()[0]
+    connection.execute(f"PRAGMA max_page_count = {pages}")
+    try:
+        response = synced_engine.call("subject.add", params, rid=rid)
+        assert response["outcome"] == protocol.STORAGE_ERROR
+        assert response["topics"] == []
+        assert synced_engine.service.db.get_subject_by_name("Physics") is None
+        assert _outbox(synced_engine) == before
+        assert connection.execute(
+            f"SELECT COUNT(*) FROM {receipts.TABLE} WHERE request_id = ?", (rid,)
+        ).fetchone()[0] == 0
+    finally:
+        connection.execute(f"PRAGMA max_page_count = {original_limit}")
+
+    saved = synced_engine.ok("subject.add", params, rid=rid)["subject"]
+    again = synced_engine.call("subject.add", params, rid=rid)
+    assert again["outcome"] == protocol.REPLAYED
+    assert again["result"]["subject"]["uid"] == saved["uid"]
+    assert _outbox(synced_engine)[len(before):] == ["add_subject"]
+
+
 def test_receipt_failure_after_timer_start_readopts_surviving_state(synced_engine, monkeypatch):
     subject = synced_engine.ok("subject.add", {"name": "Physics", "color": "#3B82F6", "notes": ""})["subject"]
     monkeypatch.setattr(receipts, "store", lambda *a, **k: (_ for _ in ()).throw(receipts.sqlite3.OperationalError("full")))
