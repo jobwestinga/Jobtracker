@@ -59,8 +59,9 @@ layout and decoding checks, the shared bridge fixtures, and live-engine checks
 that start `python -m jobtracker.desktop` on disposable isolated stores
 (replay after a lost reply, journal recovery, crash restart, single owner and
 feature flows). It needs only the Command Line Tools. XCUIAutomation requires
-full Xcode; VoiceOver is built into macOS and requires a separate interactive
-pass, not an Xcode installation.
+full Xcode. The current release combines the executable checks with actual Mac
+window/input checks and the user's pilot; see the
+[A4 evidence](../guides/a4-evidence.md#m6--native-cutover-and-phone-delivery-23-october-2026).
 
 The full test command runs pytest. `check` also runs the repository privacy
 guard; enable its staged-content hook with `git config core.hooksPath .githooks`.
@@ -102,8 +103,8 @@ opens its details.
 
 These checks follow the [WAI modal dialog pattern](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/)
 and [reflow guidance](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html).
-They do not replace a manual pass in iPhone Safari with VoiceOver: check control
-names, swipe order, save/error announcements, modal dismissal and fullscreen
+They do not replace a hands-on pass in iPhone Safari: check control
+names, focus order, save/error feedback, modal dismissal and fullscreen
 rotation with an unfinished draft. Do not claim WCAG certification from these
 synthetic browser checks.
 

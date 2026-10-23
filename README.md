@@ -26,7 +26,11 @@ source and synthetic test data. See the [privacy policy](docs/privacy.md).
 
 ## Run on a Mac
 
-Requires macOS 12+ and Python 3.12+. Clone the repository and run:
+The packaged Mac frontend uses SwiftUI/AppKit over the bundled Python engine.
+The native cutover and retained Qt fallback are recorded in the
+[A4 release evidence](docs/guides/a4-evidence.md#m6--native-cutover-and-phone-delivery-23-october-2026).
+
+For the compatible Qt source frontend, use macOS 12+ and Python 3.12+:
 
 ```sh
 python3 -m venv .venv
@@ -39,15 +43,18 @@ The development database lives in ignored `data/`. A packaged app stores its
 history in `~/Library/Application Support/JobTracker/`. Running a source checkout
 uses a different database from the installed app. Both work without a server.
 
-To build a signed app outside iCloud:
+To build the native production app outside iCloud (Command Line Tools required):
 
 ```sh
-python3 scripts/dev.py build --python /path/to/python
+python3 scripts/dev.py build --native --identity production --python /path/to/python
 ```
 
 The [build/install guide](docs/runbooks/build-install.md) explains dependencies,
 safe installation, queued updates and backups. Active sessions and pending
 writes block app replacement; the installer waits for safe idle.
+The build command stages only; use the guarded installer described there.
+Omit `--native` to build the Qt fallback, or use `--identity pilot` for a separate
+native app on its own store.
 
 ## Use on an iPhone
 

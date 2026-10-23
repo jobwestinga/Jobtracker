@@ -33,9 +33,9 @@ Weight tasks also have a [small end-to-end owner map](features/weight.md).
 
 ## What this app is
 
-- A **self-hosted, personal time tracker**. A macOS desktop app (PySide6 /
-  Qt 6 Widgets + SQLite) and an iPhone web client talking to **the user's own
-  server**. Single user, no third parties.
+- A **self-hosted, personal time tracker**. A macOS app (SwiftUI/AppKit over
+  the existing Python/SQLite engine, with a PySide6/Qt fallback) and an iPhone
+  web client talking to **the user's own server**. Single user, no third parties.
 - **Subjects** are the timed entities — you start/stop a timer on a subject and
   it records sessions. **Goals are a separate, outcome-focused area** with
   descriptions and milestones. They are intentionally **not** connected to

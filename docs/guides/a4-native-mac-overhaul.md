@@ -1,8 +1,9 @@
 # A4 native Mac overhaul: complete implementation guide
 
-Status: implementation in progress since 22 October 2026. The
+Status: native cutover and phone delivery completed on 23 October 2026. The
 [evidence record](a4-evidence.md) states which phases have actually run and
-with what result; this guide still describes the complete target.
+with what result, including the retained verification limits; this guide
+describes the complete target and the selected pilot adjustments.
 
 Pilot feedback, 23 October: keep the native direction; simplify Weight display
 settings and the named subject colour choices, improve small chart totals and
@@ -465,8 +466,9 @@ writes without bypassing the existing service/outbox or creating duplicate work.
 
 ### P04 — Build the first read-only native view
 
-1. **P04.1 — Establish the native build.** Verify full Xcode and select it for
-   build commands as appropriate. Create a macOS application and test targets
+1. **P04.1 — Establish the native build.** Verify the available Swift toolchain;
+   the implemented SwiftPM build and executable checks use Command Line Tools.
+   Select an existing full Xcode for XCUIAutomation when available. Create application and test targets
    with a deployment target that preserves macOS 12. Keep dependencies limited
    to Apple frameworks and the bundled existing engine.
 2. **P04.2 — Build the familiar shell.** Reproduce the page order, sidebar,
@@ -1050,10 +1052,11 @@ python3 scripts/dev.py check
 
 During implementation, add native unit/UI and headless engine checks to this
 workflow, with explicit schemes, destinations and isolated environment. Do not
-claim that `dev.py test` currently runs Swift tests. Native UI automation uses
-XCTest/XCUIAutomation; full Xcode and a suitable interactive macOS environment
-must be available. A headless Python run cannot verify fullscreen Spaces or
-VoiceOver. See Apple's [testing guidance](https://developer.apple.com/documentation/xcode/testing).
+claim that `dev.py test` currently runs Swift tests. The release uses actual Mac
+windows with input/accessibility automation plus the user's pilot. An additional
+XCTest/XCUIAutomation runner needs full Xcode and an interactive Mac environment.
+A headless Python run cannot verify fullscreen Spaces. See Apple's
+[testing guidance](https://developer.apple.com/documentation/xcode/testing).
 
 After each cohesive implementation step, run the affected checks; before code
 delivery, run the complete required suites and source checks. Repeat broad tests
