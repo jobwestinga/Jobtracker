@@ -48,7 +48,7 @@ export function layoutAgendaDay(sessions, toleranceHours) {
     if (session.start_h >= clusterEnd - 1e-9) close();
     let lane = laneEnds.findIndex((end) => end <= session.start_h + 1e-9);
     if (lane < 0) { lane = laneEnds.length; laneEnds.push(session.end_h); } else laneEnds[lane] = session.end_h;
-    const item = { session, lane: Math.min(lane, 7), lanes: 1, joinsAbove: false, joinsBelow: false };
+    const item = { session, lane, lanes: 1, joinsAbove: false, joinsBelow: false };
     placed.push(item); cluster.push(item);
     clusterEnd = Math.max(clusterEnd, session.end_h);
   }
