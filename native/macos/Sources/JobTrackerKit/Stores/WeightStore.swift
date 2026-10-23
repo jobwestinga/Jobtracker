@@ -70,6 +70,7 @@ public final class WeightStore: ObservableObject {
     @Published public var smoothing = "loess"
     @Published public var historic = false
     @Published public var span = 0.04
+    @Published var viewport = WeightViewport()
 
     private unowned let app: AppModel
     private var followToday = true
@@ -346,6 +347,7 @@ public final class WeightStore: ObservableObject {
     public func setChartOption(range newRange: String? = nil, smoothing newSmoothing: String? = nil, historic newHistoric: Bool? = nil,
                                dots: Bool? = nil, span newSpan: Double? = nil) {
         var values: [String: JSONValue] = [:]
+        if newRange != nil || newHistoric != nil { viewport = WeightViewport() }
         if let newRange { range = newRange; values["weight_chart_range"] = .string(newRange) }
         if let newSmoothing { smoothing = newSmoothing; values["weight_chart_smoothing"] = .string(newSmoothing) }
         if let newHistoric { historic = newHistoric; values["weight_chart_historic"] = .string(newHistoric ? "1" : "0") }

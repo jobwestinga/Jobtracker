@@ -8,6 +8,7 @@ struct WeightChartView: View {
     let data: WeightViewDTO
     let showDots: Bool
     let highContrast: Bool
+    @Binding var viewport: WeightViewport
     let onEdit: (String) -> Void
     @Environment(\.theme) private var theme
     @StateObject private var hovered = ViewState<Int?>(nil)
@@ -21,25 +22,48 @@ struct WeightChartView: View {
         }
     }
 
-    static func geometry(_ data: WeightViewDTO, size: CGSize) -> Geometry? {
+    static func geometry(_ data: WeightViewDTO, size: CGSize, viewport: WeightViewport = WeightViewport()) -> Geometry? {
         guard let axis = data.axis, !data.points.isEmpty else { return nil }
         let rect = CGRect(x: 48, y: 16, width: max(1, size.width - 64), height: max(1, size.height - 62))
         let ys = data.points.map(\.y) + data.trend.compactMap { $0.count > 1 ? $0[1] : nil }
         var low = ys.min() ?? 0, high = ys.max() ?? 1
         let pad = max(0.3, (high - low) * 0.12)
         low -= pad; high += pad
-        return Geometry(rect: rect, first: axis.first, last: axis.last, low: low, high: high)
+        let spanX = max(1, axis.last - axis.first), spanY = high - low
+        return Geometry(rect: rect, first: axis.first + spanX * viewport.x.lowerBound, last: axis.first + spanX * viewport.x.upperBound,
+                        low: low + spanY * viewport.y.lowerBound, high: low + spanY * viewport.y.upperBound)
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let geometry = Self.geometry(data, size: proxy.size)
+            let geometry = Self.geometry(data, size: proxy.size, viewport: viewport)
             ZStack(alignment: .topLeading) {
                 canvas(geometry, size: proxy.size)
                 if let geometry {
                     MouseTracker(onMove: { location in hovered.value = location.flatMap { nearest($0, geometry) } },
                                  onClick: { location in
                                      if let index = nearest(location, geometry), let uid = data.points[index].uid { onEdit(uid) }
+                                 }, onMagnify: { location, amount, modifiers in
+                                     guard geometry.rect.contains(location) else { return false }
+                                     hovered.value = nil
+                                     let anchor = CGPoint(x: (location.x - geometry.rect.minX) / geometry.rect.width,
+                                                          y: (geometry.rect.maxY - location.y) / geometry.rect.height)
+                                     viewport.zoom(exp(Double(amount) * 2), anchor: anchor,
+                                                   horizontal: !modifiers.contains(.option), vertical: !modifiers.contains(.shift))
+                                     return true
+                                 }, onScroll: { location, delta, modifiers in
+                                     guard geometry.rect.contains(location) else { return false }
+                                     let horizontal = modifiers.contains(.shift), vertical = modifiers.contains(.option)
+                                     if horizontal || vertical {
+                                         let anchor = CGPoint(x: (location.x - geometry.rect.minX) / geometry.rect.width,
+                                                              y: (geometry.rect.maxY - location.y) / geometry.rect.height)
+                                         viewport.zoom(exp(Double(delta.y) * 0.015), anchor: anchor, horizontal: horizontal, vertical: vertical)
+                                     } else {
+                                         guard viewport.isZoomed else { return false }
+                                         viewport.pan(horizontal: -Double(delta.x / geometry.rect.width), vertical: Double(delta.y / geometry.rect.height))
+                                     }
+                                     hovered.value = nil
+                                     return true
                                  })
                 }
             }
@@ -58,6 +82,7 @@ struct WeightChartView: View {
         var best: (Int, CGFloat)?
         for (index, point) in data.points.enumerated() {
             let p = geometry.point(point.x, point.y)
+            guard geometry.rect.contains(p), geometry.rect.insetBy(dx: -13, dy: -13).contains(location) else { continue }
             let distance = pow(p.x - location.x, 2) + pow(p.y - location.y, 2)
             if distance <= 169 && distance < (best?.1 ?? .infinity) { best = (index, distance) }
         }
@@ -80,11 +105,15 @@ struct WeightChartView: View {
                 context.draw(Text(String(format: "%.1f", g.low + (g.high - g.low) * fraction)).font(.system(size: 11)).foregroundColor(label.color),
                              at: CGPoint(x: 42, y: y), anchor: .trailing)
             }
-            context.draw(Text(axis.startLabel).font(.system(size: 11)).foregroundColor(label.color), at: CGPoint(x: g.rect.minX, y: g.rect.maxY + 6), anchor: .topLeading)
-            context.draw(Text(axis.endLabel).font(.system(size: 11)).foregroundColor(label.color), at: CGPoint(x: g.rect.maxX, y: g.rect.maxY + 6), anchor: .topTrailing)
+            let visible = data.points.filter { $0.x >= g.first && $0.x <= g.last }
+            let start = viewport.x == 0...1 ? axis.startLabel : visible.first.map { LocalTime.format($0.measuredAt, "dd MMM yyyy") } ?? ""
+            let end = viewport.x == 0...1 ? axis.endLabel : visible.last.map { LocalTime.format($0.measuredAt, "dd MMM yyyy") } ?? ""
+            context.draw(Text(start).font(.system(size: 11)).foregroundColor(label.color), at: CGPoint(x: g.rect.minX, y: g.rect.maxY + 6), anchor: .topLeading)
+            context.draw(Text(end).font(.system(size: 11)).foregroundColor(label.color), at: CGPoint(x: g.rect.maxX, y: g.rect.maxY + 6), anchor: .topTrailing)
             var labelRight = -CGFloat.infinity
             for tick in axis.years where tick.count == 2 {
                 let x = g.point(tick[0], g.low).x
+                guard x >= g.rect.minX && x <= g.rect.maxX else { continue }
                 var line = Path(); line.move(to: CGPoint(x: x, y: g.rect.minY)); line.addLine(to: CGPoint(x: x, y: g.rect.maxY))
                 context.stroke(line, with: .color(grid.color), lineWidth: 0.7)
                 let text = String(Int(tick[1]))
@@ -111,7 +140,7 @@ struct WeightChartView: View {
                 clipped.fill(area, with: .linearGradient(Gradient(colors: [accent.alpha((highContrast ? 90 : 68) / 255).color, accent.alpha(0).color]),
                                                          startPoint: CGPoint(x: 0, y: g.rect.minY), endPoint: CGPoint(x: 0, y: g.rect.maxY)))
             }
-            let perPoint = g.rect.width / CGFloat(max(1, data.points.count))
+            let perPoint = g.rect.width / CGFloat(max(1, visible.count))
             let dense = perPoint < 5.5
             func dots() {
                 guard showDots else { return }
@@ -157,22 +186,30 @@ struct WeightChartView: View {
 struct MouseTracker: NSViewRepresentable {
     let onMove: (CGPoint?) -> Void
     let onClick: (CGPoint) -> Void
+    let onMagnify: (CGPoint, CGFloat, NSEvent.ModifierFlags) -> Bool
+    let onScroll: (CGPoint, CGPoint, NSEvent.ModifierFlags) -> Bool
 
     func makeNSView(context: Context) -> TrackerView {
         let view = TrackerView()
         view.onMove = onMove
         view.onClick = onClick
+        view.onMagnify = onMagnify
+        view.onScroll = onScroll
         return view
     }
 
     func updateNSView(_ view: TrackerView, context: Context) {
         view.onMove = onMove
         view.onClick = onClick
+        view.onMagnify = onMagnify
+        view.onScroll = onScroll
     }
 
     final class TrackerView: NSView {
         var onMove: ((CGPoint?) -> Void)?
         var onClick: ((CGPoint) -> Void)?
+        var onMagnify: ((CGPoint, CGFloat, NSEvent.ModifierFlags) -> Bool)?
+        var onScroll: ((CGPoint, CGPoint, NSEvent.ModifierFlags) -> Bool)?
         override var isFlipped: Bool { true }
 
         override func updateTrackingAreas() {
@@ -184,5 +221,12 @@ struct MouseTracker: NSViewRepresentable {
         override func mouseMoved(with event: NSEvent) { onMove?(convert(event.locationInWindow, from: nil)) }
         override func mouseExited(with event: NSEvent) { onMove?(nil) }
         override func mouseDown(with event: NSEvent) { onClick?(convert(event.locationInWindow, from: nil)) }
+        override func magnify(with event: NSEvent) {
+            if onMagnify?(convert(event.locationInWindow, from: nil), event.magnification, event.modifierFlags) != true { super.magnify(with: event) }
+        }
+        override func scrollWheel(with event: NSEvent) {
+            let delta = CGPoint(x: event.scrollingDeltaX, y: event.scrollingDeltaY)
+            if onScroll?(convert(event.locationInWindow, from: nil), delta, event.modifierFlags) != true { super.scrollWheel(with: event) }
+        }
     }
 }

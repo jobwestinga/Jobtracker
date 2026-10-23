@@ -122,8 +122,16 @@ struct WeightPage: View {
                     .disabled(store.smoothing != "loess")
             }
             if let view = store.view {
-                WeightChartView(data: view, showDots: store.showDots, highContrast: store.highContrast) { store.edit($0) }
+                WeightChartView(data: view, showDots: store.showDots, highContrast: store.highContrast, viewport: $store.viewport) { store.edit($0) }
                     .frame(maxHeight: .infinity)
+                HStack {
+                    Text("Pinch to zoom · scroll to pan").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
+                        .help("Pinch to zoom both axes. Hold Shift to zoom time only; Option to zoom weight only. Shift-scroll and Option-scroll also stretch those axes.")
+                    Spacer()
+                    if store.viewport.isZoomed {
+                        Button("Reset zoom") { store.viewport = WeightViewport() }.actionStyle(.quiet, compact: true)
+                    }
+                }
                 Text(summary(view)).font(.system(size: 12)).foregroundColor(theme.textSecondary.color)
             } else {
                 Spacer()

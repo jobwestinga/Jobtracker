@@ -60,6 +60,7 @@ let checks: [(String, () throws -> Void)] = [
     ("InteractionTests.liftPreviewRetainsEveryIdentityAndRestrictsFocusGroups", { try InteractionTests().liftPreviewRetainsEveryIdentityAndRestrictsFocusGroups() }),
     ("InteractionTests.starredGoalsFloatAndHistoryArrowsPreserveDrafts", { try InteractionTests().starredGoalsFloatAndHistoryArrowsPreserveDrafts() }),
     ("NativeSyncTests.remoteSessionChangeKeepsTheNativeDraftAndExactIdentity", { try NativeSyncTests().remoteSessionChangeKeepsTheNativeDraftAndExactIdentity() }),
+    ("WeightViewportTests.weightZoomAnchorsBoundsAxesAndReset", { try WeightViewportTests().weightZoomAnchorsBoundsAxesAndReset() }),
 ]
 
 exit(runChecks(checks))
