@@ -209,11 +209,22 @@ class EngineHost:
                     outcome, result, error = protocol.REFUSED, {"reason": str(exc)}, str(exc)
                 if outcome != protocol.APPLIED:
                     self.service._adopt_open_session()
+                # Serialization and frame-limit failures must happen before
+                # commit. Otherwise emit() would report "invalid" after saving
+                # a mutation, allowing a client to retry it as fresh work.
+                protocol.encode({
+                    "protocol_version": protocol.PROTOCOL_VERSION,
+                    "engine_instance": self.instance_id,
+                    "kind": protocol.KIND_RESPONSE, "request_id": request_id,
+                    "outcome": outcome, "result": result, "error": error,
+                    "topics": sorted(set(command.topics) | self._extra_topics),
+                    "revision": self.revision + 1,
+                })
                 receipts.store(connection, request_id, command.name, digest, outcome, result)
             return outcome, result, error
         except receipts.ReceiptConflict as exc:
             return protocol.CONFLICT, {}, str(exc)
-        except commands.Invalid as exc:
+        except (commands.Invalid, protocol.FrameError) as exc:
             self.service._adopt_open_session()
             return protocol.INVALID, {}, str(exc)
         except (sqlite3.Error, OSError) as exc:

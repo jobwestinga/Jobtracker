@@ -88,6 +88,45 @@ def test_receipt_failure_after_timer_start_readopts_surviving_state(synced_engin
     assert "start_subject" not in _outbox(synced_engine)
 
 
+def test_oversized_mutation_result_rolls_back_before_commit(synced_engine):
+    before = _outbox(synced_engine)
+
+    def oversized(ctx, _params):
+        ctx.service.add_subject("Must roll back", "#3B82F6", "")
+        return {"content": "x" * protocol.MAX_FRAME_BYTES}
+
+    command = commands.Command("test.oversized", commands.MUTATION, oversized, ("subjects",))
+    rid = request_id()
+    synced_engine.frames.clear()
+    synced_engine.host.execute(rid, command, {})
+    response = next(frame for frame in synced_engine.frames if frame["kind"] == protocol.KIND_RESPONSE)
+    assert response["outcome"] == protocol.INVALID
+    assert synced_engine.service.db.get_subject_by_name("Must roll back") is None
+    assert _outbox(synced_engine) == before
+    assert synced_engine.service.db.connection.execute(
+        f"SELECT COUNT(*) FROM {receipts.TABLE} WHERE request_id = ?", (rid,)
+    ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("content", ["weight", "goal", "setting"])
+def test_receipts_migration_backs_up_stores_without_subjects(database, tmp_path, content):
+    from jobtracker.services.tracker_service import TrackerService
+
+    service = TrackerService(database, recover=False)
+    if content == "weight":
+        service.upsert_weight("2026-10-21", 80.25)
+    elif content == "goal":
+        service.add_todo_task("Keep this goal", "", None)
+    else:
+        service.set_setting("theme_palette", "Violet")
+    assert database.get_all_subjects() == []
+    backup = receipts.install(database.connection, backup_dir=tmp_path / "migration-backups")
+    assert backup is not None and backup.is_file()
+    with receipts.sqlite3.connect(backup) as copy:
+        assert not receipts.table_exists(copy)
+        assert copy.execute("SELECT value FROM settings WHERE key = 'device_id'").fetchone()
+
+
 def test_invalid_short_edit_keeps_the_original_row(engine):
     _subject, session = _closed_session(engine)
     start = datetime.fromisoformat(session["start_time"])
@@ -221,6 +260,43 @@ def test_sync_configuration_writes_token_file_without_echoing_it(engine, tmp_pat
     assert token_file.read_text() == "secret-token"
     count = engine.service.db.connection.execute(f"SELECT COUNT(*) FROM {receipts.TABLE}").fetchone()[0]
     assert count == 0
+
+
+def test_failed_token_replacement_keeps_the_previous_configuration(engine, monkeypatch):
+    from jobtracker.sync import settings
+
+    before = engine.ok("sync.status")
+
+    def fail(_token):
+        raise PermissionError("token file is not writable")
+
+    monkeypatch.setattr(settings, "write_token", fail)
+    response = engine.call("sync.configure", {"enabled": True, "server_url": "https://example.invalid", "token": "new-token"})
+    assert response["outcome"] == protocol.STORAGE_ERROR
+    assert settings.is_enabled(engine.service) == before["enabled"]
+    assert settings.server_url(engine.service) == before["server_url"]
+    assert engine.ok("sync.status") == before
+
+
+def test_failed_configuration_commit_restores_the_previous_token(engine, monkeypatch, tmp_path):
+    from contextlib import contextmanager
+    from jobtracker.sync import settings
+
+    monkeypatch.setenv("JOBTRACKER_SYNC_TOKEN_PATH", str(tmp_path / "sync_token"))
+    settings.write_token("old-token")
+    original_atomic = engine.service.db.atomic
+
+    @contextmanager
+    def fail_commit():
+        with original_atomic():
+            yield
+            raise receipts.sqlite3.OperationalError("commit failed")
+
+    monkeypatch.setattr(engine.service.db, "atomic", fail_commit)
+    response = engine.call("sync.configure", {"enabled": True, "server_url": "https://example.invalid", "token": "new-token"})
+    assert response["outcome"] == protocol.STORAGE_ERROR
+    assert settings.read_token() == "old-token"
+    assert not settings.is_enabled(engine.service)
 
 
 def test_receipts_are_local_bookkeeping_outside_backups_and_mirrors(engine, tmp_path):

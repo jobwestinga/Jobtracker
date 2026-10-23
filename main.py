@@ -10,7 +10,6 @@ import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtGui import QIcon
 
-from jobtracker.ui.app import MainWindow
 from jobtracker.core.config import DB_PATH, ICON_PATH, APP_NAME
 from jobtracker.core.logging_config import setup_logging
 from jobtracker.desktop.ownership import StoreInUse, StoreLock
@@ -49,6 +48,10 @@ def main() -> None:
             "Switch to the open JobTracker window to continue.",
         )
         sys.exit(1)
+
+    # Importing MainWindow imports the eager Database singleton and may migrate
+    # SQLite. A second owner must be refused before that happens.
+    from jobtracker.ui.app import MainWindow
 
     # Stylesheet is applied dynamically by MainWindow.__init__
 

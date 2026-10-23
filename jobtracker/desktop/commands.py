@@ -899,11 +899,22 @@ def sync_configure(ctx, params):
     if token is not None and not isinstance(token, str):
         raise Invalid("token must be text")
     # Matches Settings: an empty token keeps the saved one; it is never echoed.
-    with service.db.atomic():
-        sync_settings.set_enabled(service, enabled)
-        sync_settings.set_server_url(service, url)
-    if token is not None and token.strip():
-        sync_settings.write_token(token)
+    previous_token = sync_settings.read_token()
+    token_changed = False
+    try:
+        with service.db.atomic():
+            sync_settings.set_enabled(service, enabled)
+            sync_settings.set_server_url(service, url)
+            if token is not None and token.strip():
+                sync_settings.write_token(token)
+                token_changed = True
+    except Exception:
+        # File replacement is not part of SQLite's transaction. A failed
+        # token write rolls back settings; a failed DB commit restores the
+        # previous private token rather than leaving mismatched credentials.
+        if token_changed:
+            sync_settings.write_token(previous_token)
+        raise
     ctx.sync_configuration_changed()
     return ctx.sync_status()
 

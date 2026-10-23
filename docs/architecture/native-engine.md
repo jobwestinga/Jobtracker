@@ -34,7 +34,8 @@ of opening a second foreground connection.
 keyed by the canonical database path, under `~/Library/Caches/JobTracker/locks/`
 (`JOBTRACKER_LOCK_DIR` overrides it for tests). The kernel drops the lock when
 its process exits or crashes, so a leftover file is never a live owner. Both the
-engine and `main.py` take it before constructing services or running recovery;
+engine and `main.py` take it before importing the eager database singleton,
+constructing services or running recovery;
 a second owner reports `store_in_use` and exits without touching data.
 
 ## Frames
@@ -84,6 +85,8 @@ kind and topic set for the Python and Swift tests.
 
 A local save and server synchronization are separate facts: `applied` means the
 change is durable on this Mac; `sync_status` reports whether it reached the server.
+Mutation responses are checked for serialization/frame size before commit, so
+an unsendable result cannot be reported as invalid after the write already saved.
 
 ## Receipts
 
@@ -95,6 +98,13 @@ engine; when an existing store gains it, an online SQLite backup is written to
 replacement, and old builds ignore it. It is not a queue: nothing is replayed
 from it. Retrying a request after an unknown outcome uses the same ID and parameters; the engine
 then returns the saved result instead of applying a second change.
+The migration checks Weight, Goals, settings and pending operations as well as
+Subjects when deciding whether the store contains data requiring a backup.
+
+Sync configuration remains a file action. A failed token replacement rolls back
+its SQLite settings; if the settings commit fails after token replacement, the
+previous token is restored. Neither token values nor configuration requests enter
+the mutation receipts or native pending-request journal.
 
 ## Threads, scheduling and lifecycle
 
