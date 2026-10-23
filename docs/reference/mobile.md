@@ -48,12 +48,13 @@ them does.
   subject-colour frame with a solid left edge. Agenda blocks use the selected
   **Bold** finish: a strong subject tint with an integrated subject edge, bold
   title and duration line. `layoutAgendaDay` in
-  [agenda-time.js](../../web/features/graphs/agenda-time.js) joins same-lane
+  [agenda-time.js](../../web/features/graphs/agenda-time.js) joins display
   neighbours separated by at most max(30 s, one device pixel) into one shape
-  with no divider, and places overlapping sessions in side-by-side lanes at
-  their true times. Each block keeps its own session target; lane assignment
-  must not clamp later overlaps onto the eighth target. The twelve-overlap
-  regression preserves every identity without moving timestamps.
+  with no divider. Following the 23 October pilot feedback, overlaps are arranged
+  vertically in one full-width column. Display blocks move earlier/later to fit;
+  an overfull window compresses their display heights consistently. Recorded
+  timestamps, durations and session targets never change. Adjusted blocks show
+  their recorded start time; their tooltips retain the full recorded interval.
 - **Subject colours** use one compact set: the eight shared hues from
   `design/ui_roles.json`, the current colour when it is custom, and a Custom
   control. An untouched saved colour is resubmitted exactly as stored.

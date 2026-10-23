@@ -4,6 +4,12 @@ Status: implementation in progress since 22 October 2026. The
 [evidence record](a4-evidence.md) states which phases have actually run and
 with what result; this guide still describes the complete target.
 
+Pilot feedback, 23 October: keep the native direction; simplify Weight display
+settings and the named subject colour choices, improve small chart totals and
+the left axis, and arrange overlapping agenda blocks vertically **for display
+only**. Saved session times stay exact. The user removed VoiceOver from the
+acceptance scope; keyboard and normal Mac window checks remain.
+
 The user's direction is a strict improvement to the existing JobTracker:
 retain its setup, data, workflows and recent fixes while improving the Mac
 interface and its implementation. Build a SwiftUI frontend, use AppKit where
@@ -687,11 +693,11 @@ restored achievement labels the user already accepted.
    are presentation only. Keep each session's exact interval and hit identity;
    grouping must not merge rows, count a gap as worked time or create a composite
    session that opens an arbitrary member. Test before/at/after the tolerance.
-4. **P11.4 — Preserve gaps and existing overlaps honestly.** Ordinary gaps remain
-   readable at the appropriate scale. Existing overlapping history must remain
-   accessible without shifting timestamps to make the drawing prettier. New
-   movement occurs only through an explicit user action on an identified session;
-   do not add automatic collision resolution or a new overlap-planning mode.
+4. **P11.4 — Arrange overlaps for display.** Ordinary gaps remain readable.
+   Stack overlapping blocks vertically, moving their display positions earlier
+   or later to fit the visible window. An overfull window may compress display
+   heights uniformly. Never shift stored timestamps or modify recorded durations.
+   Keep each exact target and show the recorded start time on adjusted blocks.
 5. **P11.5 — Implement exact hit testing.** Either mouse button on a persisted
    block opens that session; empty column space opens that logical day; a live
    block falls back to the day. Adjacent/very short blocks retain distinct targets
@@ -799,7 +805,7 @@ credentials, backup/recovery paths and macOS window reliability.
    refresh does not reconstruct an open sheet or fullscreen chart.
 5. **P14.5 — Verify phone usability.** Check all duration/move presets, 320px
    width, 200% text, dense graph internal scrolling, logical-day now line,
-   VoiceOver, reduced motion, fullscreen rotation and existing weight gestures.
+   reduced motion, fullscreen rotation and existing weight gestures.
    Reuse the browser harnesses and add only meaningful new regressions.
 6. **P14.6 — Deliver coherent assets.** Bump the then-current service-worker
    version, include every transitive local asset in its shell and deploy through
@@ -869,11 +875,11 @@ with native commands only when they actually exist and have been exercised.
    the same data, view size and display scale in every retained theme. Verify
    calm cards, integrated Bold blocks, soft bloom, red >10h, no hour boxes,
    visible preset controls and readable half-width layouts.
-4. **P16.4 — Verify keyboard and accessibility manually.** Walk the entire app
-   with keyboard and VoiceOver. Test text entry/selection, context menus, nested
+4. **P16.4 — Verify keyboard and window behaviour manually.** Walk the entire app
+   with the keyboard. Test text entry/selection, context menus, nested
    panel focus, Escape priorities, graph keyboard access, disabled controls and
-   colour-independent status. Automated native accessibility queries alone are
-   not proof that the experience works with VoiceOver.
+   colour-independent status. The user removed VoiceOver testing from scope
+   during the 23 October pilot review.
 5. **P16.5 — Measure performance and energy.** Repeat P00 measurements in a
    release build on the target Mac. Check idle, foreground/background, long
    history, chart resizing and slow/offline sync. Inspect work per timer tick,
@@ -988,7 +994,7 @@ are starting evidence, not substitutes for new native UI tests.
 | A26 | Local save works with server down or sync off; no UI network wait | `tests/test_sync_service.py`, `tests/test_sync_ui.py` | Native responsiveness and durable pending status |
 | A27 | Sync status remains persistent, accurate and actionable | `tests/ui/test_sync_status.py`, `tests/mobile/sync-status.test.mjs` | Native pending/offline/refusal/last-sync paths |
 | A28 | Backup/restore retains identities, aliases, recurrence and local settings | `tests/test_backup_snapshot.py`, `tests/test_backup_sync.py` | Native file selection/cancel/import failure and isolated restore |
-| A29 | Half-width, display scaling, VoiceOver and reduced motion work | `tests/ui/test_accessibility.py`, `tests/mobile/accessibility.cjs` | Manual native VoiceOver and target-display checks |
+| A29 | Half-width, display scaling and reduced motion work | `tests/ui/test_accessibility.py`, `tests/mobile/accessibility.cjs` | Native target-display checks; VoiceOver excluded by user |
 | A30 | Refresh retains focus, target, scroll and unfinished drafts | `tests/ui/test_workflow_races.py`, `tests/mobile/feature-lifecycle.test.mjs` | Native feature-store epochs and sync-during-edit tests |
 | A31 | Phone products keep scope, start screens, tokens and queues | `tests/test_phone_apps.py`, `tests/mobile/profiles.test.mjs` | Installed Safari resume/offline and profile isolation |
 | A32 | Source launch and guarded update/rollback remain usable | `tests/test_macos_tooling.py`, `tests/test_source_filters.py` | Native helper detection, signed package and compatible Qt return |

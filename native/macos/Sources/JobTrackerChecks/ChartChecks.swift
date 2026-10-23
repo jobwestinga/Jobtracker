@@ -77,9 +77,9 @@ struct AgendaLayoutTests: CheckSuite {
         for width: CGFloat in [400, 84] {
             let layout = AgendaLayout(agenda: agenda(sessions), size: CGSize(width: width, height: 700))
             let blocks = layout.columns[0].blocks
-            expect(Set(blocks.map(\.lane)).count == 12)
-            expect(blocks.allSatisfy { $0.lanes == 12 && $0.rect.width > 0 })
-            for pair in zip(blocks, blocks.dropFirst()) { expect(pair.0.rect.maxX <= pair.1.rect.minX) }
+            expect(Set(blocks.compactMap(\.source.uid)).count == 12)
+            expect(blocks.allSatisfy { $0.lanes == 1 && $0.rect.width > 0 && $0.source.startH == 9 && $0.source.endH == 10 })
+            for pair in zip(blocks, blocks.dropFirst()) { expect(pair.0.rect.maxY <= pair.1.rect.minY + 0.001) }
         }
     }
 
@@ -103,14 +103,27 @@ struct AgendaLayoutTests: CheckSuite {
         expect(column.blocks[1].rect.minY > column.blocks[0].rect.minY)
     }
 
-    func overlapsStayAtTheirTrueTimesInSeparateLanes() {
+    func overlapsArrangeVerticallyWithoutChangingRecordedTimes() {
         let layout = AgendaLayout(agenda: agenda([block("a", 9, 12), block("b", 10, 11)]), size: CGSize(width: 400, height: 700))
         let blocks = layout.columns[0].blocks
-        expect(blocks.map(\.lanes) == [2, 2])
-        expect(blocks[0].lane == 0 && blocks[1].lane == 1)
+        expect(blocks.map(\.lanes) == [1, 1])
         let hourHeight = layout.chart.height / 17
-        expect(abs(blocks[1].rect.minY - (layout.chart.minY + 4 * hourHeight)) < 0.001)
-        expect(blocks[0].rect.maxX <= blocks[1].rect.minX + 0.001)
+        expect(abs(blocks[1].rect.minY - (layout.chart.minY + 6 * hourHeight)) < 0.001)
+        expect(blocks[0].rect.maxY <= blocks[1].rect.minY + 0.001)
+        expect(blocks[1].source.startH == 10 && blocks[1].source.endH == 11 && blocks[1].arranged)
+        expect(AgendaLayout.labelLines(for: blocks[1]).contains { $0.text.contains("10:00") })
+    }
+
+    func arrangedOverflowStaysInsideTheWindowWithEveryExactTarget() {
+        for count in [2, 50] {
+            let sessions = (0..<count).map { block("s-\($0)", 22, 23) }
+            let layout = AgendaLayout(agenda: agenda(sessions), size: CGSize(width: 400, height: 700))
+            let blocks = layout.columns[0].blocks
+            expect(blocks.count == count && Set(blocks.compactMap(\.source.uid)).count == count)
+            expect(blocks.first!.rect.minY >= layout.chart.minY - 0.001 && blocks.last!.rect.maxY <= layout.chart.maxY + 0.001)
+            expect(blocks.allSatisfy { $0.rect.height > 0 && $0.source.startH == 22 && $0.source.endH == 23 })
+            for pair in zip(blocks, blocks.dropFirst()) { expect(pair.0.rect.maxY <= pair.1.rect.minY + 0.001) }
+        }
     }
 
     func liveBlocksAreKeptWithoutIdentity() {

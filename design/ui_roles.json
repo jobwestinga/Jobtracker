@@ -12,7 +12,7 @@
     "duration": {"size": 34, "weight": "bold", "monospaced_digits": true},
     "duration_compact": {"size": 13, "weight": "semibold", "monospaced_digits": true},
     "chart_axis": {"size": 10, "weight": "regular"},
-    "chart_total": {"size": 14, "weight": "semibold", "strong_weight": "bold", "minimum": 9}
+    "chart_total": {"size": 14, "weight": "semibold", "strong_weight": "bold", "minimum": 12}
   },
   "spacing": {"xxs": 2, "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24},
   "radius": {"chip": 6, "control": 8, "card": 11, "panel": 14, "chart": 12, "bar_max": 6, "agenda_group": 6},

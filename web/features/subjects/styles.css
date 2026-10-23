@@ -53,12 +53,13 @@
   transform: scale(0.97);
 }
 
-.swatch { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
-
-.swatch.used { opacity: 0.35; }
-
-.swatch.picked { border-color: var(--text); transform: scale(1.08); }
-.swatch-custom { width: 42px; height: 42px; border-radius: 50%; padding: 0; border: 2px dashed var(--line); background: none; cursor: pointer; }
+.subject-palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.subject-palette .swatch { min-width: 0; min-height: 52px; border-radius: 8px; padding: 5px 2px; border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--text); }
+.subject-palette .colour-dot { width: 16px; height: 16px; border-radius: 50%; }
+.subject-palette .swatch.picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.subject-palette .current-colour { grid-column: 1 / -1; flex-direction: row; gap: 8px; min-height: 44px; }
+.subject-custom-colour { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 4px; font-size: 0.8125rem; }
+.swatch-custom { width: 44px; height: 32px; padding: 2px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .active-dot { animation: none; }

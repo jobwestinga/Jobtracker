@@ -104,7 +104,9 @@ public final class SubjectEditorModel: ObservableObject {
         name = subject?.name ?? ""
         notes = subject?.notes ?? ""
         let presets = DesignTokens.shared.roles.subjectColors
-        color = subject?.color ?? (activeColors.isEmpty ? presets[0] : (suggestions.first ?? presets[0]))
+        color = subject?.color ?? presets.first(where: { preset in
+            !activeColors.contains { $0.caseInsensitiveCompare(preset) == .orderedSame }
+        }) ?? presets[0]
     }
 
     /// The eight preset hues, plus the current colour when it is custom.

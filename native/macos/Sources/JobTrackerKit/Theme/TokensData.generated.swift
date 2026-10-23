@@ -499,7 +499,7 @@ enum TokensData {
     "weight": "regular"
    },
    "chart_total": {
-    "minimum": 9,
+    "minimum": 12,
     "size": 14,
     "strong_weight": "bold",
     "weight": "semibold"
