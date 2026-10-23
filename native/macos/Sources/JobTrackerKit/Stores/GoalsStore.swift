@@ -211,7 +211,7 @@ public final class GoalFormModel: ObservableObject {
         public var note: String
     }
 
-    public let goal: GoalDTO?
+    @Published public private(set) var goal: GoalDTO?
     @Published public var name: String
     @Published public var notes: String
     @Published public var hasDeadline: Bool
@@ -221,6 +221,8 @@ public final class GoalFormModel: ObservableObject {
     @Published public var saving = false
     private unowned let app: AppModel
     private var requestId = UUID().uuidString.lowercased()
+    private var submittedNewMilestones: [UUID] = []
+    private var submittedExistingMilestones: Set<String> = []
 
     public var isNew: Bool { goal == nil }
 
@@ -240,6 +242,7 @@ public final class GoalFormModel: ObservableObject {
 
     @MainActor
     public func save() async -> Bool {
+        guard !saving else { return false }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { error = "Give the goal a title."; return false }
         if hasDeadline && LocalTime.parse(deadline) == nil { error = "Use YYYY-MM-DD for the target date."; return false }
@@ -260,11 +263,28 @@ public final class GoalFormModel: ObservableObject {
             }),
         ]
         if let goal { params["goal_uid"] = .string(goal.uid) }
+        if !app.engine.unresolved.contains(requestId) {
+            submittedNewMilestones = entries.filter { $0.uid == nil }.map(\.id)
+            submittedExistingMilestones = Set(entries.compactMap(\.uid))
+        }
         let response = await app.mutate("goal.save", params, requestId: requestId, quiet: true)
         if response.outcome.succeeded { return true }
         if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
         error = response.error ?? "The goal was not saved."
         return false
+    }
+
+    func resolvePending(_ id: String, response: EngineResponse) {
+        guard id == requestId else { return }
+        if response.outcome.succeeded, let saved = try? response.result(GoalResult.self).goal {
+            goal = saved
+            let created = saved.milestones.filter { !submittedExistingMilestones.contains($0.uid) }
+            for (draftId, row) in zip(submittedNewMilestones, created) {
+                if let index = milestones.firstIndex(where: { $0.id == draftId }) { milestones[index].uid = row.uid }
+            }
+            error = "The earlier save was confirmed. Your current draft is kept."
+        } else { error = response.error ?? "The earlier save was not applied. Your input is kept." }
+        if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
     }
 
     public func requestDelete(onDeleted: @escaping () -> Void) {
@@ -306,7 +326,7 @@ public final class TemplatesModel: ObservableObject {
 }
 
 public final class TemplateEditorModel: ObservableObject {
-    public let template: TemplateDTO?
+    @Published public private(set) var template: TemplateDTO?
     @Published public var title: String
     @Published public var notes: String
     @Published public var recurrence: String
@@ -333,6 +353,7 @@ public final class TemplateEditorModel: ObservableObject {
 
     @MainActor
     public func save() async -> Bool {
+        guard !saving else { return false }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { error = "Give the template a title."; return false }
         saving = true
@@ -350,5 +371,15 @@ public final class TemplateEditorModel: ObservableObject {
         if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
         error = response.error ?? "The template was not saved."
         return false
+    }
+
+    func resolvePending(_ id: String, response: EngineResponse) {
+        guard id == requestId else { return }
+        struct Saved: Decodable { let template: TemplateDTO }
+        if response.outcome.succeeded, let saved = try? response.result(Saved.self).template {
+            template = saved
+            error = "The earlier save was confirmed. Your current draft is kept."
+        } else { error = response.error ?? "The earlier save was not applied. Your input is kept." }
+        if response.outcome.isSettled { requestId = UUID().uuidString.lowercased() }
     }
 }

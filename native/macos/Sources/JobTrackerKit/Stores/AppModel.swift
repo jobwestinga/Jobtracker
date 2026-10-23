@@ -109,10 +109,22 @@ public final class AppModel: ObservableObject {
             invalidate(topics)
         case .syncStatus(let status):
             sync = status
-        case .lateResolution(_, _, let response):
-            if response.outcome == .applied || response.outcome == .replayed {
-                show("A pending change was confirmed.")
+        case .lateResolution(let requestId, _, let response):
+            weight.resolvePending(requestId, response: response)
+            for entry in panels {
+                switch entry.kind {
+                case .sessions(let model): model.resolvePending(requestId, response: response)
+                case .subjectEditor(let model): model.resolvePending(requestId, response: response)
+                case .goalForm(let model): model.resolvePending(requestId, response: response)
+                case .templateEditor(let model): model.resolvePending(requestId, response: response)
+                case .recovery(let model):
+                    if model.resolvePending(requestId, response: response) { dismiss(entry.id) }
+                default: break
+                }
             }
+            if response.outcome.succeeded {
+                show("A pending change was confirmed.")
+            } else { show(response.error ?? "The earlier change was not applied.", error: true) }
             invalidate(["subjects", "timer", "sessions", "graphs", "goals", "templates", "weight", "settings"])
         }
     }
@@ -228,7 +240,8 @@ public final class AppModel: ObservableObject {
 
     public func dismiss(_ id: UUID) {
         guard let index = panels.firstIndex(where: { $0.id == id }) else { return }
-        panels[index].kind.willDismiss()
+        guard !panels[index...].contains(where: { $0.kind.dismissalBlocked }) else { return }
+        for entry in panels[index...].reversed() { entry.kind.willDismiss() }
         panels.removeSubrange(index...)
     }
 

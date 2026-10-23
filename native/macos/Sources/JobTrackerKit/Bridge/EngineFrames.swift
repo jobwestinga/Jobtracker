@@ -69,8 +69,17 @@ public struct EngineResponse {
     public let header: FrameHeader
     public let data: Data
 
-    public var outcome: Outcome { header.outcome ?? .invalid }
-    public var error: String? { header.error }
+    /// Replay is a transport fact, not proof the original mutation applied.
+    /// Keep refusals/missing targets visible to every existing feature caller.
+    public var outcome: Outcome {
+        guard header.outcome == .replayed else { return header.outcome ?? .invalid }
+        guard let original = try? result(ReplayResult.self).originalOutcome else { return .invalid }
+        return original == .applied ? .replayed : original
+    }
+    public var error: String? {
+        header.error ?? (header.outcome == .replayed && !outcome.succeeded
+            ? (try? result(ReplayResult.self).reason) : nil)
+    }
     public var topics: [String] { header.topics ?? [] }
 
     public func result<T: Decodable>(_ type: T.Type) throws -> T {
@@ -87,6 +96,11 @@ public struct EngineResponse {
         let header = try! JSONDecoder().decode(FrameHeader.self, from: data)
         return EngineResponse(header: header, data: data)
     }
+}
+
+private struct ReplayResult: Decodable {
+    let originalOutcome: Outcome
+    let reason: String?
 }
 
 struct ResultEnvelope<T: Decodable>: Decodable { let result: T }

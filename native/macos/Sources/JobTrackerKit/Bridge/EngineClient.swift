@@ -280,7 +280,7 @@ public final class EngineClient: ObservableObject {
 
     private func replayJournal() {
         guard let storeId else { return }
-        for envelope in journal.pending(storeId: storeId) where pending[envelope.requestId] == nil {
+        for envelope in journal.pending(storeId: storeId, storePath: hello?.dbPath) where pending[envelope.requestId] == nil {
             unresolved.insert(envelope.requestId)
             pending[envelope.requestId] = Pending(command: envelope.command, kind: .mutation, continuation: nil, timeout: nil)
             write(requestId: envelope.requestId, command: envelope.command, params: envelope.params)
@@ -297,12 +297,26 @@ public final class EngineClient: ObservableObject {
         guard isReady, let storeId else {
             return .local(.unavailable, requestId: requestId, error: "The JobTracker engine is not connected")
         }
+        if let waiting = pending[requestId] {
+            // Never replace an outstanding continuation or its durable payload
+            // with a second tap. After a timeout, resend only the capture that
+            // could already have committed, not freshly calculated timestamps.
+            if waiting.kind == .mutation, waiting.continuation == nil,
+               let captured = try? journal.envelope(for: requestId) {
+                write(requestId: captured.requestId, command: captured.command, params: captured.params)
+            }
+            return .local(.unavailable, requestId: requestId, error: "The earlier change is still awaiting confirmation.")
+        }
+        if kind == .mutation && !unresolved.isEmpty {
+            return .local(.unavailable, requestId: requestId, error: "Wait for the earlier change to be confirmed before saving another change.")
+        }
         if pending.count >= EngineProtocol.maxOutstanding {
             return .local(.unavailable, requestId: requestId, error: "Too many requests are waiting; try again")
         }
         if kind == .mutation {
             do {
-                try journal.record(.init(requestId: requestId, command: command, params: params, storeId: storeId, createdAt: Date()))
+                try journal.record(.init(requestId: requestId, command: command, params: params, storeId: storeId,
+                                         createdAt: Date(), storePath: hello?.dbPath))
             } catch {
                 return .local(.storageError, requestId: requestId, error: "The change could not be prepared: \(error.localizedDescription)")
             }

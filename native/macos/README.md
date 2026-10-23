@@ -52,6 +52,22 @@ visual review, then exits. Use it only with synthetic stores.
 The Command Line Tools compile SwiftUI but ship no macro plugins for
 `@State`, swift-testing or XCTest UI automation. The app therefore keeps
 view-local state in `ViewState` objects, and checks run as an executable.
-Native UI automation (XCUIAutomation) and VoiceOver passes need full Xcode and
-an interactive session; they are recorded as manual checks in the
+XCUIAutomation requires full Xcode. VoiceOver is built into macOS and can be
+checked without Xcode, but needs a hands-on interactive pass. These remain open in the
 [evidence record](../../docs/guides/a4-evidence.md).
+
+## Review corrections
+
+Native replay responses retain the original refusal/missing outcome. Mutation
+captures are immutable while unresolved; another save waits for confirmation
+instead of replacing its payload or continuation. New journal entries also bind
+to the canonical store path, so a copied device ID cannot redirect their replay.
+Legacy entries without a path retain compatibility and must be resolved against
+their original pilot store before moving or copying that store.
+
+Late confirmations update the original editor's entity identity and preserve
+newer field input. History refresh retains explicitly selected sessions outside
+the first page and keeps unsaved text if a target disappears. Date fields reject
+invalid/zoned input and preserve naive wall-clock fields across DST; duration
+validation remains with the Python engine. Close/Escape cannot discard a save
+in progress, and an unconfirmed quit is not treated as successful.

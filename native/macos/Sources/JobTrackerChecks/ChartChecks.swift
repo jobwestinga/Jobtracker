@@ -72,6 +72,17 @@ struct BarLayoutTests: CheckSuite {
 }
 
 struct AgendaLayoutTests: CheckSuite {
+    func denseOverlapsKeepEveryTargetDistinct() {
+        let sessions = (0..<12).map { block("session-\($0)", 9, 10) }
+        for width: CGFloat in [400, 84] {
+            let layout = AgendaLayout(agenda: agenda(sessions), size: CGSize(width: width, height: 700))
+            let blocks = layout.columns[0].blocks
+            expect(Set(blocks.map(\.lane)).count == 12)
+            expect(blocks.allSatisfy { $0.lanes == 12 && $0.rect.width > 0 })
+            for pair in zip(blocks, blocks.dropFirst()) { expect(pair.0.rect.maxX <= pair.1.rect.minX) }
+        }
+    }
+
     func block(_ uid: String?, _ start: Double, _ end: Double, day: String = "2026-10-20", color: String = "#3B82F6") -> AgendaBlockDTO {
         AgendaBlockDTO(uid: uid, day: day, subjectUid: "s", subjectName: "Physics", color: color, startH: start, endH: end, durationSeconds: Int((end - start) * 3600))
     }

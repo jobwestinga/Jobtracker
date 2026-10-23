@@ -7,11 +7,19 @@ import Foundation
 /// involves a timezone conversion: a naive string is interpreted in the Mac's
 /// current calendar, like `datetime.fromisoformat` does in Python.
 public enum LocalTime {
-    private static let calendar: Calendar = {
+    private static var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+        calendar.timeZone = .autoupdatingCurrent
         return calendar
-    }()
+    }
+
+    /// A calendar surrogate for civil-field validation/display only. Stored
+    /// timestamps remain naive; this does not convert history to UTC.
+    private static var civilCalendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(secondsFromGMT: 0)!
+        return value
+    }
 
     /// `datetime.now().isoformat()`-compatible string for a captured moment.
     public static func isoString(_ date: Date, microseconds: Bool = true) -> String {
@@ -24,15 +32,29 @@ public enum LocalTime {
 
     /// Parse `YYYY-MM-DD[THH:MM[:SS[.ffffff]]]` (also accepting a space) as local time.
     public static func parse(_ text: String?) -> Date? {
-        guard let text, text.count >= 10 else { return nil }
+        guard let components = components(text) else { return nil }
+        return calendar.date(from: components)
+    }
+
+    /// Preserve entered wall-clock fields even in a daylight-saving gap.
+    public static func canonicalTimestamp(_ text: String) -> String? {
+        guard components(text) != nil else { return nil }
+        var result = text.replacingOccurrences(of: " ", with: "T")
+        if result.count == 10 { result += "T00:00:00" }
+        else if result.count == 16 { result += ":00" }
+        return result
+    }
+
+    private static func components(_ text: String?) -> DateComponents? {
+        guard let text, text.range(of: #"^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)?$"#,
+                                   options: .regularExpression) != nil else { return nil }
         let normalized = text.replacingOccurrences(of: " ", with: "T")
         let parts = normalized.split(separator: "T", maxSplits: 1)
         let day = parts[0].split(separator: "-").compactMap { Int($0) }
         guard day.count == 3 else { return nil }
         var components = DateComponents(year: day[0], month: day[1], day: day[2], hour: 0, minute: 0, second: 0)
         if parts.count == 2 {
-            var clock = String(parts[1])
-            if let zone = clock.firstIndex(where: { $0 == "+" || $0 == "Z" }) { clock = String(clock[..<zone]) }
+            let clock = String(parts[1])
             let pieces = clock.split(separator: ":")
             components.hour = pieces.count > 0 ? Int(pieces[0]) : 0
             components.minute = pieces.count > 1 ? Int(pieces[1]) : 0
@@ -45,7 +67,12 @@ public enum LocalTime {
                 }
             }
         }
-        return calendar.date(from: components)
+        guard let date = civilCalendar.date(from: components) else { return nil }
+        let roundTrip = civilCalendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        guard roundTrip.year == components.year, roundTrip.month == components.month, roundTrip.day == components.day,
+              roundTrip.hour == components.hour, roundTrip.minute == components.minute,
+              roundTrip.second == components.second else { return nil }
+        return components
     }
 
     public static func dayString(_ date: Date) -> String {
@@ -54,11 +81,11 @@ public enum LocalTime {
     }
 
     public static func format(_ text: String?, _ pattern: String) -> String {
-        guard let date = parse(text) else { return text ?? "" }
+        guard let parts = components(text), let date = civilCalendar.date(from: parts) else { return text ?? "" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
+        formatter.calendar = civilCalendar
+        formatter.timeZone = civilCalendar.timeZone
         formatter.dateFormat = pattern
         return formatter.string(from: date)
     }

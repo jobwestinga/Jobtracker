@@ -66,6 +66,7 @@ public final class SettingsModel: ObservableObject {
 
     @MainActor
     public func save() async -> Bool {
+        guard !saving else { return false }
         saving = true
         defer { saving = false }
         let response = await app.saveAppearance(fx: selected.fx, palette: selected.palette, reduceMotion: reduceMotion, dayStart: dayStart)
@@ -75,10 +76,11 @@ public final class SettingsModel: ObservableObject {
             return false
         }
         let syncResponse = await saveSync()
-        finished = true
         if let syncResponse, !syncResponse.outcome.succeeded {
-            app.show(syncResponse.error ?? "Sync settings were not saved.", error: true)
+            message = "Appearance saved; sync settings were not saved. \(syncResponse.error ?? "Your token input is kept.")"
+            return false
         }
+        finished = true
         app.invalidate(["subjects", "graphs", "goals", "sessions"])
         return true
     }
@@ -94,13 +96,16 @@ public final class SettingsModel: ObservableObject {
             "token": typed.isEmpty ? .null : .string(typed),
         ], kind: .action)
         if let status = try? response.result(SyncStatusDTO.self) { app.adoptSync(status) }
-        token = ""
+        if response.outcome.succeeded { token = "" }
         return response
     }
 
     @MainActor
     public func syncNow() async {
-        _ = await saveSync()
+        if let configuration = await saveSync(), !configuration.outcome.succeeded {
+            message = configuration.error ?? "Sync settings were not saved. Your token input is kept."
+            return
+        }
         let response = await app.call("sync.now", kind: .action)
         struct Result: Decodable { let started: Bool; let status: SyncStatusDTO }
         if let result = try? response.result(Result.self) {

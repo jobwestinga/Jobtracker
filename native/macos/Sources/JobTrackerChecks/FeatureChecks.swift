@@ -8,7 +8,7 @@ final class LiveApp {
     let harness = EngineIntegrationTests.Harness()
     var app: AppModel!
 
-    init?(foreignTimer: Bool = false) {
+    init?(foreignTimer: Bool = false, requestTimeout: TimeInterval = 15) {
         let python = ProcessInfo.processInfo.environment["JOBTRACKER_ENGINE_PYTHON"] ?? "/usr/local/bin/python3"
         try? FileManager.default.createDirectory(at: harness.directory, withIntermediateDirectories: true)
         let build = Process()
@@ -20,7 +20,7 @@ final class LiveApp {
         do { try build.run() } catch { return nil }
         build.waitUntilExit()
         guard build.terminationStatus == 0 else { return nil }
-        let client = EngineClient(launch: harness.launch, journal: harness.journal, requestTimeout: 15)
+        let client = EngineClient(launch: harness.launch, journal: harness.journal, requestTimeout: requestTimeout)
         harness.client = client
         app = AppModel(engine: client, configuration: nil)
         client.start()
@@ -39,6 +39,132 @@ final class LiveApp {
 }
 
 struct FeatureStateTests: CheckSuite {
+    func closeAndEscapeKeepAPanelWhoseSaveIsInFlight() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        app.openSettings()
+        guard let entry = app.topPanel, case .settings(let model) = entry.kind else { expect(false, "settings"); return }
+        model.saving = true
+        app.dismiss(entry.id)
+        app.escape()
+        expect(app.topPanel?.id == entry.id, "neither close route can abandon a save")
+        model.saving = false
+        app.dismiss(entry.id)
+        expect(app.panels.isEmpty)
+    }
+
+    func weightSaveCannotRetargetADateChosenWhileWaiting() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        live.run { await app.weight.reload() }
+        guard let imported = app.weight.view?.rows.first(where: { $0.source != "manual" }) else {
+            expect(false, "imported fixture"); return
+        }
+        app.weight.edit(imported.uid)
+        app.weight.setPrecise(imported.weightKg + 0.1)
+        let pid = pid_t(app.engine.hello!.pid)
+        kill(pid, SIGSTOP)
+        var finished = false
+        Task { @MainActor in await app.weight.save(); finished = true }
+        live.harness.pump(2) { app.weight.saving }
+        let newDay = LocalTime.dayString(Date().addingTimeInterval(-30 * 86400))
+        app.weight.chooseDay(newDay)
+        let newTarget = app.weight.editingUid
+        kill(pid, SIGCONT)
+        live.harness.pump(10) { finished }
+        expect(finished && app.weight.day == newDay)
+        expect(app.weight.editingUid == newTarget, "an older completion cannot attach the previous imported UID to another day")
+    }
+
+    func failedSyncSetupKeepsTheSettingsPanelAndTokenDraft() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        let tokenPath = live.harness.directory.appendingPathComponent("sync_token", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: tokenPath, withIntermediateDirectories: true) }
+        catch { expect(false, "token failure fixture"); return }
+        app.openSettings()
+        guard case .settings(let model) = app.topPanel?.kind else { expect(false, "settings panel"); return }
+        model.syncEnabled = true
+        model.serverUrl = "https://example.invalid"
+        model.token = "check-token"
+        live.run { let saved = await model.save(); expect(!saved, "a failed sync save must not close settings") }
+        expect(model.token == "check-token", "failed private file write keeps the typed token")
+        expect(model.message?.contains("sync settings were not saved") == true)
+        let status = try? live.harness.send("sync.status", kind: .read)?.result(SyncStatusDTO.self)
+        expect(status?.enabled == false && status?.serverUrl != "https://example.invalid")
+    }
+
+    func lateSaveBindsTheOriginalEntityWithoutErasingNewerDrafts() {
+        guard let live = LiveApp(requestTimeout: 0.2) else { expect(false, "live app"); return }
+        let app = live.app!
+        app.goals.newGoal()
+        guard case .goalForm(let form) = app.topPanel?.kind else { expect(false, "goal form"); return }
+        form.name = "Captured goal"
+        form.addMilestone()
+        form.milestones[0].title = "Captured milestone"
+        let pid = pid_t(app.engine.hello!.pid)
+        kill(pid, SIGSTOP)
+        live.run { let saved = await form.save(); expect(!saved, "unknown save keeps the form") }
+        form.name = "Newer goal draft"
+        form.milestones[0].title = "Newer milestone draft"
+        kill(pid, SIGCONT)
+        live.harness.pump(10) { form.goal != nil && app.engine.unresolved.isEmpty }
+        expect(form.goal != nil && !form.isNew, "late create becomes an edit of that exact goal")
+        expect(form.name == "Newer goal draft" && form.milestones[0].title == "Newer milestone draft", "new input survives")
+        expect(form.milestones[0].uid != nil, "late-created milestone identity is retained")
+        let uid = form.goal?.uid
+        live.run { let saved = await form.save(); expect(saved, "save newer edits") }
+        let goals = (try? live.harness.send("goals.list", kind: .read)?.result(GoalsListDTO.self))?.goals ?? []
+        expect(goals.filter { $0.name == "Newer goal draft" || $0.name == "Captured goal" }.count == 1)
+        expect(goals.first { $0.uid == uid }?.milestones.first?.title == "Newer milestone draft")
+        app.dismissTop()
+
+        let subject = app.subjects.subjects.first { $0.name == "Reading" }!
+        let panel = SessionPanelModel(app: app, scope: .subject(uid: subject.uid, name: subject.name, color: subject.color))
+        app.present(.sessions(panel))
+        live.harness.pump(10) { panel.loaded }
+        let before = panel.total
+        panel.beginNew()
+        kill(pid, SIGSTOP)
+        live.run { await panel.save() }
+        let newerEnd = LocalTime.format(LocalTime.isoString(Date().addingTimeInterval(900)), "yyyy-MM-dd HH:mm:ss")
+        panel.draft?.end = newerEnd
+        kill(pid, SIGCONT)
+        live.harness.pump(10) { panel.draft?.targetUid != nil && app.engine.unresolved.isEmpty }
+        expect(panel.draft?.end == newerEnd && panel.draft?.isNew == false, "late session keeps newer input bound to its new UID")
+        live.run { await panel.refresh() }
+        expect(panel.total == before + 1, "one created session")
+    }
+
+    func historyRefreshKeepsAnOlderExplicitTargetAndArchivedSubject() {
+        guard let live = LiveApp() else { expect(false, "live app"); return }
+        let app = live.app!
+        let subject = app.subjects.subjects.first { $0.name == "Reading" }!
+        var oldest: String?
+        // Exceed the first history page; opening an exact old session must not
+        // clear its selection just because it is outside that page.
+        for index in 0..<205 {
+            let day = String(format: "2025-01-%02d", index % 28 + 1)
+            let result = live.harness.send("session.add", ["subject_uid": .string(subject.uid),
+                "start_time": .string("\(day)T09:00:00"), "end_time": .string("\(day)T10:00:00")], kind: .mutation)
+            if index == 0 { oldest = try? result?.result(SessionResult.self).session.uid }
+        }
+        let all = try? live.harness.send("sessions.for_subject", ["subject_uid": .string(subject.uid), "limit": 500], kind: .read)?.result(SessionPageDTO.self)
+        oldest = all?.sessions.last?.uid
+        _ = live.harness.send("subject.archive", ["subject_uid": .string(subject.uid)], kind: .mutation)
+        let panel = SessionPanelModel(app: app, scope: .subject(uid: subject.uid, name: subject.name, color: subject.color), select: oldest)
+        live.harness.pump(10) { panel.loaded }
+        expect(panel.selectedUid == oldest && panel.selected != nil, "old exact session remains selected")
+        expect(panel.subjects.contains { $0.uid == subject.uid }, "archived owner remains available in the editor")
+        if let row = panel.selected {
+            panel.draft?.end = "2025-02-01 11:00:00"
+            let pendingDraft = panel.draft
+            _ = live.harness.send("session.delete", ["session_uid": .string(row.uid!)], kind: .mutation)
+            live.run { await panel.refresh() }
+            expect(panel.selectedUid == nil && panel.draft == pendingDraft, "a deleted target clears selection but retains unsaved input")
+        }
+    }
+
     func trackingStopResumeAndSwitchFollowTheEngine() {
         guard let live = LiveApp() else { expect(false, "live app"); return }
         let app = live.app!

@@ -278,7 +278,7 @@ struct RecoveryPanel: View {
         let recovery = model.snapshot.recovery
         PanelChrome("Unfinished Session", width: 460, onClose: { app.dismiss(id) }) {
             if let recovery {
-                Text("\u{201C}\(recovery.subjectName)\u{201D} was still running.value when JobTracker closed.")
+                Text("\u{201C}\(recovery.subjectName)\u{201D} was still running when JobTracker closed.")
                     .font(TypeRole.cardTitle.font).fixedSize(horizontal: false, vertical: true)
                 Text("Started \(LocalTime.format(recovery.start, "EEE d MMM HH:mm")); last known active \(LocalTime.format(recovery.lastActive, "EEE d MMM HH:mm")) (\(DurationText.session(recovery.gapSeconds)) ago).")
                     .foregroundColor(theme.textSecondary.color).fixedSize(horizontal: false, vertical: true)
@@ -295,7 +295,7 @@ struct RecoveryPanel: View {
                         Stepper("\(model.customMinutes) min", value: $model.customMinutes, in: 0...59)
                     }
                 }
-                Text("Closing this keeps the session running.value.").font(TypeRole.caption.font).foregroundColor(theme.textDimmed.color)
+                Text("Closing this keeps the session running.").font(TypeRole.caption.font).foregroundColor(theme.textDimmed.color)
                 InlineMessage(text: model.error)
             }
         } footer: {

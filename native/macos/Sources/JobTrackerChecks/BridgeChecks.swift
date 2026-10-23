@@ -38,6 +38,18 @@ struct FramingTests: CheckSuite {
         expect(!response.outcome.isSettled)
         expect(Outcome.refused.isSettled && !Outcome.refused.succeeded)
     }
+
+    func replayKeepsTheOriginalRefusalOrMissingOutcome() throws {
+        for outcome in [Outcome.refused, .missing] {
+            let raw: [String: Any] = ["kind": "response", "request_id": "r", "outcome": "replayed",
+                                      "result": ["original_outcome": outcome.rawValue, "reason": "Not applied"]]
+            let data = try JSONSerialization.data(withJSONObject: raw)
+            let response = EngineResponse(header: try JSONDecoder().decode(FrameHeader.self, from: data), data: data)
+            expect(response.outcome == outcome, "a replay is not necessarily a successful mutation")
+            expect(!response.outcome.succeeded)
+            expect(response.error == "Not applied")
+        }
+    }
 }
 
 struct SharedFixtureTests: CheckSuite {
@@ -112,6 +124,37 @@ struct SharedFixtureTests: CheckSuite {
 }
 
 struct JournalTests: CheckSuite {
+    func clonedDeviceIdentityDoesNotReplayAgainstAnotherStore() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = RequestJournal(directory: directory)
+        let original = RequestJournal.Envelope(requestId: "r", command: "session.shift", params: ["seconds": 900],
+            storeId: "copied-device-id", createdAt: Date(), storePath: directory.appendingPathComponent("original.db").path)
+        try journal.record(original)
+        expect(journal.pending(storeId: original.storeId, storePath: original.storePath) == [original])
+        expect(journal.pending(storeId: original.storeId, storePath: directory.appendingPathComponent("copy.db").path).isEmpty)
+        expect(journal.pending(storeId: original.storeId) == [original], "the original pending record is preserved")
+    }
+
+    func retryCannotReplaceTheCapturedRequest() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = RequestJournal(directory: directory)
+        let original = RequestJournal.Envelope(requestId: "r", command: "session.quick_add",
+            params: ["at": "2026-10-21T10:00:00", "minutes": 15], storeId: "store", createdAt: Date())
+        try journal.record(original)
+        try journal.record(.init(requestId: "r", command: original.command, params: original.params,
+                                storeId: "store", createdAt: Date().addingTimeInterval(1)))
+        expect(journal.pending(storeId: "store") == [original], "an identical retry keeps original capture/order")
+        var rejected = false
+        do {
+            try journal.record(.init(requestId: "r", command: original.command,
+                params: ["at": "2026-10-21T11:00:00", "minutes": 15], storeId: "store", createdAt: Date()))
+        } catch { rejected = true }
+        expect(rejected, "changed parameters must not overwrite an unresolved request")
+        expect(journal.pending(storeId: "store") == [original])
+    }
+
     func recordsResolvesAndFiltersByStore() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -130,6 +173,17 @@ struct JournalTests: CheckSuite {
 }
 
 struct FormattingTests: CheckSuite {
+    func invalidDatesAndZonedInputAreNotSilentlyNormalized() {
+        for value in ["2026-02-30", "2026-13-01", "2026-10-21T24:00:00", "2026-10-21T10:70:00",
+                      "2026-10-21T10:00:00Z", "2026-10-21T10:00:00+02:00", "2026-10-21T10:00:00-02:00"] {
+            expect(LocalTime.parse(value) == nil, "reject \(value)")
+            expect(LocalTime.canonicalTimestamp(value) == nil)
+        }
+        expect(LocalTime.canonicalTimestamp("2026-03-29 02:15:00") == "2026-03-29T02:15:00")
+        expect(LocalTime.format("2026-03-29T02:15:00", "HH:mm") == "02:15", "display preserves civil fields during a DST gap")
+        expect(LocalTime.parse("2028-02-29") != nil)
+    }
+
     func naiveLocalTimestampsRoundTripWithoutTimezoneShift() {
         let parsed = LocalTime.parse("2026-07-14T23:30:15.250000")!
         expect(LocalTime.isoString(parsed) == "2026-07-14T23:30:15.250000")
