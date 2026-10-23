@@ -128,18 +128,19 @@ public struct AgendaLayout {
     /// line when the block is tall enough. Nothing is drawn in tiny blocks.
     public static func labelLines(for block: Block) -> [(text: String, font: NSFont)] {
         let rect = block.rect
-        guard rect.height > 13, rect.width > 20 else { return [] }
-        let width = rect.width - 8
+        guard rect.height >= 17, rect.width > 16 else { return [] }
+        let width = rect.width - (rect.width < 36 ? 4 : 8)
         let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
         let seconds = block.source.durationSeconds
         let durationText = seconds >= 3600 ? String(format: "%.1fh", Double(seconds) / 3600) : "\(max(1, Int((Double(seconds) / 60).rounded())))m"
+        let compactDuration = seconds >= 3600 && seconds % 3600 == 0 ? "\(seconds / 3600)h" : "\(max(1, Int((Double(seconds) / 60).rounded())))m"
         let duration = block.arranged ? "\(timeLabel(block.source.startH)) · \(durationText)" : durationText
         let title = elided(block.source.subjectName, font: titleFont, width: width)
         // The duration falls back to smaller sizes rather than being clipped.
         // Recorded time is useful on displaced blocks, but must never crowd
         // out their duration. Keep that time in the exact-session tooltip.
-        let fittedDuration = [duration, durationText].compactMap { text in
-            [10.0, 9.0].map { NSFont.systemFont(ofSize: $0, weight: .medium) }
+        let fittedDuration = [duration, durationText, compactDuration].compactMap { text in
+            [10.0, 9.0, 8.0].map { NSFont.systemFont(ofSize: $0, weight: .medium) }
                 .first { ChartText.metrics(text, font: $0).width <= width }.map { (text, $0) }
         }.first
         if rect.height >= 30 {
@@ -290,7 +291,8 @@ struct AgendaChartView: View {
         let lines = AgendaLayout.labelLines(for: block)
         guard !lines.isEmpty else { return }
         let rect = block.rect
-        let textRect = CGRect(x: rect.minX + 6, y: rect.minY + 2, width: max(0, rect.width - 8), height: max(0, rect.height - 4))
+        let leading: CGFloat = rect.width < 36 ? 2 : 6
+        let textRect = CGRect(x: rect.minX + leading, y: rect.minY + 2, width: max(0, rect.width - leading - 2), height: max(0, rect.height - 4))
         let primary = theme.textPrimary.cgColor
         let secondary = theme.textPrimary.alpha(0.82).cgColor
         context.withCGContext { cg in

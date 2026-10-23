@@ -95,6 +95,18 @@ struct BarLayoutTests: CheckSuite {
 }
 
 struct AgendaLayoutTests: CheckSuite {
+    func tallBlocksKeepCompactDurationsInNarrowFortnightColumns() {
+        let days = (1...14).map { String(format: "2026-10-%02d", $0) }
+        let sessions = days.enumerated().map { i, day in block("s-\(i)", 9, i.isMultiple(of: 2) ? 11 : 10.5, day: day) }
+        let data = AgendaDTO(days: days, sessions: sessions, hourStart: 6, hourEnd: 23, nowDay: "2026-10-23", nowHour: 12,
+                             dayStartHour: 3, rangeLabel: "Weeks", fitWidth: true)
+        let layout = AgendaLayout(agenda: data, size: CGSize(width: 470, height: 700))
+        for block in layout.columns.flatMap(\.blocks) {
+            let lines = AgendaLayout.labelLines(for: block)
+            expect(!lines.isEmpty, "tall fortnight blocks retain duration even when a subject title cannot fit")
+            expect(lines.allSatisfy { ChartText.metrics($0.text, font: $0.font).width <= block.rect.width - 4 })
+        }
+    }
     func tallNarrowArrangedBlocksAlwaysKeepTheirDuration() {
         let layout = AgendaLayout(agenda: agenda([block("a", 9, 10), block("b", 9, 10)]), size: CGSize(width: 132, height: 760))
         let shifted = layout.columns[0].blocks[1]

@@ -25,6 +25,7 @@ let checks: [(String, () throws -> Void)] = [
     ("BarLayoutTests.heightsAreProportionalAndSegmentsContiguous", { try BarLayoutTests().heightsAreProportionalAndSegmentsContiguous() }),
     ("BarLayoutTests.weeklyAndMonthlyLabelsUseTheirGrouping", { try BarLayoutTests().weeklyAndMonthlyLabelsUseTheirGrouping() }),
     ("BarLayoutTests.denseHistoryKeepsLabelsFromOverlapping", { try BarLayoutTests().denseHistoryKeepsLabelsFromOverlapping() }),
+    ("AgendaLayoutTests.tallBlocksKeepCompactDurationsInNarrowFortnightColumns", { try AgendaLayoutTests().tallBlocksKeepCompactDurationsInNarrowFortnightColumns() }),
     ("AgendaLayoutTests.tallNarrowArrangedBlocksAlwaysKeepTheirDuration", { try AgendaLayoutTests().tallNarrowArrangedBlocksAlwaysKeepTheirDuration() }),
     ("AgendaLayoutTests.denseOverlapsKeepEveryTargetDistinct", { try AgendaLayoutTests().denseOverlapsKeepEveryTargetDistinct() }),
     ("AgendaLayoutTests.adjacencyJoinsWithinToleranceOnly", { try AgendaLayoutTests().adjacencyJoinsWithinToleranceOnly() }),
