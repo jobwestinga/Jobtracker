@@ -52,8 +52,9 @@ visual review, then exits. Use it only with synthetic stores.
 The Command Line Tools compile SwiftUI but ship no macro plugins for
 `@State`, swift-testing or XCTest UI automation. The app therefore keeps
 view-local state in `ViewState` objects, and checks run as an executable.
-XCUIAutomation requires full Xcode. VoiceOver is built into macOS and can be
-checked without Xcode, but needs a hands-on interactive pass. These remain open in the
+XCUIAutomation requires full Xcode. The release instead combines the executable
+checks, real-window macOS input/accessibility automation and the user's pilot
+review. Test methods and limits are recorded in the
 [evidence record](../../docs/guides/a4-evidence.md).
 
 ## Review corrections
@@ -77,3 +78,5 @@ newly typed fields remain edits of the confirmed session, rather than creating
 another row. The native checks also run two separate engine stores against a
 disposable loopback API, exercising remote moves during an open session draft,
 explicit conflict resolution, settled queues and foreign timer ownership.
+Forms that close after Save disable their fields while that save is pending;
+the session panel instead keeps newer edits bound to the confirmed row.

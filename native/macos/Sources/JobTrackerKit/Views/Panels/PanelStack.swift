@@ -53,15 +53,17 @@ struct PanelContent: View {
 struct PanelChrome<Body: View, Footer: View>: View {
     let title: String
     let width: CGFloat
+    let busy: Bool
     let onClose: () -> Void
     let content: Body
     let footer: Footer
     @Environment(\.theme) private var theme
 
-    init(_ title: String, width: CGFloat = 440, onClose: @escaping () -> Void,
+    init(_ title: String, width: CGFloat = 440, busy: Bool = false, onClose: @escaping () -> Void,
          @ViewBuilder content: () -> Body, @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.width = width
+        self.busy = busy
         self.onClose = onClose
         self.content = content()
         self.footer = footer()
@@ -94,6 +96,7 @@ struct PanelChrome<Body: View, Footer: View>: View {
                 HStack(spacing: 10) { footer }
                     .padding(.horizontal, 20).padding(.vertical, 12)
             }
+            .disabled(busy)
             .frame(width: min(width, proxy.size.width - 32))
             .frame(maxHeight: min(proxy.size.height - 40, 760))
             .fixedSize(horizontal: false, vertical: true)
@@ -157,7 +160,7 @@ struct SubjectEditorPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome(model.isNew ? "New Subject" : "Edit Subject", width: 440, onClose: { app.dismiss(id) }) {
+        PanelChrome(model.isNew ? "New Subject" : "Edit Subject", width: 440, busy: model.saving, onClose: { app.dismiss(id) }) {
             FieldLabel("Name")
             TextField("Subject name", text: $model.name)
                 .textFieldStyle(FieldStyle())
@@ -279,7 +282,7 @@ struct RecoveryPanel: View {
 
     var body: some View {
         let recovery = model.snapshot.recovery
-        PanelChrome("Unfinished Session", width: 460, onClose: { app.dismiss(id) }) {
+        PanelChrome("Unfinished Session", width: 460, busy: model.saving, onClose: { app.dismiss(id) }) {
             if let recovery {
                 Text("\u{201C}\(recovery.subjectName)\u{201D} was still running when JobTracker closed.")
                     .font(TypeRole.cardTitle.font).fixedSize(horizontal: false, vertical: true)

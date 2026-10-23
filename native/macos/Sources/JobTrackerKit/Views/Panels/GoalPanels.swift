@@ -104,7 +104,7 @@ struct GoalFormPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome(model.isNew ? "New Goal" : "Edit Goal", width: 500, onClose: { app.dismiss(id) }) {
+        PanelChrome(model.isNew ? "New Goal" : "Edit Goal", width: 500, busy: model.saving, onClose: { app.dismiss(id) }) {
             Text(model.isNew ? "Define a new outcome" : "Edit the outcome").font(TypeRole.cardTitle.font)
             FieldLabel("Title")
             TextField("e.g. Become a FIDE master", text: $model.name).textFieldStyle(FieldStyle()).accessibilityLabel("Goal title")
@@ -203,7 +203,7 @@ struct TemplateEditorPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome(model.isNew ? "New Template" : "Edit Template", width: 500, onClose: { app.dismiss(id) }) {
+        PanelChrome(model.isNew ? "New Template" : "Edit Template", width: 500, busy: model.saving, onClose: { app.dismiss(id) }) {
             FieldLabel("Title")
             TextField("e.g. Weekly review {date}", text: $model.title).textFieldStyle(FieldStyle())
             Text("Placeholders such as {date} are filled in when each goal is created.").font(TypeRole.caption.font).foregroundColor(theme.textDimmed.color)
@@ -244,7 +244,7 @@ struct SettingsPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome("Settings", width: 460, onClose: { app.dismiss(id) }) {
+        PanelChrome("Settings", width: 460, busy: model.saving || model.dataBusy, onClose: { app.dismiss(id) }) {
             Text("Theme").font(TypeRole.section.font)
             CompactSelector("Appearance theme", options: model.options.map { ($0, $0.name) }, selection: model.selected) { model.preview($0) }
             Text(model.selected.description).font(TypeRole.secondary.font).foregroundColor(theme.textSecondary.color)
@@ -289,7 +289,7 @@ struct GraphSettingsPanel: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        PanelChrome("Graph Settings", width: 460, onClose: { app.dismiss(id) }) {
+        PanelChrome("Graph Settings", width: 460, busy: model.saving, onClose: { app.dismiss(id) }) {
             Text("Time Range").font(TypeRole.section.font)
             ChoiceRow([("weeks", "Weeks"), ("months", "Months"), ("year", "Year"), ("all", "All")], selection: model.range) {
                 model.range = $0
