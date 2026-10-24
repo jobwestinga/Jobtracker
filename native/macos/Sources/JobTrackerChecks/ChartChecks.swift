@@ -43,7 +43,7 @@ struct BarLayoutTests: CheckSuite {
                 for (index, label) in layout.labels.enumerated() {
                     let bar = layout.bars[index]
                     expect(abs(label.origin.y + label.height + 9 - bar.rect.minY) < 0.001, "a total stays just above its own bar")
-                    expect(label.font.pointSize <= 12 * label.style.scale + 0.001, "quieter size retains relative magnitude")
+                    expect(label.font.pointSize <= 11 * label.style.scale + 0.001, "quieter size retains relative magnitude")
                     let rect = CGRect(origin: label.origin, size: CGSize(width: label.width, height: label.height))
                     expect(rect.minX >= 0 && rect.minY >= 0 && rect.maxX <= width)
                     for other in layout.labels.dropFirst(index + 1) {

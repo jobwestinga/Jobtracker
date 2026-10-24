@@ -94,7 +94,7 @@ Session panels accept Up/Down to select adjacent history rows and scroll them
 into view. Text fields and open menus keep their keys; dirty drafts still ask
 before changing selection.
 
-Bar totals use a 12-point shared base, scaled by intensity. Every non-empty
+Bar totals use an 11-point shared base, scaled by intensity. Every non-empty
 bucket keeps its total directly above its own bar, with the original tier glow.
 A dense chart scrolls horizontally to preserve readable spacing. Agenda blocks
 with room for two lines retain their duration; a displaced start time yields

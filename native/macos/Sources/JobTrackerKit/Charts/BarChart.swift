@@ -43,7 +43,7 @@ public struct BarChartLayout {
         let labels = buckets.enumerated().filter { $0.element.totalSeconds > 0 }.map { index, bucket -> (Int, CGFloat) in
             let style = HourStyle.forIntensity(seconds: bucket.intensitySeconds)
             return (index, ChartText.metrics(HourStyle.label(totalSeconds: bucket.totalSeconds),
-                                            font: ChartText.font(size: 12 * style.scale, strong: style.strong)).width)
+                                            font: ChartText.font(size: 11 * style.scale, strong: style.strong)).width)
         }
         let slot = zip(labels, labels.dropFirst()).map { left, right in
             ((left.1 + right.1) / 2 + 8) / CGFloat(right.0 - left.0)
@@ -62,7 +62,7 @@ public struct BarChartLayout {
         barWidth = fitWidth ? max(2, raw) : max(12, raw)
 
         // A quieter common base preserves magnitude differences and the glow.
-        let base: CGFloat = 12
+        let base: CGFloat = 11
 
         var bars: [Bar] = []
         var labels: [Label] = []
