@@ -130,23 +130,11 @@ struct StopButtonStyle: ButtonStyle {
 struct SubjectList: View {
     @ObservedObject var app: AppModel
     @ObservedObject var store: SubjectsStore
-    @StateObject private var dragging = ViewState<String?>(nil)
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(store.subjects) { subject in
-                    SubjectCard(app: app, store: store, subject: subject)
-                        .onDrag {
-                            dragging.value = subject.uid
-                            return NSItemProvider(object: subject.uid as NSString)
-                        }
-                        .onDrop(of: [UTType.text], delegate: ReorderDropDelegate(
-                            target: subject.uid, ordered: store.subjects.map(\.uid), dragging: $dragging.value,
-                            commit: { order in Task { @MainActor in await store.reorder(order) } }))
-                }
-            }
-            .padding(.bottom, 8)
+        ReorderableCards(items: store.subjects, reduceMotion: app.reduceMotion,
+                         commit: { await store.reorder($0) }) { subject, _ in
+            SubjectCard(app: app, store: store, subject: subject)
         }
     }
 }
