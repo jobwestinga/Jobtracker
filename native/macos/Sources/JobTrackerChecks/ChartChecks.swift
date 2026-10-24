@@ -31,6 +31,28 @@ struct HourStyleTests: CheckSuite {
 }
 
 struct BarLayoutTests: CheckSuite {
+    func narrowChartsKeepEveryTotalWithoutCollisions() {
+        for count in [7, 14, 31, 120] {
+            for equal in [false, true] {
+                let buckets = (0..<count).map { day in
+                    bucket(String(format: "2026-10-%02d", day % 28 + 1), [("a", "#3B82F6", equal ? 39600 : 900 + (day % 15) * 2700)])
+                }
+                let width = max(410, BarChartLayout.requiredWidth(buckets: buckets, fitWidth: true))
+                let layout = BarChartLayout(buckets: buckets, grouping: "daily", size: CGSize(width: width, height: 470), fitWidth: true)
+                expect(layout.labels.count == count, "all \(count) totals survive at \(width)pt, equal=\(equal): got \(layout.labels.count)")
+                for (index, label) in layout.labels.enumerated() {
+                    let bar = layout.bars[index]
+                    expect(abs(label.origin.y + label.height + 9 - bar.rect.minY) < 0.001, "a total stays just above its own bar")
+                    expect(label.font.pointSize <= 12 * label.style.scale + 0.001, "quieter size retains relative magnitude")
+                    let rect = CGRect(origin: label.origin, size: CGSize(width: label.width, height: label.height))
+                    expect(rect.minX >= 0 && rect.minY >= 0 && rect.maxX <= width)
+                    for other in layout.labels.dropFirst(index + 1) {
+                        expect(!rect.intersects(CGRect(origin: other.origin, size: CGSize(width: other.width, height: other.height))))
+                    }
+                }
+            }
+        }
+    }
     func bucket(_ date: String, _ segments: [(String, String, Int)], intensity: Double? = nil) -> BucketDTO {
         let total = segments.reduce(0) { $0 + $1.2 }
         return BucketDTO(date: date, totalSeconds: total, intensitySeconds: intensity ?? Double(total), periodDays: 1, thresholdDays: 1,
@@ -60,7 +82,8 @@ struct BarLayoutTests: CheckSuite {
 
     func denseHistoryKeepsLabelsFromOverlapping() {
         let buckets = (1...60).map { day in bucket(String(format: "2026-08-%02d", (day - 1) % 28 + 1), [("a", "#3B82F6", 3600 * (day % 11 + 1))]) }
-        let layout = BarChartLayout(buckets: buckets, grouping: "daily", size: CGSize(width: 2400, height: 400), fitWidth: true)
+        let width = max(2400, BarChartLayout.requiredWidth(buckets: buckets, fitWidth: true))
+        let layout = BarChartLayout(buckets: buckets, grouping: "daily", size: CGSize(width: width, height: 400), fitWidth: true)
         for (i, a) in layout.labels.enumerated() {
             for b in layout.labels[(i + 1)...] {
                 let ra = CGRect(x: a.origin.x, y: a.origin.y, width: a.width, height: a.height)
@@ -72,6 +95,14 @@ struct BarLayoutTests: CheckSuite {
 }
 
 struct AgendaLayoutTests: CheckSuite {
+    func tallNarrowArrangedBlocksAlwaysKeepTheirDuration() {
+        let layout = AgendaLayout(agenda: agenda([block("a", 9, 10), block("b", 9, 10)]), size: CGSize(width: 132, height: 760))
+        let shifted = layout.columns[0].blocks[1]
+        let lines = AgendaLayout.labelLines(for: shifted)
+        expect(lines.count == 2 && lines.last?.text.contains("1.0h") == true,
+               "recorded start time yields to duration in a narrow block with room for two lines")
+        expect(lines.allSatisfy { ChartText.metrics($0.text, font: $0.font).width <= shifted.rect.width - 8 })
+    }
     func denseOverlapsKeepEveryTargetDistinct() {
         let sessions = (0..<12).map { block("session-\($0)", 9, 10) }
         for width: CGFloat in [400, 84] {

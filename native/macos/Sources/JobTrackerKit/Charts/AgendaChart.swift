@@ -131,23 +131,23 @@ public struct AgendaLayout {
         guard rect.height > 13, rect.width > 20 else { return [] }
         let width = rect.width - 8
         let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
-        let durationFont = NSFont.systemFont(ofSize: 10, weight: .medium)
         let seconds = block.source.durationSeconds
         let durationText = seconds >= 3600 ? String(format: "%.1fh", Double(seconds) / 3600) : "\(max(1, Int((Double(seconds) / 60).rounded())))m"
         let duration = block.arranged ? "\(timeLabel(block.source.startH)) · \(durationText)" : durationText
         let title = elided(block.source.subjectName, font: titleFont, width: width)
         // The duration falls back to smaller sizes rather than being clipped.
-        let fittedDuration = [11.0, 10.0, 9.0].lazy
-            .map { NSFont.systemFont(ofSize: $0, weight: .bold) }
-            .first { ChartText.metrics(duration, font: $0).width <= width }
-            .map { (duration, $0) }
-        if rect.height >= 28 {
+        // Recorded time is useful on displaced blocks, but must never crowd
+        // out their duration. Keep that time in the exact-session tooltip.
+        let fittedDuration = [duration, durationText].compactMap { text in
+            [10.0, 9.0].map { NSFont.systemFont(ofSize: $0, weight: .medium) }
+                .first { ChartText.metrics(text, font: $0).width <= width }.map { (text, $0) }
+        }.first
+        if rect.height >= 30 {
             guard let title else { return fittedDuration.map { [$0] } ?? [] }
-            return ChartText.metrics(duration, font: durationFont).width <= width ? [(title, titleFont), (duration, durationFont)] : [(title, titleFont)]
+            return [(title, titleFont)] + (fittedDuration.map { [$0] } ?? [])
         }
         let combined = "\(block.source.subjectName) \u{00B7} \(duration)"
         if ChartText.metrics(combined, font: titleFont).width <= width { return [(combined, titleFont)] }
-        if let title { return [(title, titleFont)] }
         return fittedDuration.map { [$0] } ?? []
     }
 

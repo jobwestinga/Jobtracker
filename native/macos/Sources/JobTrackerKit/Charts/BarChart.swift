@@ -37,6 +37,20 @@ public struct BarChartLayout {
         return max(max(400, 80 + CGFloat(count) * 50), required)
     }
 
+    /// Totals stay directly over their own bars. Only adjacent non-empty
+    /// buckets constrain spacing; dense history scrolls without floating labels.
+    public static func requiredWidth(buckets: [BucketDTO], fitWidth: Bool) -> CGFloat {
+        let labels = buckets.enumerated().filter { $0.element.totalSeconds > 0 }.map { index, bucket -> (Int, CGFloat) in
+            let style = HourStyle.forIntensity(seconds: bucket.intensitySeconds)
+            return (index, ChartText.metrics(HourStyle.label(totalSeconds: bucket.totalSeconds),
+                                            font: ChartText.font(size: 12 * style.scale, strong: style.strong)).width)
+        }
+        let slot = zip(labels, labels.dropFirst()).map { left, right in
+            ((left.1 + right.1) / 2 + 8) / CGFloat(right.0 - left.0)
+        }.max() ?? 0
+        return max(requiredWidth(count: buckets.count, fitWidth: fitWidth), 66 + CGFloat(buckets.count) * max(14, slot))
+    }
+
     public init(buckets: [BucketDTO], grouping: String, size: CGSize, fitWidth: Bool) {
         self.size = size
         chart = CGRect(x: 44, y: 46, width: max(80, size.width - 66), height: max(120, size.height - 90))
@@ -47,15 +61,8 @@ public struct BarChartLayout {
         let raw = (chart.width - gap * CGFloat(count - 1)) / CGFloat(count)
         barWidth = fitWidth ? max(2, raw) : max(12, raw)
 
-        // One shared base size keeps relative differences across dense views.
-        var base: CGFloat = 14
-        for bucket in buckets where bucket.totalSeconds > 0 {
-            let style = HourStyle.forIntensity(seconds: bucket.intensitySeconds)
-            let font = ChartText.font(size: 14 * style.scale, strong: style.strong)
-            let width = ChartText.metrics(HourStyle.label(totalSeconds: bucket.totalSeconds), font: font).width
-            base = min(base, 14 * max(1, barWidth + gap - 10) / max(1, width))
-        }
-        base = max(CGFloat(DesignTokens.lookup(DesignTokens.shared.roles.typography, "chartTotal")?.minimum ?? 9), base)
+        // A quieter common base preserves magnitude differences and the glow.
+        let base: CGFloat = 12
 
         var bars: [Bar] = []
         var labels: [Label] = []
@@ -78,13 +85,13 @@ public struct BarChartLayout {
             }
             bars.append(Bar(index: index, bucket: bucket, rect: rect, radius: max(0, radius), segments: segments))
 
-            if barWidth > 20 && total > 0 {
+            if total > 0 {
                 let style = HourStyle.forIntensity(seconds: bucket.intensitySeconds)
                 let font = ChartText.font(size: base * style.scale, strong: style.strong)
                 let text = HourStyle.label(totalSeconds: total)
                 let metrics = ChartText.metrics(text, font: font)
                 let height = metrics.ascent + metrics.descent
-                labels.append(Label(text: text, origin: CGPoint(x: x + barWidth / 2 - metrics.width / 2, y: rect.minY - height - 9),
+                labels.append(Label(text: text, origin: CGPoint(x: max(5, min(size.width - metrics.width - 5, x + barWidth / 2 - metrics.width / 2)), y: rect.minY - height - 9),
                                     font: font, style: style, width: metrics.width, height: height))
             }
             let dayText = Self.bucketLabel(bucket.date, grouping: grouping)
@@ -98,16 +105,7 @@ public struct BarChartLayout {
         self.bars = bars
         self.dayLabels = days
 
-        // Largest days win label collisions; the size hierarchy survives.
-        var occupied: [CGRect] = []
-        var placed: [Label] = []
-        for label in labels.sorted(by: { $0.style.scale > $1.style.scale }) {
-            let bounds = CGRect(x: label.origin.x - 5, y: label.origin.y - 4, width: label.width + 10, height: label.height + 8)
-            if occupied.contains(where: { $0.intersects(bounds) }) { continue }
-            occupied.append(bounds)
-            placed.append(label)
-        }
-        self.labels = placed
+        self.labels = labels
     }
 
     /// Consecutive same-subject segments become one seamless segment.
@@ -170,10 +168,10 @@ struct BarChartView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let width = max(proxy.size.width, BarChartLayout.requiredWidth(count: data.buckets.count, fitWidth: data.fitWidth))
+            let width = max(proxy.size.width, BarChartLayout.requiredWidth(buckets: data.buckets, fitWidth: data.fitWidth))
             let size = CGSize(width: width, height: max(360, proxy.size.height))
             let layout = BarChartLayout(buckets: data.buckets, grouping: data.grouping, size: size, fitWidth: data.fitWidth)
-            ScrollView(.horizontal, showsIndicators: !data.fitWidth) {
+            ScrollView(.horizontal, showsIndicators: width > proxy.size.width) {
                 ZStack(alignment: .topLeading) {
                     canvas(layout)
                     ChartHitArea(regions: layout.bars.map { bar in
@@ -253,7 +251,7 @@ struct BarChartView: View {
                             cg.restoreGState()
                         }
                     }
-                    let color = label.style.strong ? theme.textPrimary.cgColor : label.style.color.cgColor
+                    let color = label.style.strong ? label.style.color.mixed(with: theme.textPrimary, 0.42).cgColor : label.style.color.cgColor
                     ChartText.draw(label.text, font: label.font, color: color, at: label.origin, in: cg)
                 }
             }
