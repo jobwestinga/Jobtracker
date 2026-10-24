@@ -99,3 +99,10 @@ bucket keeps its total directly above its own bar, with the original tier glow.
 A dense chart scrolls horizontally to preserve readable spacing. Agenda blocks
 with room for two lines retain their duration; a displaced start time yields
 to the duration when the column is narrow. Exact saved times remain unchanged.
+
+The Weight plot accepts pinch zoom and two-finger panning. Shift-pinch zooms
+time alone; Option-pinch zooms weight alone. Shift-scroll and Option-scroll
+stretch the corresponding axes. Reset zoom restores the loaded range. Zoom is
+temporary presentation state, stays through fullscreen, and resets when the
+range or historic-reading option changes. It never changes measurement rows,
+the entry draft, smoothing, or persisted settings.

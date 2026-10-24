@@ -1110,6 +1110,15 @@
         },
         {
           "path": "scripts/generate_ui_tokens.py"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Views/ReorderableCards.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Charts/WeightChart.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Charts/WeightViewport.swift"
         }
       ],
       "guide": "native/macos/README.md",
