@@ -45,6 +45,10 @@ captured timestamps, minimum duration, day boundaries, stale responses,
 transaction failures, dropped acknowledgements, outbox ordering and import/restore
 identity. Avoid tests that only repeat a low-impact implementation detail.
 
+Shared native bridge samples compare field paths across every list element.
+Graph buckets can begin with an empty or populated day as the calendar advances;
+both orders must retain coverage of the nested session fields.
+
 ## Before delivering code
 
 ```sh

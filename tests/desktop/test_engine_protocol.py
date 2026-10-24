@@ -80,16 +80,25 @@ def _keys(value, prefix=""):
             out.add(prefix + key)
             out |= _keys(item, prefix + key + ".")
         return out
-    if isinstance(value, list) and value:
-        return _keys(value[0], prefix + "[].")
+    if isinstance(value, list):
+        out = set()
+        for item in value:
+            out |= _keys(item, prefix + "[].")
+        return out
     return set()
 
 
-def test_shared_samples_match_live_engine_shapes():
+@pytest.mark.parametrize("populated_bucket_first", [False, True], ids=["empty-first", "populated-first"])
+def test_shared_samples_match_live_engine_shapes(populated_bucket_first):
     from tests.support.bridge_fixture import SAMPLES, live_samples
 
     stored = json.loads(SAMPLES.read_text())
     live = live_samples()
+    # The calendar shifts which day comes first. Both orders must compare every
+    # segment field, even when the first bucket has no sessions.
+    live["graphs.breakdown"]["result"]["buckets"].sort(
+        key=lambda bucket: bool(bucket["segments"]), reverse=populated_bucket_first,
+    )
     assert set(stored) == set(live)
     for name in stored:
         # Same synthetic data, so the field sets must agree exactly.
