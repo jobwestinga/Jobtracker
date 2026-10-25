@@ -38,6 +38,14 @@ template and settings forms; a stale handler cannot submit after its sheet close
 
 If the server commits a 75-minute session but the reply is lost, the client keeps the operation. Retrying the same request returns its saved receipt with `replayed: true`; it creates no second session. [Shared outcome cases](../../tests/contracts/operation_outcomes.json) and [API tests](../../tests/test_operation_contracts.py) verify this together with refusal, skip, daily weight coalescing and partial batch failure.
 
+The [closed-session retry trace](../../tests/test_sync_safety.py) also compares
+both stores with independent expected rows. Six cases combine offline creates,
+moves, shifts, copies and deletes with a temporary failure after a mutation,
+received or lost prefix acknowledgements, reopening the pending store and later
+offline edits. They check transaction rollback, original operation/entity UIDs,
+microsecond endpoints, logical-day copying, replay receipts and settled queues
+without mirror repair.
+
 ## Compatible outcomes
 
 | Category | Existing transport result | Queue behavior |

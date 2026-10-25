@@ -9,8 +9,9 @@ from jobtracker.core import sync_policy
 from jobtracker.core.database import Database
 from jobtracker.sync import state
 from jobtracker.sync.client import SyncError
-from jobtracker.sync.engine import SyncResult
+from jobtracker.sync.engine import SyncEngine, SyncResult
 from jobtracker.sync.service import SyncedTrackerService
+from server import ops
 from tests.support.sync import world, server_add_subject
 from tests.support.synced import synced
 
@@ -361,6 +362,173 @@ def test_seeded_offline_edits_and_lost_responses_converge_without_data_loss(sync
             tables[table] = rows
         return tables
     assert normalized(synced.mirror) == normalized(synced.server_db)
+
+
+@pytest.mark.parametrize("failed_index", [1, 3, 5], ids=["create", "edit", "delete"])
+@pytest.mark.parametrize("lose_reply", [False, True], ids=["prefix-received", "prefix-lost"])
+def test_session_retry_trace_matches_independent_model(synced, monkeypatch, failed_index, lose_reply):
+    svc = synced.svc
+    first = svc.add_subject("First", "#123456", "")
+    second = svc.add_subject("Second", "#654321", "")
+    assert synced.engine.sync().ok
+    baseline_receipts = {
+        row[0] for row in synced.server_db.connection.execute("SELECT op_id FROM applied_ops")
+    }
+    cursor = state.last_seq(synced.mirror.connection)
+    synced.client.offline = True
+
+    original = svc.add_session(first.id, datetime(2026, 6, 1, 10), datetime(2026, 6, 1, 11))
+    doomed = svc.add_session(first.id, datetime(2026, 6, 2, 9), datetime(2026, 6, 2, 10))
+    svc.update_session(
+        original.id, second.id,
+        datetime(2026, 6, 2, 1, 0, 0, 123456), datetime(2026, 6, 2, 2, 30, 0, 123456),
+    )
+    svc.shift_session(original.id, 900)
+    copied = svc.duplicate_session(original.id, "next_day")
+    svc.delete_session(doomed.id)
+
+    # An independent model of accepted intent: literal endpoints and durations,
+    # without using the queue, wire codec or service/time helpers as an oracle.
+    # Copying a pre-03:00 session must retain its place on the next logical day.
+    events = [
+        (original.uid, (first.uid, "2026-06-01T10:00:00", "2026-06-01T11:00:00", 3600)),
+        (doomed.uid, (first.uid, "2026-06-02T09:00:00", "2026-06-02T10:00:00", 3600)),
+        (original.uid, (second.uid, "2026-06-02T01:00:00.123456", "2026-06-02T02:30:00.123456", 5400)),
+        (original.uid, (second.uid, "2026-06-02T01:15:00.123456", "2026-06-02T02:45:00.123456", 5400)),
+        (copied.uid, (second.uid, "2026-06-03T01:15:00.123456", "2026-06-03T02:45:00.123456", 5400)),
+        (doomed.uid, None),
+    ]
+
+    def expected(trace):
+        rows = {}
+        for uid, row in trace:
+            if row is None:
+                rows.pop(uid, None)
+            else:
+                rows[uid] = row
+        return rows
+
+    def actual(database):
+        return {
+            row[0]: tuple(row[1:])
+            for row in database.connection.execute(
+                "SELECT s.uid, t.uid, s.start_time, s.end_time, s.duration_seconds "
+                "FROM sessions s JOIN tasks t ON t.id = s.task_id"
+            )
+        }
+
+    def queued(database):
+        return [
+            (entry["op_id"], entry["op"], entry["params"])
+            for entry in state.pending(database.connection)
+        ]
+
+    original_queue = queued(synced.mirror)
+    assert [entry[1] for entry in original_queue] == [
+        "add_session", "add_session", "update_session", "update_session", "add_session", "delete_session",
+    ]
+    assert actual(synced.mirror) == expected(events)
+    assert synced.engine.sync().offline
+    assert actual(synced.server_db) == {}
+    assert queued(synced.mirror) == original_queue
+    synced.client.offline = False
+
+    attempted = []
+    real_send = synced.client.send_ops
+
+    def fail_once(handler):
+        def apply(service, params):
+            result = handler(service, params)
+            attempted.append(params)
+            if len(attempted) == failed_index + 1:
+                # Fail after the mutation to also exercise transaction rollback.
+                raise ops.OpError("synthetic temporary failure", status=503)
+            return result
+        return apply
+
+    def send_partial(*args, **kwargs):
+        try:
+            return real_send(*args, **kwargs)
+        except SyncError as exc:
+            assert exc.status == 503
+            assert exc.body["failed_index"] == failed_index
+            assert [entry["op_id"] for entry in exc.body["applied"]] == [
+                entry[0] for entry in original_queue[:failed_index]
+            ]
+            if lose_reply:
+                raise SyncError("synthetic lost partial reply") from exc
+            raise
+
+    with monkeypatch.context() as fault:
+        for name in ("add_session", "update_session", "delete_session"):
+            fault.setitem(ops._HANDLERS, name, fail_once(ops._HANDLERS[name]))
+        fault.setattr(synced.client, "send_ops", send_partial)
+        fault.setattr(synced.client, "pull", lambda *a, **kw: pytest.fail("pull before queue settled"))
+        partial = synced.engine.sync()
+
+    acknowledged = 0 if lose_reply else failed_index
+    assert not partial.ok
+    assert partial.offline == lose_reply
+    assert partial.pushed == acknowledged
+    assert partial.pending == len(events) - acknowledged
+    assert actual(synced.server_db) == expected(events[:failed_index])
+    assert actual(synced.mirror) == expected(events)
+    assert state.last_seq(synced.mirror.connection) == cursor
+    assert queued(synced.mirror) == original_queue[acknowledged:]
+    assert {
+        row[0] for row in synced.server_db.connection.execute("SELECT op_id FROM applied_ops")
+    } == baseline_receipts | {entry[0] for entry in original_queue[:failed_index]}
+
+    # Reopen the disposable store while work is still pending, then append new
+    # offline work. Neither restart nor retry may mint replacement identities.
+    path = synced.mirror.db_path
+    synced.mirror.connection.close()
+    reopened = Database(path)
+    try:
+        svc = SyncedTrackerService(reopened, device_id="macbook", recover=False)
+        engine = SyncEngine(reopened, synced.client, device_id="macbook")
+        assert queued(reopened) == original_queue[acknowledged:]
+        assert actual(reopened) == expected(events)
+        synced.client.offline = True
+        svc.update_session(original.id, first.id, datetime(2026, 6, 4, 20), datetime(2026, 6, 4, 21, 15))
+        late = svc.add_session(first.id, datetime(2026, 6, 4, 20, 30), datetime(2026, 6, 4, 21, 15))
+        events.extend([
+            (original.uid, (first.uid, "2026-06-04T20:00:00", "2026-06-04T21:15:00", 4500)),
+            (late.uid, (first.uid, "2026-06-04T20:30:00", "2026-06-04T21:15:00", 2700)),
+        ])
+        retry_queue = queued(reopened)
+        assert retry_queue[:-2] == original_queue[acknowledged:]
+        assert engine.sync().offline
+        assert queued(reopened) == retry_queue
+        synced.client.offline = False
+        replies = []
+
+        def observe_retry(*args, **kwargs):
+            response = real_send(*args, **kwargs)
+            replies.extend(response["applied"])
+            return response
+
+        monkeypatch.setattr(synced.client, "send_ops", observe_retry)
+        settled = engine.sync()
+        assert settled.ok, settled.error
+        assert not settled.repaired
+        assert settled.pending == 0
+        assert settled.pushed == len(retry_queue)
+        assert queued(reopened) == []
+        assert [entry["op_id"] for entry in replies] == [entry[0] for entry in retry_queue]
+        assert [entry["result"]["replayed"] for entry in replies] == [
+            lose_reply and index < failed_index for index in range(len(retry_queue))
+        ]
+        assert actual(reopened) == actual(synced.server_db) == expected(events)
+        assert {
+            row[0] for row in synced.server_db.connection.execute("SELECT op_id FROM applied_ops")
+        } == baseline_receipts | {entry[0] for entry in original_queue + retry_queue}
+        quiet = engine.sync()
+        assert quiet.ok and not quiet.repaired
+        assert (quiet.pushed, quiet.applied, quiet.deleted, quiet.pending) == (0, 0, 0, 0)
+        assert actual(reopened) == actual(synced.server_db) == expected(events)
+    finally:
+        reopened.connection.close()
 
 
 def test_observer_cannot_see_local_edit_before_its_outbox_receipt(synced, monkeypatch):
