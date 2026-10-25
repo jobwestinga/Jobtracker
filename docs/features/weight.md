@@ -63,6 +63,11 @@ it stays hidden with fewer than two readings and respects Historic readings.
 The summary separately labels the visible range's change. History row changes
 compare consecutive readings, retaining hundredth-kilogram differences.
 
+The shared Python LOESS kernel retains every fitted point and the same tricube
+weights while using direct cubic multiplication. The
+[long-history measurement](../guides/a4-evidence.md#local-long-history-weight-fitting-25-october-2026)
+records the command boundary, synthetic data, repeated results and limits.
+
 ## Phone shell and home screen
 
 `python3 scripts/dev.py context mobile.shell` covers navigation and caching.

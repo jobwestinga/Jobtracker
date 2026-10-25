@@ -51,6 +51,17 @@ def test_native_chart_filters_calendar_days_not_logical_days():
     assert len(points_for(rows, historic=True)) == 3
 
 
+@pytest.mark.parametrize("span", [0.01, 0.04, 0.2, 1.0])
+def test_long_irregular_history_preserves_a_linear_trend(span):
+    # A local linear fit must reproduce a straight line at every point, even
+    # with gaps, duplicate knots, large calendar ordinals and wide neighbourhoods.
+    xs = [700000 + i + i // 7 * 2 + (i % 3) / 10 for i in range(1000)]
+    points = [WeightPoint(x, 80 + (x - 700000) * 0.003) for x in xs]
+    fitted = loess(list(reversed(points)) + points[::19], span)
+    assert [p.x for p in fitted] == xs
+    assert [p.y for p in fitted] == pytest.approx([p.y for p in points], rel=0, abs=1e-10)
+
+
 def test_native_calendar_rolling_mean_ignores_missing_days_and_clock_spacing():
     points = [WeightPoint(10.99, 80), WeightPoint(11.01, 82), WeightPoint(16.99, 84), WeightPoint(50, 90)]
     assert [point.y for point in rolling_mean(points)] == pytest.approx([80, 81, 82, 90])

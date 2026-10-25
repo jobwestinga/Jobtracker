@@ -86,7 +86,10 @@ def loess(points, span=0.04):
         sw = sx = sy = sxx = sxy = 0.0
         for other in values[left:left + count]:
             x = other.x - point.x
-            weight = (1 - min(1, abs(x) / radius) ** 3) ** 3 if radius else 1
+            # The tricube kernel uses a fixed third power; multiply directly.
+            distance = abs(x) / radius if radius else 0.0
+            kernel = 1 - distance * distance * distance if distance < 1 else 0.0
+            weight = kernel * kernel * kernel
             sw += weight
             sx += weight * x
             sy += weight * other.y
