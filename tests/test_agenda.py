@@ -24,6 +24,7 @@ def test_agenda_hour_label():
     assert timeutils.agenda_hour_label(23) == "23:00"
     assert timeutils.agenda_hour_label(24) == "00:00 (+1)"
     assert timeutils.agenda_hour_label(25) == "01:00 (+1)"
+    assert timeutils.agenda_hour_label(48) == "00:00 (+2)"
 
 
 # ── service.get_agenda_data ──────────────────────────────────────────────────

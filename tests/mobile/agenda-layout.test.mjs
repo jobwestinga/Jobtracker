@@ -1,9 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { layoutAgendaDay } from "../../web/features/graphs/agenda-time.js";
+import { agendaHourWindow, layoutAgendaDay } from "../../web/features/graphs/agenda-time.js";
 
 const block = (uid, start, end) => ({ uid, start_h: start, end_h: end });
 const tolerance = 30 / 3600;
+
+test("shared custom logical days remain visible past hour 27", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const fixture = JSON.parse(await readFile(new URL("../contracts/time_boundaries.json", import.meta.url), "utf8"));
+  for (const entry of fixture.agenda_windows) {
+    const session = Object.freeze(block(entry.id, entry.start_h, entry.end_h));
+    const { lo, hi } = agendaHourWindow([session]);
+    // The phone keeps its normal band as a minimum; Mac auto-fit hugs the work.
+    assert.equal(lo, Math.min(6, entry.hour_start), entry.id);
+    assert.equal(hi, Math.max(23, entry.hour_end), entry.id);
+    const placed = layoutAgendaDay([session], tolerance, { hourStart: lo, hourEnd: hi });
+    assert.equal(placed.length, 1, entry.id);
+    assert.equal(placed[0].session, session);
+    assert.equal(placed[0].startH, entry.start_h);
+    assert.equal(placed[0].endH, entry.end_h);
+  }
+  assert.deepEqual(agendaHourWindow([block("late", 28, 30.5)], { autofit: false }), { lo: 6, hi: 23 });
+  assert.deepEqual(agendaHourWindow([]), { lo: 6, hi: 23 });
+});
 
 test("adjacent sessions join only within the tolerance and keep their identities", () => {
   const placed = layoutAgendaDay([block("a", 9, 10), block("b", 10 + 20 / 3600, 11), block("c", 11.5, 12)], tolerance);

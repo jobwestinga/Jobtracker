@@ -44,8 +44,10 @@ public struct AgendaLayout {
     }
 
     public init(agenda: AgendaDTO, size: CGSize, displayScale: CGFloat = 2) {
-        let startHour = max(0, min(26, agenda.hourStart))
-        let endHour = max(startHour + 1, min(27, agenda.hourEnd))
+        // The engine resolves the axis in naive agenda hours. A later day
+        // start can place the end near 48, beyond the default 03:00 edge at 27.
+        let startHour = max(0, min(47, agenda.hourStart))
+        let endHour = max(startHour + 1, min(48, agenda.hourEnd))
         let chartRect = CGRect(x: Self.leftMargin, y: 30, width: max(80, size.width - Self.leftMargin - 14), height: max(120, size.height - 60))
         let hours = Double(endHour - startHour)
         let pixelsPerHour = Double(chartRect.height) / hours
@@ -164,13 +166,13 @@ public struct AgendaLayout {
     }
 
     public static func hourLabel(_ hour: Int) -> String {
-        hour >= 24 ? String(format: "%02d:00 (+1)", hour - 24) : String(format: "%02d:00", hour)
+        hour >= 24 ? String(format: "%02d:00 (+%d)", hour % 24, hour / 24) : String(format: "%02d:00", hour)
     }
 
     public static func timeLabel(_ hours: Double) -> String {
         let total = Int((hours * 60).rounded())
         let dayOffset = total / (24 * 60), minutes = total % (24 * 60)
-        return String(format: "%02d:%02d%@", minutes / 60, minutes % 60, dayOffset > 0 ? " (+1)" : "")
+        return String(format: "%02d:%02d%@", minutes / 60, minutes % 60, dayOffset > 0 ? " (+\(dayOffset))" : "")
     }
 
     /// Bold fill: a strong subject tint on the near-opaque panel, darkened

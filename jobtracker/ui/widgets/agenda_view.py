@@ -3,7 +3,7 @@ Agenda-style timeline view for daily tracked sessions.
 
 Sessions are positioned using logical-day "agenda hours" computed by the service
 (see ``timeutils.agenda_hour``): work that happens after midnight but belongs to
-the previous logical day is placed at hours 24..27 so it renders at the BOTTOM of
+the previous logical day is placed past hour 24 so it renders at the BOTTOM of
 that day's column instead of padding empty space at the top. Axis labels above 24
 read like ``00:00 (+1)``.
 
@@ -20,7 +20,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout
 
-from ...core.timeutils import agenda_hour_label
+from ...core.timeutils import agenda_hour_label, agenda_hour_window
 from ...core.themes import DEFAULT_TOKENS
 from .paint_utils import HoverCard, with_alpha as _with_alpha
 
@@ -138,9 +138,7 @@ class _AgendaCanvas(QWidget):
         self._hover_card.hide()
         self._sessions = sessions
         self._day_keys = day_keys
-        # Agenda axis may extend past midnight (up to 27 == 03:00 (+1)).
-        self._hour_start = max(0, min(26, hour_start))
-        self._hour_end = max(self._hour_start + 1, min(27, hour_end))
+        self._hour_start, self._hour_end = agenda_hour_window(hour_start, hour_end)
         self._fit_width = fit_width
         self._now_marker = now_marker
 

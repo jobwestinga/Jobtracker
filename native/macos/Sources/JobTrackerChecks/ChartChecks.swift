@@ -95,6 +95,32 @@ struct BarLayoutTests: CheckSuite {
 }
 
 struct AgendaLayoutTests: CheckSuite {
+    func customLogicalDaysFollowSharedHourWindows() throws {
+        expect(AgendaLayout.hourLabel(48) == "00:00 (+2)")
+        expect(AgendaLayout.timeLabel(48) == "00:00 (+2)")
+        struct Boundary: Decodable {
+            let id: String, boundary: String, day: String
+            let startH: Double, endH: Double
+            let hourStart: Int, hourEnd: Int
+        }
+        struct Fixture: Decodable { let agendaWindows: [Boundary] }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let fixture = try decoder.decode(Fixture.self, from: Data(contentsOf: repositoryRoot.appendingPathComponent("tests/contracts/time_boundaries.json")))
+        for entry in fixture.agendaWindows {
+            let clock = entry.boundary.split(separator: ":").compactMap { Double($0) }
+            let source = block(entry.id, entry.startH, entry.endH, day: entry.day)
+            let data = AgendaDTO(days: [entry.day], sessions: [source], hourStart: entry.hourStart,
+                                 hourEnd: entry.hourEnd, nowDay: entry.day, nowHour: entry.startH,
+                                 dayStartHour: clock[0] + clock[1] / 60, rangeLabel: "Custom", fitWidth: true)
+            let layout = AgendaLayout(agenda: data, size: CGSize(width: 470, height: 700))
+            expect(layout.hourStart == entry.hourStart && layout.hourEnd == entry.hourEnd, entry.id)
+            expect(layout.columns.flatMap(\.blocks).count == 1, entry.id)
+            expect(layout.columns.first?.blocks.first?.source.uid == entry.id, entry.id)
+            expect(layout.nowY != nil, entry.id)
+        }
+    }
+
     func tallBlocksKeepCompactDurationsInNarrowFortnightColumns() {
         let days = (1...14).map { String(format: "2026-10-%02d", $0) }
         let sessions = days.enumerated().map { i, day in block("s-\(i)", 9, i.isMultiple(of: 2) ? 11 : 10.5, day: day) }

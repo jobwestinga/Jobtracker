@@ -298,7 +298,7 @@ class AnalyticsService:
 
         Each session carries ``start_h`` / ``end_h`` as agenda hours within its
         logical day (see :func:`timeutils.agenda_hour`): after-midnight work that
-        belongs to the previous logical day lands at 24..27 so it renders at the
+        belongs to the previous logical day lands past 24 so it renders at the
         bottom of that day rather than padding the top. Sessions that run past the
         logical-day end are clamped to the day's lower edge.
         """

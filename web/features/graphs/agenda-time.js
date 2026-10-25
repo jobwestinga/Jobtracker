@@ -29,7 +29,14 @@ export function agendaNowMarker(days, hourStart, hourEnd, { now = new Date(), bo
 }
 
 export function agendaHourLabel(hour) {
-  return `${pad(Math.floor(hour) % 24)}:00${hour >= 24 ? " +1" : ""}`;
+  return `${pad(Math.floor(hour) % 24)}:00${hour >= 24 ? ` +${Math.floor(hour / 24)}` : ""}`;
+}
+
+export function agendaHourWindow(sessions, { hourStart = 6, hourEnd = 23, autofit = true } = {}) {
+  // A day beginning as late as 23:59 can end near 48 in agenda-hour space.
+  const lo = Math.max(0, Math.min(47, autofit && sessions.length ? Math.min(hourStart, Math.floor(Math.min(...sessions.map((s) => s.start_h)))) : hourStart));
+  const hi = Math.max(lo + 1, Math.min(48, autofit && sessions.length ? Math.max(hourEnd, Math.ceil(Math.max(...sessions.map((s) => s.end_h)))) : hourEnd));
+  return { lo, hi };
 }
 
 // Arrange overlapping blocks vertically for readability. Only display endpoints

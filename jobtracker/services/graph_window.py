@@ -17,6 +17,7 @@ from typing import Callable, Optional
 from ..core.timeutils import (
     GROUPING_CHOICES,
     agenda_hour,
+    agenda_hour_window,
     graph_preset_window,
     grouping_for_preset,
     grouping_for_span,
@@ -160,8 +161,7 @@ def agenda_window(service, prefs: GraphPreferences, now: Optional[datetime] = No
             min_h = math.floor(min(s["start_h"] for s in sessions))
             max_h = math.ceil(max(s["end_h"] for s in sessions))
             if min_h < max_h:
-                hour_start = max(0, min_h)
-                hour_end = min(27, max(max_h, hour_start + 1))
+                hour_start, hour_end = agenda_hour_window(min_h, max_h)
         except Exception:
             logger.exception("Agenda auto-fit failed; using configured hours")
     return AgendaWindow(

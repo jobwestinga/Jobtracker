@@ -8,6 +8,17 @@ Windows are half-open: `[start, end)`. Weeks start Monday. Bar charts attribute 
 
 This refactor preserves wall-clock semantics. It adds no timezone conversion or daylight-saving reinterpretation. [Shared boundary cases](../../tests/contracts/time_boundaries.json) cover midnight, leap/year boundaries, custom boundaries and daylight-saving dates; [Python](../../tests/test_time_contracts.py) and the [phone tests](../../tests/mobile/agenda-now.test.mjs) consume the same cases.
 
+Agenda auto-fit keeps work throughout the configured logical day visible,
+including hours beyond 27 for later boundaries: a `06:30` day can end at hour `30.5`, and a
+`23:45` day at `47.75`. The outward-rounded display axis can therefore reach 48.
+[The Python resolver](../../jobtracker/services/graph_window.py),
+[phone layout tests](../../tests/mobile/agenda-layout.test.mjs) and native Swift
+layout checks consume the shared `agenda_windows` cases; Qt also has a canvas
+rendering regression. The phone retains its
+normal hour band as a minimum; Mac auto-fit hugs the recorded work. Manual hour
+preferences retain their existing limits. These display differences do not
+change session-start attribution, logical-day clamping or stored timestamps.
+
 Session moves use `timeutils.shift_session_by_seconds`: ±1 day moves both local
 endpoints by 86400 recorded seconds and preserves duration and identity. Phone
 quick-add uses the [duration helper](../../web/features/sessions/duration.js)

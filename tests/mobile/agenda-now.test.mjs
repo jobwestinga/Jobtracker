@@ -52,6 +52,7 @@ test("invalid clock, preferences and absent day never create a misleading line",
     assert.equal(agendaNowMarker(["2026-10-10"], lo, hi, { now: now("2026-10-10T12:00:00") }), null);
   }
   assert.equal(agendaHourLabel(25), "01:00 +1");
+  assert.equal(agendaHourLabel(48), "00:00 +2");
 });
 
 test("now-marker fraction moves by one minute without depending on session blocks", () => {

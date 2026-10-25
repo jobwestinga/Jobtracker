@@ -296,8 +296,19 @@ def agenda_hour(moment: datetime, day_start: time = DEFAULT_DAY_START) -> float:
 def agenda_hour_label(hour: int) -> str:
     """Human label for an agenda axis hour, e.g. 25 -> '01:00 (+1)'."""
     if hour >= 24:
-        return f"{hour - 24:02d}:00 (+1)"
+        return f"{hour % 24:02d}:00 (+{hour // 24})"
     return f"{hour:02d}:00"
+
+
+def agenda_hour_window(hour_start: int, hour_end: int) -> tuple[int, int]:
+    """Clamp a resolved display band to valid agenda hours.
+
+    A configured day can end just before 48 (23:59 on the following date),
+    so rounding the axis outward may require 48. Stored manual preferences
+    have their own limits; auto-fit must also accommodate later day starts.
+    """
+    start = max(0, min(47, hour_start))
+    return start, max(start + 1, min(48, hour_end))
 
 
 def split_by_logical_day(

@@ -2,7 +2,7 @@ import { $, el, safeColor, captureFocus, restoreFocus } from "../../shared/dom.j
 import { addDays, localIso } from "../../shared/time.js";
 import { hm, prettyDayShort, shortLabel } from "../../shared/format.js";
 import { openSheet, closeSheet, field } from "../../shared/sheet.js";
-import { agendaNowMarker, agendaHourLabel, dayStartHour, layoutAgendaDay } from "./agenda-time.js";
+import { agendaNowMarker, agendaHourLabel, agendaHourWindow, dayStartHour, layoutAgendaDay } from "./agenda-time.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
 import { STORAGE_KEYS } from "../../shared/storage.js";
 
@@ -228,8 +228,9 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
 
     // Fit the window to the work actually done, but never narrower than a normal
     // day, so a single early session does not stretch one block over the screen.
-    const lo = Math.max(0, Math.min(26, state.graphAutofit && sessions.length ? Math.min(state.graphHourStart, Math.floor(Math.min(...sessions.map((s) => s.start_h)))) : state.graphHourStart));
-    const hi = Math.max(lo + 1, Math.min(27, state.graphAutofit && sessions.length ? Math.max(state.graphHourEnd, Math.ceil(Math.max(...sessions.map((s) => s.end_h)))) : state.graphHourEnd));
+    const { lo, hi } = agendaHourWindow(sessions, {
+      hourStart: state.graphHourStart, hourEnd: state.graphHourEnd, autofit: state.graphAutofit,
+    });
     const span = Math.max(1, hi - lo);
     const height = 300;
     const percentFor = (hour) => ((hour - lo) / span) * 100;

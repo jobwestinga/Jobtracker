@@ -121,6 +121,27 @@ def test_agenda_hover_blocks_and_day_click():
     assert clicked == ["2026-06-20"]
 
 
+def test_agenda_canvas_renders_custom_day_hours_beyond_twenty_seven():
+    from jobtracker.ui.widgets.agenda_view import _AgendaCanvas
+
+    _application()
+    canvas = _AgendaCanvas()
+    canvas.resize(700, 420)
+    session = {"session_id": 41, "day": "2026-06-20", "start_h": 28,
+               "end_h": 30.5, "subject_name": "Morning", "color": "#3B82F6",
+               "duration_seconds": 10800}
+    canvas.set_data([session], ["2026-06-20"], hour_start=28, hour_end=31,
+                    now_marker=("2026-06-20", 29))
+    canvas.grab()
+    assert (canvas._hour_start, canvas._hour_end) == (28, 31)
+    assert len(canvas._block_hits) == 1
+    rect, _block, day = canvas._block_hits[0]
+    assert day == "2026-06-20"
+    assert canvas._block_at(rect.center().x(), rect.center().y()) is not None
+    assert session["start_h"] == 28 and session["end_h"] == 30.5
+    canvas.close()
+
+
 def test_agenda_left_click_targets_the_clicked_session():
     sessions = [
         {

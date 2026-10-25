@@ -422,6 +422,39 @@ async function weightZoomChecks(page) {
   await page.locator('#weight-range').selectOption('all');
 }
 
+async function agendaBoundaryChecks(browser, url) {
+  const fixture = JSON.parse(fs.readFileSync(path.join(root, 'tests/contracts/time_boundaries.json'), 'utf8'));
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const before = ops.length;
+  for (const entry of fixture.agenda_windows) {
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      localStorage.setItem('jobtracker.token', 'synthetic-agenda-boundary');
+      localStorage.setItem('jobtracker.graphs', JSON.stringify({ mode: 'agenda', autofit: true }));
+    });
+    await page.route(/\/api\/graphs\/agenda(?:\?|$)/, (route) => route.fulfill({
+      contentType: 'application/json', body: JSON.stringify({
+        days: [entry.day], day_start_hour: Number(entry.boundary.slice(0, 2)) + Number(entry.boundary.slice(3)) / 60,
+        sessions: [{ uid: entry.id, day: entry.day, subject_name: 'Boundary', color: '#3B82F6',
+          start_h: entry.start_h, end_h: entry.end_h, start_time: entry.start, end_time: entry.end,
+          duration_seconds: 3600 }],
+      }),
+    }));
+    await page.goto(url);
+    await page.locator('[data-view="graphs"]').click();
+    await page.locator('[data-mode="agenda"]').click();
+    await page.waitForSelector('.agenda-block');
+    assert.equal(await page.locator('.agenda-block').count(), 1, entry.id);
+    const rect = await page.locator('.agenda-block').boundingBox();
+    const track = await page.locator('.agenda-track').boundingBox();
+    assert.ok(rect.height > 0 && rect.y >= track.y - 1 && rect.y + rect.height <= track.y + track.height + 1, entry.id);
+    assert.match(await page.locator('.agenda-block').getAttribute('aria-label'), /Boundary/);
+    await page.close();
+  }
+  assert.equal(ops.length, before, 'displaying custom logical days never writes history');
+  await context.close();
+}
+
 async function coldWeightFailure(browser, url) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -1449,6 +1482,7 @@ const server = http.createServer(async (req, res) => {
   assert.equal(await page.locator('#weight-history .card').count(), 0);
   assert.deepEqual(errors, []);
   await sessionEntryChecks(browser, url);
+  await agendaBoundaryChecks(browser, url);
   const pickerPerformance = await pickerRegressions(browser, url);
   await coldWeightFailure(browser, url);
   await offlineShellCheck(browser, url);
