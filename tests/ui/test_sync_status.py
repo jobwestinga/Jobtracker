@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, Signal
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 
 from jobtracker.sync import qt_worker, settings, state
 from jobtracker.sync.engine import SyncResult
@@ -246,18 +246,25 @@ def test_clean_pass_with_remaining_work_retries_only_a_bounded_number_of_times(s
     coordinator._push_timer.setInterval(5)
     window.service.add_subject("Waiting", "#111111", "")
     coordinator.refresh_status()
-    for _ in range(8):
-        QTest.qWait(40)
-        if worker.busy:
-            # A postponed pull leaves the edit queued after a successful pass.
-            worker.complete(SyncResult(ok=True, pending=1))
+    # Wait for each real timeout rather than assuming a loaded runner delivers
+    # it within 40 ms. Complete each pass before checking the next follow-up.
+    for expected in range(1, 5):
+        assert coordinator._push_timer.isActive()
+        assert QSignalSpy(coordinator._push_timer.timeout).wait(2000)
+        assert worker.requests == expected
+        assert worker.busy
+        # A postponed pull leaves the edit queued after a successful pass.
+        worker.complete(SyncResult(ok=True, pending=1))
     assert worker.requests == 1 + 3
+    assert not coordinator._push_timer.isActive()
     # New local work earns a fresh prompt push; an offline pass does not loop.
     window.service.add_subject("Another", "#111111", "")
     coordinator.refresh_status()
-    QTest.qWait(40)
+    assert coordinator._push_timer.isActive()
+    assert QSignalSpy(coordinator._push_timer.timeout).wait(2000)
     assert worker.requests == 5
+    assert worker.busy
     worker.complete(SyncResult(ok=False, offline=True, pending=2))
-    QTest.qWait(40)
+    assert not coordinator._push_timer.isActive()
     assert worker.requests == 5
     assert len(state.pending(window.service.db.connection)) == 2

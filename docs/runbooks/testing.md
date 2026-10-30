@@ -45,6 +45,11 @@ captured timestamps, minimum duration, day boundaries, stale responses,
 transaction failures, dropped acknowledgements, outbox ordering and import/restore
 identity. Avoid tests that only repeat a low-impact implementation detail.
 
+Qt timer tests should wait for the timeout signal with a bounded deadline rather
+than assume a short fixed sleep delivers it on a loaded CI runner. Check each
+request and completion in order; verify that bounded retries and offline failures
+leave no follow-up timer scheduled.
+
 Shared native bridge samples compare field paths across every list element.
 Graph buckets can begin with an empty or populated day as the calendar advances;
 both orders must retain coverage of the nested session fields.
