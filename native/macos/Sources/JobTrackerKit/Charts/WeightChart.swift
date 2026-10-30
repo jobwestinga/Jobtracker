@@ -3,15 +3,19 @@ import SwiftUI
 
 /// Draws engine-fitted weight data (calendar-ordinal x, kg y). Port of the Qt
 /// WeightChart: neutral dots, accent trend with area fill, year lines with a
-/// separate label row, hover crosshair and click-to-edit.
+/// separate label row, hover crosshair and click-to-edit. In tangent mode the
+/// pointer instead places a tangent to the trend with its kcal/day.
 struct WeightChartView: View {
     let data: WeightViewDTO
     let showDots: Bool
     let highContrast: Bool
     @Binding var viewport: WeightViewport
+    var tangentMode = false
     let onEdit: (String) -> Void
     @Environment(\.theme) private var theme
     @StateObject private var hovered = ViewState<Int?>(nil)
+    @StateObject private var tangentX = ViewState<Double?>(nil)
+    static let tangentColor = RGBA(hex: "#FBBF24")
 
     struct Geometry {
         let rect: CGRect
@@ -40,9 +44,15 @@ struct WeightChartView: View {
             ZStack(alignment: .topLeading) {
                 canvas(geometry, size: proxy.size)
                 if let geometry {
-                    MouseTracker(onMove: { location in hovered.value = location.flatMap { nearest($0, geometry) } },
+                    MouseTracker(onMove: { location in
+                                     guard tangentMode else { hovered.value = location.flatMap { nearest($0, geometry) }; return }
+                                     hovered.value = nil
+                                     if let location, geometry.rect.contains(location) { tangentX.value = Self.ordinal(location, geometry) }
+                                 },
                                  onClick: { location in
-                                     if let index = nearest(location, geometry), let uid = data.points[index].uid { onEdit(uid) }
+                                     if tangentMode {
+                                         if geometry.rect.contains(location) { tangentX.value = Self.ordinal(location, geometry) }
+                                     } else if let index = nearest(location, geometry), let uid = data.points[index].uid { onEdit(uid) }
                                  }, onMagnify: { location, amount, modifiers in
                                      guard geometry.rect.contains(location) else { return false }
                                      hovered.value = nil
@@ -69,6 +79,7 @@ struct WeightChartView: View {
             }
         }
         .frame(minHeight: 195)
+        .onChange(of: tangentMode) { _ in tangentX.value = nil }
         .accessibilityElement()
         .accessibilityLabel(accessibilitySummary)
     }
@@ -76,6 +87,18 @@ struct WeightChartView: View {
     private var accessibilitySummary: String {
         guard let summary = data.summary else { return "No measurements in this range" }
         return "Weight chart, \(summary.count) readings, latest \(WeightStore.text(summary.latest)) kilograms, change \(String(format: "%+.2f", summary.change)) kilograms"
+    }
+
+    static func ordinal(_ location: CGPoint, _ geometry: Geometry) -> Double {
+        geometry.first + Double((location.x - geometry.rect.minX) / geometry.rect.width) * (geometry.last - geometry.first)
+    }
+
+    /// The tangent at x, its slope measured over a few days (less when zoomed in).
+    static func tangent(at x: Double, data: WeightViewDTO, geometry: Geometry) -> WeightTangent? {
+        guard x >= geometry.first && x <= geometry.last else { return nil }
+        let samples = data.trend.filter { $0.count > 1 }
+        guard let first = samples.first?[0], let last = samples.last?[0] else { return nil }
+        return WeightTangent.at(max(first, min(last, x)), trend: samples, reach: max(0.5, min(3, (geometry.last - geometry.first) * 0.02)))
     }
 
     private func nearest(_ location: CGPoint, _ geometry: Geometry) -> Int? {
@@ -177,6 +200,23 @@ struct WeightChartView: View {
                 context.fill(Path(roundedRect: pill, cornerRadius: 6), with: .color(theme.bgPrimary.color))
                 context.stroke(Path(roundedRect: pill, cornerRadius: 6), with: .color(accent.color), lineWidth: 1.2)
                 context.draw(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(theme.textPrimary.color), at: CGPoint(x: pill.midX, y: pill.midY))
+            }
+            if tangentMode, let x = tangentX.value, let tangent = Self.tangent(at: x, data: data, geometry: g) {
+                let color = Self.tangentColor
+                func at(_ x: Double) -> CGPoint { g.point(x, tangent.y + tangent.perDay * (x - tangent.x)) }
+                var line = Path(); line.move(to: at(g.first)); line.addLine(to: at(g.last))
+                clipped.stroke(line, with: .color(color.color), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [6, 4]))
+                let p = g.point(tangent.x, tangent.y)
+                let dot = Path(ellipseIn: CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9))
+                clipped.fill(dot, with: .color(color.color))
+                clipped.stroke(dot, with: .color(theme.bgSecondary.color), lineWidth: 1.4)
+                let text = "\(WeightTangent.dayLabel(tangent.x)) \u{00B7} \(tangent.label)"
+                let width = ChartText.metrics(text, font: .systemFont(ofSize: 11, weight: .semibold)).width + 18
+                let top = p.y - 36 >= g.rect.minY ? p.y - 36 : min(g.rect.maxY - 24, p.y + 12)
+                let pill = CGRect(x: max(g.rect.minX, min(g.rect.maxX - width, p.x - width / 2)), y: top, width: width, height: 24)
+                context.fill(Path(roundedRect: pill, cornerRadius: 6), with: .color(theme.bgPrimary.color))
+                context.stroke(Path(roundedRect: pill, cornerRadius: 6), with: .color(color.color), lineWidth: 1.2)
+                context.draw(Text(text).font(.system(size: 11, weight: .semibold)).foregroundColor(theme.textPrimary.color), at: CGPoint(x: pill.midX, y: pill.midY))
             }
         }
     }

@@ -22,3 +22,20 @@ struct WeightViewportTests: CheckSuite {
         expect(!viewport.isZoomed && viewport.x == 0...1 && viewport.y == 0...1)
     }
 }
+
+struct WeightTangentTests: CheckSuite {
+    func tangentFollowsTheTrendSlopeAndConvertsItToKcal() {
+        let line = (0..<30).map { [Double(738_000 + $0), 80 - 0.1 * Double($0)] }
+        for day in [0.0, 1, 15, 29] {
+            let tangent = WeightTangent.at(738_000 + day, trend: line)
+            expect(tangent != nil && abs(tangent!.perDay + 0.1) < 1e-9 && abs(tangent!.y - (80 - 0.1 * day)) < 1e-9, "straight trend at day \(day)")
+        }
+        expect(WeightTangent.at(737_999, trend: line) == nil && WeightTangent.value(line, at: 738_030) == nil, "outside the trend")
+        let curve = (0...120).map { [Double($0), 80 + 0.001 * Double($0 * $0)] }
+        expect(abs((WeightTangent.at(60, trend: curve, reach: 1)?.perDay ?? 0) - 0.12) < 1e-9, "curved trend uses its local derivative")
+        expect(WeightTangent.energy(-0.1) == -770 && WeightTangent.energy(0.05) == 0.05 * 5600 && WeightTangent.energy(.nan) == 0)
+        expect(WeightTangent(x: 0, y: 80, perDay: -0.06).label == "\u{2212}462 kcal/day \u{00B7} \u{2212}0.42 kg/wk")
+        expect(WeightTangent(x: 0, y: 80, perDay: 0.05).label == "+280 kcal/day \u{00B7} +0.35 kg/wk")
+        expect(WeightTangent.dayLabel(719_163) == "1 Jan 1970" && WeightTangent.dayLabel(739_919.6) == "30 Oct 2026")
+    }
+}

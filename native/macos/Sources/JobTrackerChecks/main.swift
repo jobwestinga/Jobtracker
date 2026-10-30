@@ -64,6 +64,7 @@ let checks: [(String, () throws -> Void)] = [
     ("InteractionTests.starredGoalsFloatAndHistoryArrowsPreserveDrafts", { try InteractionTests().starredGoalsFloatAndHistoryArrowsPreserveDrafts() }),
     ("NativeSyncTests.remoteSessionChangeKeepsTheNativeDraftAndExactIdentity", { try NativeSyncTests().remoteSessionChangeKeepsTheNativeDraftAndExactIdentity() }),
     ("WeightViewportTests.weightZoomAnchorsBoundsAxesAndReset", { try WeightViewportTests().weightZoomAnchorsBoundsAxesAndReset() }),
+    ("WeightTangentTests.tangentFollowsTheTrendSlopeAndConvertsItToKcal", { try WeightTangentTests().tangentFollowsTheTrendSlopeAndConvertsItToKcal() }),
 ]
 
 exit(runChecks(checks))

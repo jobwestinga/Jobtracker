@@ -52,6 +52,18 @@ theme accent trend is drawn above them. The phone canvas uses the matching dark
 `screen` palette. **Save plot** draws the original light `print` figure
 off-screen at the plot's current size.
 
+**Tangent** (a phone plot option, a native toggle) replaces reading inspection
+with a dashed tangent touching the trend at the pointer's date: mouse hover on the
+Mac or in a desktop browser, tap or horizontal drag on the phone (one finger in
+fullscreen; two fingers still pinch and pan). Its slope is a central difference
+over ±3 days of the trend (±2% of the visible span when zoomed in, at least half a
+day), shown as kcal/day and kg/week. Losses use 7,700 kcal/kg (adipose tissue);
+gains use 5,600 kcal/kg, assuming roughly half lean tissue (~3,500 kcal/kg with
+synthesis cost) during hypertrophy training. The constants live in
+`trendTangent`/`tangentEnergy` ([math.js](../../web/features/weight/math.js)) and
+`WeightTangent` (native). The native toggle is presentation state and is not saved;
+the phone keeps it with its other plot preferences.
+
 The native plot's Fullscreen button expands it within the existing Mac window,
 temporarily hiding the sidebar, picker and history. Escape or page navigation
 restores them without clearing the draft. Show dots remains a local preference;

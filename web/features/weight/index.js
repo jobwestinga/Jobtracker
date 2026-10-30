@@ -4,7 +4,7 @@ import { STORAGE_KEYS, accountTag } from "../../shared/storage.js";
 import { createFullscreenController } from "../../shared/fullscreen.js";
 import { drawWeightChart, WEIGHT_CHART_PALETTES } from "./chart.js";
 import { projectWeightOperation, findWeightMeasurement, withWeightAliases } from "./projection.js";
-import { parseWeight, selectMeasurements, pointsFor, trendFor, trendBetween, weightTimestamp, weightDayOffset } from "./math.js";
+import { parseWeight, selectMeasurements, pointsFor, trendFor, trendBetween, trendTangent, tangentLabel, weightTimestamp, weightDayOffset } from "./math.js";
 import { wholeWeightTiles, weightTileAnchor, splitWeightTiles, selectedTileWeight, dailyWeightMoment, manualDateCollision } from "./picker.js";
 
 export function createWeightFeature({ api, send, uuid, getToken, pendingOperations }) {
@@ -18,17 +18,17 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
   if (!preferences || typeof preferences !== "object") preferences = {};
   preferences = {
     range: "90", trend: "loess", span: "0.04", points: true, historic: false,
-    zero: false, start: "", end: "", density: "comfortable", contrast: "normal", ...preferences,
+    zero: false, tangent: false, start: "", end: "", density: "comfortable", contrast: "normal", ...preferences,
   };
   if (!["30", "90", "180", "365", "all", "custom"].includes(preferences.range)) preferences.range = "90";
   if (!["loess", "mean7", "none"].includes(preferences.trend)) preferences.trend = "loess";
   if (!["0.04", "0.08", "0.15"].includes(String(preferences.span))) preferences.span = "0.04";
-  for (const key of ["points", "historic", "zero"]) if (typeof preferences[key] !== "boolean") preferences[key] = key === "points";
+  for (const key of ["points", "historic", "zero", "tangent"]) if (typeof preferences[key] !== "boolean") preferences[key] = key === "points";
   for (const key of ["start", "end"]) if (!/^\d{4}-\d{2}-\d{2}$/.test(preferences[key]) || weightTimestamp(preferences[key]) === null) preferences[key] = "";
   if (!["comfortable", "compact"].includes(preferences.density)) preferences.density = "comfortable";
   if (!["normal", "high"].includes(preferences.contrast)) preferences.contrast = "normal";
   let host, chartObserver, fullscreen, calendarInterval = null, drawnVersion = -1, chartGeometry = null, inspectedUid = null;
-  let chartData = null, trendData = null, zoom = null;
+  let chartData = null, trendData = null, zoom = null, tangentX = null, tangentFrame = null;
   const MIN_ZOOM_SPAN = 7 * 86400000;
 
   const field = (id) => host.querySelector(`#${id}`);
@@ -66,7 +66,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     model.version++; model.epoch++; model.draft++;
     model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
     resetPicker();
-    chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null;
+    chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null; tangentX = null;
     try { localStorage.removeItem(CACHE); } catch { /* ignore */ }
     fullscreen?.destroy(); fullscreen = null;
     host = null; chartObserver?.disconnect();
@@ -82,7 +82,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       model.epoch++; model.draft++;
       model.calendar = ""; model.automaticDate = true; model.cleanDraft = model.draft;
       resetPicker();
-      chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null;
+      chartGeometry = null; inspectedUid = null; chartData = null; trendData = null; zoom = null; tangentX = null;
       fullscreen?.destroy(); fullscreen = null;
       host = null; chartObserver?.disconnect();
       try {
@@ -185,6 +185,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
           <label class="weight-check"><input id="weight-points" type="checkbox">Show measurements</label>
           <label class="weight-check"><input id="weight-historic" type="checkbox">Include historic measurements</label>
           <label class="weight-check"><input id="weight-zero" type="checkbox">Start weight axis at zero</label>
+          <label class="weight-check"><input id="weight-tangent" type="checkbox">Tangent: slope as kcal/day</label>
           <p class="muted">The trend is fitted over your whole history, so it keeps its shape for every range. The historic curve interpolates between sparse measurements.</p>
           <div class="weight-export"><button id="weight-png" type="button" class="ghost">Save plot</button><button id="weight-csv" type="button" class="ghost">Export data</button></div>
         </div>
@@ -212,13 +213,14 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     };
     field("weight-zoom-reset").onclick = () => setZoom(null);
     field("weight-more").onclick = () => { model.limit += 30; paintHistory(); };
-    for (const key of ["range", "trend", "span", "points", "historic", "zero", "start", "end", "density", "contrast"]) {
+    for (const key of ["range", "trend", "span", "points", "historic", "zero", "tangent", "start", "end", "density", "contrast"]) {
       const input = field(`weight-${key}`);
       if (input.type === "checkbox") input.checked = Boolean(preferences[key]);
       else input.value = preferences[key];
       input.addEventListener("change", () => {
         preferences[key] = input.type === "checkbox" ? input.checked : input.value;
         try { localStorage.setItem(PREFS, JSON.stringify(preferences)); } catch { /* optional preferences */ }
+        if (key === "tangent") { tangentX = null; field("weight-chart-detail").textContent = ""; }
         if (key === "density" || key === "contrast") paintPicker();
         else { if (["range", "start", "end"].includes(key)) zoom = null; drawnVersion = -1; paintChart(); }
       });
@@ -229,6 +231,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       const { points, trend, invalid } = chartView();
       drawWeightChart(figure, points, trend, preferences, invalid, {
         palette: WEIGHT_CHART_PALETTES.print, width: screen.clientWidth || 640, height: screen.clientHeight || 360, ratio: 2,
+        domain: chartView().domain, tangent: currentTangent(chartView()),
       });
       figure.toBlob((blob) => { if (blob) download(blob, "weight-plot.png"); });
     };
@@ -589,6 +592,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
 
   function inspect(point) {
     inspectedUid = point.row.uid;
+    if (preferences.tangent) { tangentX = point.x; drawnVersion = -1; paintChart(); return; }
     const message = `${formatDay(point.row.measured_at)} · ${point.y} kg`;
     if (field("weight-chart-detail").textContent !== message) field("weight-chart-detail").textContent = message;
   }
@@ -600,12 +604,31 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     inspect(points.reduce((a, b) => Math.abs(a.x - at) <= Math.abs(b.x - at) ? a : b));
   }
 
+  // The tangent touches the whole-history trend at the pointer's date. Its slope
+  // spans a few days (less when zoomed in) so day-to-day wiggles do not dominate.
+  function currentTangent(view) {
+    const trend = fittedTrend().trend;
+    if (!preferences.tangent || tangentX === null || trend.length < 2) return null;
+    const x0 = view.domain?.x0 ?? view.points[0]?.x, x1 = view.domain?.x1 ?? view.points.at(-1)?.x;
+    if (!Number.isFinite(x0) || !Number.isFinite(x1)) return null;
+    const x = Math.max(trend[0].x, Math.min(trend.at(-1).x, tangentX));
+    return trendTangent(trend, x, Math.max(43200000, Math.min(3 * 86400000, (x1 - x0) * 0.02)));
+  }
+
+  function tangentAt(clientX) {
+    if (!chartGeometry) return;
+    const { x0, x1, left, right } = chartGeometry, box = field("weight-canvas").getBoundingClientRect();
+    tangentX = Math.max(x0, Math.min(x1, x0 + (clientX - box.left - left) / (right - left) * (x1 - x0)));
+    if (tangentFrame === null) tangentFrame = requestAnimationFrame(() => { tangentFrame = null; if (host) { drawnVersion = -1; paintChart(); } });
+  }
+
   // Inline, a tap inspects the nearest weighing and the page still scrolls.
+  // With Tangent on, a tap or horizontal drag (or a mouse hover) places the tangent.
   // Fullscreen adds iPhone-style gestures: pinch to zoom the time axis, drag to
   // pan, double-tap to reset.
   function bindChartGestures(canvas) {
     const pointers = new Map();
-    let start = null, moved = false, lastTap = { time: 0, x: 0 }, frame = null, pending = null;
+    let start = null, moved = false, lastTap = { time: 0, x: 0 }, frame = null, pending = null, tangentDrag = null;
     const flush = () => {
       if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
       if (pending) { const next = pending; pending = null; setZoom(next); }
@@ -625,16 +648,30 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
         distance: list.length > 1 ? spread(list) : 0 };
     }
     canvas.addEventListener("pointerdown", (event) => {
-      if (!fullscreen?.isOpen) { inspectAt(event.clientX); return; }
+      if (!fullscreen?.isOpen) {
+        if (!preferences.tangent) { inspectAt(event.clientX); return; }
+        tangentDrag = event.pointerId;
+        try { canvas.setPointerCapture(event.pointerId); } catch { /* an ended or synthetic pointer */ }
+        tangentAt(event.clientX);
+        return;
+      }
       try { canvas.setPointerCapture(event.pointerId); } catch { /* an ended or synthetic pointer */ }
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
       moved = pointers.size > 1;
       begin();
     });
     canvas.addEventListener("pointermove", (event) => {
+      if (preferences.tangent && (event.pointerId === tangentDrag ||
+          (event.pointerType === "mouse" && !event.buttons && !pointers.size))) { tangentAt(event.clientX); return; }
       const pointer = pointers.get(event.pointerId);
       if (!pointer || !start) return;
       pointer.x = event.clientX; pointer.y = event.clientY;
+      if (preferences.tangent && pointers.size === 1) {
+        // One finger moves the tangent; two fingers still pinch and pan.
+        if (Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) >= 6) moved = true;
+        tangentAt(pointer.x);
+        return;
+      }
       if (!moved && Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) < 6) return;
       moved = true;
       const list = [...pointers.values()];
@@ -646,6 +683,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       if (next) schedule(next);
     });
     const finish = (event) => {
+      if (event.pointerId === tangentDrag) tangentDrag = null;
       const pointer = pointers.get(event.pointerId);
       if (!pointer) return;
       pointers.delete(event.pointerId);
@@ -654,7 +692,7 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
       if (event.type !== "pointerup" || moved) return;
       const now = performance.now();
       if (now - lastTap.time < 320 && Math.abs(pointer.x - lastTap.x) < 30) { lastTap = { time: 0, x: 0 }; setZoom(null); }
-      else { lastTap = { time: now, x: pointer.x }; inspectAt(pointer.x); }
+      else { lastTap = { time: now, x: pointer.x }; if (preferences.tangent) tangentAt(pointer.x); else inspectAt(pointer.x); }
     };
     canvas.addEventListener("pointerup", finish);
     canvas.addEventListener("pointercancel", finish);
@@ -670,9 +708,16 @@ export function createWeightFeature({ api, send, uuid, getToken, pendingOperatio
     const canvas = field("weight-canvas");
     if (!canvas.clientWidth) return;
     drawnVersion = model.version;
-    const view = chartView();
-    const geometry = drawWeightChart(canvas, view.points, view.trend, preferences, view.invalid, { domain: view.domain });
+    const view = chartView(), tangent = currentTangent(view);
+    const geometry = drawWeightChart(canvas, view.points, view.trend, preferences, view.invalid, { domain: view.domain, tangent });
     chartGeometry = geometry ? { ...geometry, points: view.points } : null;
+    field("weight-chart-help").textContent = preferences.tangent
+      ? "Tap or drag along the plot to place the tangent; with a mouse, hover. Its slope gives the daily calorie surplus or deficit."
+      : "Tap the plot or use Left and Right arrows to inspect a weighing. In fullscreen, pinch to zoom and drag to move.";
+    if (tangent && geometry && tangent.x >= geometry.x0 && tangent.x <= geometry.x1) {
+      const message = `${new Date(tangent.x).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" })} · ${tangentLabel(tangent)}`;
+      if (field("weight-chart-detail").textContent !== message) field("weight-chart-detail").textContent = message;
+    }
     const shown = view.points;
     if (!geometry || !shown.length) {
       canvas.setAttribute("aria-label", view.domain ? "No weighings in this zoomed range" : "No weight measurements in the selected date range");

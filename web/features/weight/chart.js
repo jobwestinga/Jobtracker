@@ -1,25 +1,26 @@
 // Canvas presentation only. Data selection and smoothing are cached by index.js;
 // calendar coordinates and fitting belong to math.js. See docs/features/weight.md.
-import { weightYearTicks } from "./math.js";
+import { weightYearTicks, tangentLabel } from "./math.js";
 
 // The screen palette follows the app's dark tokens with an accent trend, like the
 // native chart. Saved PNGs keep the original light figure.
 export const WEIGHT_CHART_PALETTES = {
   screen: {
     background: "#0F1522", panel: "#0F1522", grid: "#1F2B42", text: "#94A3B8", tick: "#94A3B8",
-    yearLine: "#2C3B59", points: "rgba(238, 242, 248, 0.96)", trend: "#38BDF8",
+    yearLine: "#2C3B59", points: "rgba(238, 242, 248, 0.96)", trend: "#38BDF8", tangent: "#FBBF24", label: "#F1F5F9",
   },
   print: {
     background: "#fff", panel: "#ebebeb", grid: "#fff", text: "#555", tick: "#4b4b4b",
-    yearLine: "#c6c6c6", points: "#888", trend: "#111",
+    yearLine: "#c6c6c6", points: "#888", trend: "#111", tangent: "#C2410C", label: "#111",
   },
 };
 
 const POINT_RADIUS = 2.5;
 
 // `domain` ({x0, x1}) fixes the time axis for a zoomed view; otherwise it spans the points.
+// `tangent` ({x, y, perDay, kcal} from trendTangent) draws the slope through that trend point.
 export function drawWeightChart(canvas, points, trend, preferences, invalidRange = false,
-  { palette = WEIGHT_CHART_PALETTES.screen, width: fixedWidth, height: fixedHeight, ratio: fixedRatio, domain = null } = {}) {
+  { palette = WEIGHT_CHART_PALETTES.screen, width: fixedWidth, height: fixedHeight, ratio: fixedRatio, domain = null, tangent = null } = {}) {
   const width = fixedWidth ?? canvas.clientWidth, height = Math.max(1, Math.round(fixedHeight ?? canvas.clientHeight));
   const ratio = fixedRatio ?? Math.min(2, devicePixelRatio || 1);
   canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
@@ -113,6 +114,28 @@ export function drawWeightChart(canvas, points, trend, preferences, invalidRange
     trend.forEach((point, index) => index ? ctx.lineTo(px(point.x), py(point.y)) : ctx.moveTo(px(point.x), py(point.y))); ctx.stroke();
   }
   if (!dense) drawPoints();
+  if (tangent && tangent.x >= x0 && tangent.x <= x1) {
+    const perMs = tangent.perDay / 86400000, at = (x) => tangent.y + perMs * (x - tangent.x);
+    ctx.strokeStyle = palette.tangent; ctx.lineWidth = 1.6; ctx.setLineDash?.([6, 4]);
+    ctx.beginPath(); ctx.moveTo(left, py(at(x0))); ctx.lineTo(right, py(at(x1))); ctx.stroke();
+    ctx.setLineDash?.([]);
+    ctx.fillStyle = palette.tangent; ctx.strokeStyle = palette.panel; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(px(tangent.x), py(tangent.y), 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
   ctx.restore();
-  return { x0, x1, left, right };
+  if (tangent && tangent.x >= x0 && tangent.x <= x1) {
+    const text = tangentLabel(tangent), cx = px(tangent.x), cy = py(tangent.y);
+    ctx.font = "600 12px -apple-system, sans-serif";
+    const boxWidth = ctx.measureText(text).width + 16, boxHeight = 24;
+    const boxLeft = Math.max(left, Math.min(right - boxWidth, cx - boxWidth / 2));
+    const boxTop = cy - boxHeight - 12 >= top ? cy - boxHeight - 12 : Math.min(bottom - boxHeight, cy + 12);
+    ctx.fillStyle = palette.background; ctx.strokeStyle = palette.tangent; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") ctx.roundRect(boxLeft, boxTop, boxWidth, boxHeight, 6);
+    else ctx.rect(boxLeft, boxTop, boxWidth, boxHeight);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = palette.label; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(text, boxLeft + boxWidth / 2, boxTop + boxHeight / 2);
+  }
+  return { x0, x1, left, right, min, max, top, bottom };
 }

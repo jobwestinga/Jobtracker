@@ -108,3 +108,8 @@ stretch the corresponding axes. Reset zoom restores the loaded range. Zoom is
 temporary presentation state, stays through fullscreen, and resets when the
 range or historic-reading option changes. It never changes measurement rows,
 the entry draft, smoothing, or persisted settings.
+
+The Tangent toggle replaces hover inspection and click-to-edit with a tangent
+to the trend at the pointer's date, labelled with the implied kcal/day and
+kg/week (`Charts/WeightTangent.swift`; constants in
+[the weight task map](../../docs/features/weight.md#charts-and-fullscreen)).

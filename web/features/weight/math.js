@@ -194,3 +194,48 @@ export function trendBetween(trend, x0, x1) {
   while (last > first && trend[last].x > x1) last--;
   return trend.slice(Math.max(0, first - 1), Math.min(trend.length, last + 2));
 }
+
+// Energy behind a kilogram of trend change. Losses during hypertrophy training
+// are treated as adipose tissue (~7,700 kcal/kg). Gains are assumed to be about
+// half lean tissue (~3,500 kcal/kg including synthesis) and half fat, ~5,600.
+export const KCAL_PER_KG_LOSS = 7700;
+export const KCAL_PER_KG_GAIN = 5600;
+
+/** The trend's height at x, linearly between its samples; null outside it. */
+export function trendValueAt(trend, x) {
+  if (!Array.isArray(trend) || !trend.length || !Number.isFinite(x)) return null;
+  if (x < trend[0].x || x > trend.at(-1).x) return null;
+  let low = 0, high = trend.length - 1;
+  while (high - low > 1) {
+    const middle = (low + high) >> 1;
+    if (trend[middle].x <= x) low = middle; else high = middle;
+  }
+  const a = trend[low], b = trend[high];
+  return b.x === a.x ? a.y : a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+}
+
+/** The tangent touching the trend at x. The slope is a central difference
+ * across `reach` on each side (one-sided at the ends), in kg per day. */
+export function trendTangent(trend, x, reach = 3 * DAY) {
+  const y = trendValueAt(trend, x);
+  if (y === null || trend.length < 2) return null;
+  const a = Math.max(trend[0].x, x - reach), b = Math.min(trend.at(-1).x, x + reach);
+  if (!(b > a)) return null;
+  const perDay = (trendValueAt(trend, b) - trendValueAt(trend, a)) / ((b - a) / DAY);
+  return { x, y, perDay, kcal: tangentEnergy(perDay) };
+}
+
+/** Daily energy surplus (+) or deficit (-) implied by a trend slope in kg/day. */
+export function tangentEnergy(perDay) {
+  if (!Number.isFinite(perDay)) return 0;
+  return perDay * (perDay < 0 ? KCAL_PER_KG_LOSS : KCAL_PER_KG_GAIN);
+}
+
+/** "−462 kcal/day · −0.42 kg/wk" for a trendTangent result. */
+export function tangentLabel({ perDay, kcal }) {
+  const signed = (value, digits) => {
+    const text = Math.abs(value).toFixed(digits);
+    return Number(text) === 0 ? text : `${value < 0 ? "\u2212" : "+"}${text}`;
+  };
+  return `${signed(kcal, 0)} kcal/day \u00b7 ${signed(perDay * 7, 2)} kg/wk`;
+}

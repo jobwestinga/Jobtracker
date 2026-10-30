@@ -116,16 +116,19 @@ struct WeightPage: View {
             HStack(spacing: 12) {
                 Toggle("Show dots", isOn: Binding(get: { store.showDots }, set: { store.setChartOption(dots: $0) }))
                 Toggle("Historic readings", isOn: Binding(get: { store.historic }, set: { store.setChartOption(historic: $0) }))
+                Toggle("Tangent", isOn: $store.tangent)
+                    .help("Hover the plot to touch the trend with a tangent; its slope shows the daily calorie surplus or deficit")
                 Spacer()
                 Text("Curve span")
                 Stepper(String(format: "%.2f", store.span), value: Binding(get: { store.span }, set: { store.setChartOption(span: $0) }), in: 0.01...1, step: 0.01)
                     .disabled(store.smoothing != "loess")
             }
             if let view = store.view {
-                WeightChartView(data: view, showDots: store.showDots, highContrast: store.highContrast, viewport: $store.viewport) { store.edit($0) }
+                WeightChartView(data: view, showDots: store.showDots, highContrast: store.highContrast, viewport: $store.viewport,
+                                tangentMode: store.tangent) { store.edit($0) }
                     .frame(maxHeight: .infinity)
                 HStack {
-                    Text("Pinch to zoom · scroll to pan").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
+                    Text(store.tangent ? "Hover to place the tangent · pinch to zoom" : "Pinch to zoom · scroll to pan").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
                         .help("Pinch to zoom both axes. Hold Shift to zoom time only; Option to zoom weight only. Shift-scroll and Option-scroll also stretch those axes.")
                     Spacer()
                     if store.viewport.isZoomed {

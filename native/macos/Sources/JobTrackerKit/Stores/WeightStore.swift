@@ -70,6 +70,8 @@ public final class WeightStore: ObservableObject {
     @Published public var smoothing = "loess"
     @Published public var historic = false
     @Published public var span = 0.04
+    /// Presentation only: the plot places a tangent instead of inspecting readings.
+    @Published public var tangent = false
     @Published var viewport = WeightViewport()
 
     private unowned let app: AppModel
