@@ -101,6 +101,17 @@ public struct RGBA: Equatable, Hashable {
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
+    /// This colour, moved toward `text` only as far as needed to reach `ratio`
+    /// against `background`, so a dark subject colour stays legible.
+    public func readable(on background: RGBA, toward text: RGBA, ratio: Double = 3) -> RGBA {
+        var amount = 0.0, result = self
+        while result.contrast(with: background) < ratio && amount < 1 {
+            amount = min(1, amount + 0.1)
+            result = mixed(with: text, amount)
+        }
+        return result
+    }
+
     /// Same rule as `styles._contrast_text`.
     public var contrastText: RGBA {
         let lum = (0.299 * r + 0.587 * g + 0.114 * b)

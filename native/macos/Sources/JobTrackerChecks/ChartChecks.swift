@@ -232,3 +232,13 @@ struct SessionDraftTests: CheckSuite {
         expect(draft.wireValue(field: "not a time", base: draft.baseEnd) == nil)
     }
 }
+
+struct SubjectColourTests: CheckSuite {
+    func subjectColoursStayLegibleOnTheTimer() {
+        let background = RGBA(hex: "#0F1522"), text = RGBA(hex: "#F1F5F9")
+        let navy = RGBA(hex: "#1E1B4B")
+        expect(navy.readable(on: background, toward: text).contrast(with: background) >= 3, "dark subject colour lifts toward text")
+        let sky = RGBA(hex: "#38BDF8")
+        expect(sky.readable(on: background, toward: text) == sky, "a legible colour is kept exactly")
+    }
+}

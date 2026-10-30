@@ -183,7 +183,13 @@ Current conventions:
 - Card and chart surfaces are **near-opaque** (`*_A248`, panels at alpha 238) so
   the animated wash never shows through content. Don't lower these back.
 - Subject/goal rows carry colour only in the dot and the left border; body text
-  stays neutral. Chart fills keep full colour.
+  stays neutral. Chart fills keep full colour. On the native Subjects page a
+  hovered card takes a soft border, wash and glow in its own subject colour, and
+  the running card's highlight uses that colour instead of the theme accent.
+- The native "Currently tracking" hero and the phone's active card take the
+  running subject's colour for border, tint and elapsed clock. The native clock
+  lifts a dark subject colour toward the text colour only as far as needed for
+  3:1 contrast (`RGBA.readable`); the phone mixes in 20% of the text colour.
 - Row heights are a deliberate middle ground: subject cards 68px, goal cards
   start at 56px and grow for notes, deadlines or milestones. Card-list rows take
   the viewport width so trailing actions remain reachable in half-screen windows.

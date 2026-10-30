@@ -84,8 +84,10 @@ public extension View {
     }
 
     /// A content card with one quiet border (S1) and an optional strong state.
-    func card(radius: CGFloat? = nil, highlighted: Bool = false, hovering: Bool = false, dimmed: Bool = false) -> some View {
-        modifier(CardModifier(radius: radius, highlighted: highlighted, hovering: hovering, dimmed: dimmed))
+    /// A `tint` (the subject colour) replaces the theme accent for hover and
+    /// highlight, so each card lights up in its own colour.
+    func card(radius: CGFloat? = nil, highlighted: Bool = false, hovering: Bool = false, dimmed: Bool = false, tint: RGBA? = nil) -> some View {
+        modifier(CardModifier(radius: radius, highlighted: highlighted, hovering: hovering, dimmed: dimmed, tint: tint))
     }
 
     /// Panel/frame surface used by charts and inline panels.
@@ -97,14 +99,23 @@ struct CardModifier: ViewModifier {
     let highlighted: Bool
     let hovering: Bool
     let dimmed: Bool
+    var tint: RGBA? = nil
     @Environment(\.theme) private var theme
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius ?? theme.subjectRadius, style: .continuous)
-        let border = highlighted ? theme.accent : (hovering ? theme.cardHoverBorder : theme.cardBorder)
+        var background = hovering ? theme.cardHoverBackground : theme.cardBackground
+        var border = highlighted ? theme.accent : (hovering ? theme.cardHoverBorder : theme.cardBorder)
+        var glow = RGBA(r: 0, g: 0, b: 0, a: 0)
+        if let tint {
+            // A soft wash and border in the card's own colour; full colour only when highlighted.
+            if highlighted { border = tint; background = background.mixed(with: tint.alpha(background.a), 0.08) }
+            else if hovering { border = theme.cardBorder.mixed(with: tint, 0.7); background = background.mixed(with: tint.alpha(background.a), 0.06) }
+            if hovering || highlighted { glow = tint.alpha(highlighted ? 0.22 : 0.16) }
+        }
         return content
-            .background(shape.fill((hovering ? theme.cardHoverBackground : theme.cardBackground).color))
-            .overlay(shape.strokeBorder(border.color, lineWidth: highlighted ? 1.5 : 1))
+            .background(shape.fill(background.color).shadow(color: glow.color, radius: 6))
+            .overlay(shape.strokeBorder(border.color, lineWidth: highlighted ? 1.5 : (tint != nil && hovering ? 1.25 : 1)))
             .opacity(dimmed ? 0.62 : 1)
     }
 }

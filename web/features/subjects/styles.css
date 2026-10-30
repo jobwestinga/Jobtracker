@@ -1,16 +1,18 @@
 .active-card {
-  border-color: var(--green);
-  background: linear-gradient(180deg, rgba(16,185,129,0.12), var(--panel));
+  --subject: var(--green);
+  border-color: color-mix(in srgb, var(--subject) 75%, var(--line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--subject) 12%, var(--panel)), var(--panel));
   margin-bottom: 4px;
 }
 
-.active-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+.active-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--subject); animation: pulse 2s infinite; }
 
 .active-body { flex: 1; min-width: 0; }
 
 .active-name { font-weight: 700; }
 
-.active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; }
+/* A little of the text colour keeps dark subject colours legible. */
+.active-elapsed { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; margin-top: 2px; color: color-mix(in srgb, var(--subject) 80%, var(--text)); }
 
 /* Like the Mac subject card: a soft border in the subject colour, a solid
    5px left edge, and a full colour frame while that subject is running. */
@@ -29,6 +31,12 @@
   border: 2px solid var(--subject); border-left-width: 4px;
   background: color-mix(in srgb, var(--subject) 12%, var(--panel));
   box-shadow: 0 4px 16px color-mix(in srgb, var(--subject) 18%, transparent);
+}
+@media (hover: hover) {
+  .subject-card.tappable:hover:not(.running) {
+    border-color: color-mix(in srgb, var(--subject) 70%, var(--line));
+    box-shadow: 0 2px 12px color-mix(in srgb, var(--subject) 16%, transparent);
+  }
 }
 .subject-card.tappable:active { background: color-mix(in srgb, var(--subject) 14%, var(--panel)); transform: scale(0.99); }
 .subject-card .name { font-size: 1rem; font-weight: 650; }

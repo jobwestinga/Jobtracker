@@ -88,16 +88,22 @@ struct TimerArea: View {
     }
 
     private func activeView(active: SessionDTO, subject: SubjectDTO) -> some View {
-        HStack(spacing: 14) {
+        // The hero takes the running subject's colour instead of the theme accent.
+        let tint = RGBA(hex: subject.color)
+        let background = theme.timerBackground.mixed(with: tint.alpha(theme.timerBackground.a), 0.1)
+        return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("CURRENTLY TRACKING").font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundColor(theme.textSecondary.color)
-                Text(subject.name).font(.system(size: 17, weight: .bold)).lineLimit(1).truncationMode(.tail)
+                HStack(spacing: 7) {
+                    Dot(subject.color, size: 10)
+                    Text(subject.name).font(.system(size: 17, weight: .bold)).lineLimit(1).truncationMode(.tail)
+                }
             }
             Spacer(minLength: 8)
             TimelineView(.periodic(from: Date(), by: 1)) { context in
                 Text(DurationText.clock(app.elapsed(at: context.date)))
                     .font(TypeRole.duration.font)
-                    .foregroundColor(theme.accent.color)
+                    .foregroundColor(tint.readable(on: background, toward: theme.textPrimary).color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .accessibilityLabel("Elapsed \(DurationText.clock(app.elapsed(at: context.date)))")
@@ -110,8 +116,8 @@ struct TimerArea: View {
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
         .frame(minHeight: 96)
-        .background(RoundedRectangle(cornerRadius: theme.radius, style: .continuous).fill(theme.timerBackground.color))
-        .overlay(RoundedRectangle(cornerRadius: theme.radius, style: .continuous).strokeBorder(theme.timerBorder.color, lineWidth: theme.timerBorderWidth))
+        .background(RoundedRectangle(cornerRadius: theme.radius, style: .continuous).fill(background.color))
+        .overlay(RoundedRectangle(cornerRadius: theme.radius, style: .continuous).strokeBorder(tint.alpha(0.75).color, lineWidth: max(1, theme.timerBorderWidth)))
     }
 }
 
@@ -200,7 +206,7 @@ struct SubjectCard: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(minHeight: Density.subjectRowMin)
-        .card(highlighted: isActive, hovering: hovering.value && !subject.archived, dimmed: dimmed)
+        .card(highlighted: isActive, hovering: hovering.value && !subject.archived, dimmed: dimmed, tint: RGBA(hex: subject.color))
         .contentShape(Rectangle())
         .onHover { hovering.value = $0 }
         .onTapGesture { if !subject.archived { Task { @MainActor in await store.activate(subject) } } }

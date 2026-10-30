@@ -21,6 +21,7 @@ let checks: [(String, () throws -> Void)] = [
     ("FormattingTests.durationsMatchTheQtWording", { try FormattingTests().durationsMatchTheQtWording() }),
     ("HourStyleTests.tiersAndScaleMatchTheRestoredHierarchy", { try HourStyleTests().tiersAndScaleMatchTheRestoredHierarchy() }),
     ("HourStyleTests.bloomMasksAreCachedByTextFontColourAndScale", { try HourStyleTests().bloomMasksAreCachedByTextFontColourAndScale() }),
+    ("SubjectColourTests.subjectColoursStayLegibleOnTheTimer", { try SubjectColourTests().subjectColoursStayLegibleOnTheTimer() }),
     ("BarLayoutTests.narrowChartsKeepEveryTotalWithoutCollisions", { try BarLayoutTests().narrowChartsKeepEveryTotalWithoutCollisions() }),
     ("BarLayoutTests.heightsAreProportionalAndSegmentsContiguous", { try BarLayoutTests().heightsAreProportionalAndSegmentsContiguous() }),
     ("BarLayoutTests.weeklyAndMonthlyLabelsUseTheirGrouping", { try BarLayoutTests().weeklyAndMonthlyLabelsUseTheirGrouping() }),

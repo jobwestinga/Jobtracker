@@ -81,6 +81,8 @@ export function createSubjectsFeature({ store, act, banner, reorderButtons, edit
       $("idle-note").classList.add("hidden");
       $("active-name").textContent = subject ? subject.name : "Running";
       $("active-dot").style.backgroundColor = subject ? safeColor(subject.color) : "var(--green)";
+      // The card, border and elapsed clock follow the running subject's colour.
+      card.style.setProperty("--subject", subject ? safeColor(subject.color) : "var(--green)");
       startTicking();
     } else {
       card.classList.add("hidden");
