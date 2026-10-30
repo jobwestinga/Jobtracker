@@ -5,7 +5,7 @@ milestone: what was run, on what, with which result. Synthetic data only;
 captures and timings live in the ignored `.local/a4-evidence/` folder.
 
 The subsequent [independent correctness review](a4-review-2026-10-22.md) records
-regressions found and fixed after `165d6e4`. Historical test counts below describe
+regressions found and fixed after `5034a29`. Historical test counts below describe
 that earlier implementation. A row with outstanding runtime evidence is Partial,
 even when its available unit/model checks pass. These historical rows describe
 the 22 October cutoff; the M6 continuation below records the subsequent pilot,
@@ -72,7 +72,7 @@ on-screen launch; the native comparison repeats the same method.
 
 ## M1–M4 — native proof, vertical slice, workflows and candidate, 22 October 2026
 
-What exists now (commits `0201102`…`f0587ce`):
+What exists now (commits `0201102`…`6705208`):
 
 | Phase | Delivered | Owner |
 | --- | --- | --- |
@@ -303,9 +303,9 @@ idle sample. Private fixtures, captures, timings and logs live in ignored
   copy was removed afterwards. A code rollback must never restore an old
   database over current data.
 
-Local code commits in this continuation: `9e6a205` (save identity and two-device
-checks), `bbb4c28` (SQLite-full regression), `8adf5d3` (pilot feedback and phone
-v28), `f46e161` (pending form controls). Nothing was pushed.
+Local code commits in this continuation: `d343214` (save identity and two-device
+checks), `91a03a0` (SQLite-full regression), `3a9e00b` (pilot feedback and phone
+v28), `ca2e966` (pending form controls). Nothing was pushed.
 
 ### Verification limits
 
