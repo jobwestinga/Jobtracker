@@ -9,6 +9,7 @@ system, no gradients.
 
 from __future__ import annotations
 
+import colorsys
 from typing import Iterable, List, Optional, Tuple
 
 # A tasteful, well-spaced candidate palette to draw suggestions from. These match
@@ -28,8 +29,14 @@ DEFAULT_SUGGESTION_PALETTE: List[str] = [
     "#A855F7",  # Purple
 ]
 
-# Minimum RGB euclidean distance for two suggestions to count as "distinct".
-_MIN_PICK_DISTANCE = 60.0
+# Keep candidates in the same colourful, moderately bright family as the
+# presets, with enough headroom when all eight presets are already in use.
+DEFAULT_SUGGESTION_PALETTE += [
+    "#" + "".join(f"{round(channel * 255):02X}" for channel in colorsys.hsv_to_rgb(hue / 360, saturation, value))
+    for hue in range(0, 360, 10)
+    for saturation in (0.6, 0.8, 0.95)
+    for value in (0.8, 0.95)
+]
 
 
 def _hex_to_rgb(hex_color: str) -> Optional[Tuple[int, int, int]]:
@@ -44,11 +51,25 @@ def _hex_to_rgb(hex_color: str) -> Optional[Tuple[int, int, int]]:
         return None
 
 
-def _distance(a: Tuple[int, int, int], b: Tuple[int, int, int]) -> float:
+def _distance(a, b) -> float:
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
 
 
-def _nearest_distance(candidate: Tuple[int, int, int], others: List[Tuple[int, int, int]]) -> float:
+def _oklab(rgb):
+    """sRGB → perceptual coordinates (Björn Ottosson's public-domain matrices).
+
+    https://bottosson.github.io/posts/oklab/#converting-from-linear-srgb-to-oklab
+    """
+    r, g, b = (c / 255 / 12.92 if c / 255 <= 0.04045 else ((c / 255 + 0.055) / 1.055) ** 2.4 for c in rgb)
+    l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+    m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+    s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+    return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+
+
+def _nearest_distance(candidate, others) -> float:
     if not others:
         return float("inf")
     return min(_distance(candidate, o) for o in others)
@@ -61,38 +82,23 @@ def suggest_colors(
 ) -> List[str]:
     """Return up to ``count`` colours distinct from ``existing_colors``.
 
-    Candidates are ranked by how far their nearest existing colour is (farther =
-    better), then greedily picked while staying distinct from already-picked
-    suggestions. Deterministic for a given input.
+    Each pick maximizes its nearest Oklab distance to existing colours AND
+    earlier picks. Recompute after each pick; deterministic palette-order ties.
     """
-    palette = palette or DEFAULT_SUGGESTION_PALETTE
-    existing_rgb = [rgb for rgb in (_hex_to_rgb(c) for c in existing_colors) if rgb is not None]
-
-    candidates = []
-    for hex_color in palette:
-        rgb = _hex_to_rgb(hex_color)
-        if rgb is None:
-            continue
-        candidates.append((hex_color, rgb, _nearest_distance(rgb, existing_rgb)))
-
-    # Farthest-from-existing first; stable on ties by palette order.
-    candidates.sort(key=lambda item: item[2], reverse=True)
-
-    picks: List[str] = []
-    picks_rgb: List[Tuple[int, int, int]] = []
-    for hex_color, rgb, _score in candidates:
-        if all(_distance(rgb, p) >= _MIN_PICK_DISTANCE for p in picks_rgb):
-            picks.append(hex_color)
-            picks_rgb.append(rgb)
-        if len(picks) >= count:
-            break
-
-    # If distinctness filtering left us short (tiny palette), top up by score.
-    if len(picks) < count:
-        for hex_color, _rgb, _score in candidates:
-            if hex_color not in picks:
-                picks.append(hex_color)
-            if len(picks) >= count:
-                break
-
-    return picks[:count]
+    if count <= 0:
+        return []
+    palette = DEFAULT_SUGGESTION_PALETTE if palette is None else palette
+    existing = [rgb for c in existing_colors if (rgb := _hex_to_rgb(c)) is not None]
+    occupied = [_oklab(rgb) for rgb in existing]
+    candidates = {}
+    for color in palette:
+        rgb = _hex_to_rgb(color)
+        if rgb is not None and rgb not in existing:
+            candidates.setdefault(rgb, (color, _oklab(rgb)))
+    picks = []
+    while candidates and len(picks) < count:
+        rgb = max(candidates, key=lambda rgb: _nearest_distance(candidates[rgb][1], occupied))
+        color, lab = candidates.pop(rgb)
+        picks.append(color)
+        occupied.append(lab)
+    return picks

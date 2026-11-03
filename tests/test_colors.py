@@ -19,14 +19,37 @@ def test_avoids_colors_close_to_existing():
     assert "#3B82F6" not in picks
 
 
-def test_suggestions_are_far_from_all_existing():
-    existing = ["#3B82F6", "#22C55E"]  # blue + green
-    picks = colors.suggest_colors(existing, count=3)
-    existing_rgb = [colors._hex_to_rgb(c) for c in existing]
+def test_each_pick_is_farthest_from_existing_and_previous_picks():
+    existing = ["#3B82F6", "#22C55E"]
+    picks = colors.suggest_colors(existing, count=4)
+    occupied = [colors._oklab(colors._hex_to_rgb(c)) for c in existing]
+    remaining = set(colors.DEFAULT_SUGGESTION_PALETTE) - set(existing)
     for pick in picks:
-        prgb = colors._hex_to_rgb(pick)
-        nearest = min(colors._distance(prgb, e) for e in existing_rgb)
-        assert nearest >= colors._MIN_PICK_DISTANCE
+        lab = colors._oklab(colors._hex_to_rgb(pick))
+        score = colors._nearest_distance(lab, occupied)
+        assert all(score >= colors._nearest_distance(colors._oklab(colors._hex_to_rgb(c)), occupied) - 1e-12 for c in remaining)
+        remaining.remove(pick)
+        occupied.append(lab)
+
+
+def test_many_subjects_still_receive_four_unused_colors():
+    existing = colors.DEFAULT_SUGGESTION_PALETTE[:12]
+    picks = colors.suggest_colors(existing, count=4)
+    assert len(set(picks)) == 4
+    assert not set(picks) & set(existing)
+    assert picks == colors.suggest_colors(reversed(existing), count=4)
+
+
+def test_empty_duplicate_and_invalid_candidates():
+    assert colors.suggest_colors([], palette=[], count=4) == []
+    assert colors.suggest_colors([], count=0) == []
+    assert colors.suggest_colors([], palette=["#abcdef", "#ABCDEF", "bad"], count=4) == ["#abcdef"]
+
+
+def test_oklab_reference_primaries():
+    import pytest
+    assert colors._oklab((255, 0, 0)) == pytest.approx((0.627955, 0.224863, 0.125846), abs=1e-6)
+    assert colors._oklab((255, 255, 255)) == pytest.approx((1, 0, 0), abs=1e-6)
 
 
 def test_archived_colors_not_passed_in_are_ignored():

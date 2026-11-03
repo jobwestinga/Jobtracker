@@ -241,7 +241,7 @@ def subjects_list(ctx, params):
         "subjects": [dto.subject(service.db, row, totals.get(row.id, 0)) for row in rows],
         "resume_subject_uid": resume.uid if resume is not None else None,
         "today_seconds": sum(today.values()),
-        "suggested_colors": suggest_colors(active_colors, count=3),
+        "suggested_colors": suggest_colors(active_colors, count=4),
         "timer": ctx.timer_snapshot(),
     }
 

@@ -151,8 +151,7 @@ struct ConfirmPanel: View {
     }
 }
 
-/// Compact colour selection: the eight preset hues, the current/custom colour
-/// and one Custom action. Saved colours are kept exactly; Cancel changes nothing.
+/// Four suggestions for new subjects, eight presets and a custom colour picker. Saved colours are kept exactly; Cancel changes nothing.
 struct SubjectEditorPanel: View {
     @ObservedObject var app: AppModel
     let id: UUID
@@ -167,6 +166,15 @@ struct SubjectEditorPanel: View {
                 .onChange(of: model.name) { _ in model.draftChanged() }
                 .accessibilityLabel("Subject name")
             FieldLabel("Colour")
+            if model.isNew && !model.suggestions.isEmpty {
+                FieldLabel("Suggested")
+                HStack(spacing: 6) {
+                    ForEach(model.suggestions, id: \.self) { hex in
+                        Swatch(hex: hex, selected: model.color.caseInsensitiveCompare(hex) == .orderedSame) { model.color = hex }
+                    }
+                }
+                FieldLabel("Presets")
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(model.swatches, id: \.self) { hex in
                     Swatch(hex: hex, selected: hex.caseInsensitiveCompare(model.color) == .orderedSame) { model.color = hex }
@@ -235,7 +243,7 @@ struct Swatch: View {
 
     private var name: String {
         ["#3B82F6": "Blue", "#8B5CF6": "Violet", "#EC4899": "Pink", "#EF4444": "Red",
-         "#F97316": "Orange", "#EAB308": "Yellow", "#22C55E": "Green", "#06B6D4": "Cyan"][hex.uppercased()] ?? "Current"
+         "#F97316": "Orange", "#EAB308": "Yellow", "#22C55E": "Green", "#06B6D4": "Cyan"][hex.uppercased()] ?? hex.uppercased()
     }
 }
 
