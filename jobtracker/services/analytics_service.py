@@ -316,7 +316,7 @@ class AnalyticsService:
 
         result: list[dict] = []
 
-        def _emit(session_id, subject, start_dt, end_dt, duration):
+        def _emit(session_id, subject, start_dt, end_dt, duration, start_time=None, end_time=None):
             logical = timeutils.logical_day(start_dt, day_start)
             key = logical.isoformat()
             if key not in day_key_set:
@@ -338,6 +338,8 @@ class AnalyticsService:
                     "start_h": start_h,
                     "end_h": end_h,
                     "duration_seconds": duration,
+                    "start_time": start_time,
+                    "end_time": end_time,
                 }
             )
 
@@ -347,7 +349,7 @@ class AnalyticsService:
             end_dt = timeutils.parse_iso(sess.end_time)
             if not subject or start_dt is None or end_dt is None:
                 continue
-            _emit(sess.id, subject, start_dt, end_dt, sess.duration_seconds)
+            _emit(sess.id, subject, start_dt, end_dt, sess.duration_seconds, sess.start_time, sess.end_time)
 
         if self._tracker.active_session:
             subject = subjects.get(self._tracker.active_session.subject_id)

@@ -60,11 +60,17 @@ final class CaptureRunner {
                 if let subject = self.model.subjects.subjects.first { self.model.subjects.openSessions(for: subject) }
             }
             steps.append { self.snapshot("\(self.prefix)-panel-sessions") }
+            steps.append {
+                if case .sessions(let panel) = self.model.topPanel?.kind, let row = panel.rows.first { panel.select(row) }
+            }
+            steps.append { self.snapshot("\(self.prefix)-panel-session-editor") }
             steps.append { self.model.panels.removeAll(); self.model.select(.goals) }
             steps.append { if let goal = self.model.goals.goals.first { self.model.goals.open(goal) } }
             steps.append { self.snapshot("\(self.prefix)-panel-goal") }
             steps.append { self.model.panels.removeAll(); self.model.subjects.openEditor(for: self.model.subjects.subjects.first) }
             steps.append { self.snapshot("\(self.prefix)-panel-subject-editor") }
+            steps.append { self.model.panels.removeAll(); self.model.subjects.openEditor() }
+            steps.append { self.snapshot("\(self.prefix)-panel-new-subject") }
             steps.append { self.model.panels.removeAll(); self.model.openSettings() }
             steps.append { self.snapshot("\(self.prefix)-panel-settings") }
         }

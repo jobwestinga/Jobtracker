@@ -2,20 +2,35 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Shared lift geometry for cards and agenda blocks. The original pointer
+/// offset stays fixed; cancelling discards presentation state without a write.
+struct LiftPlacement: Equatable {
+    static let threshold: CGFloat = 5
+    var source: String?
+    var frame = CGRect.zero
+    var start = CGPoint.zero
+    var location = CGPoint.zero
+    var grab: CGPoint { CGPoint(x: start.x - frame.minX, y: start.y - frame.minY) }
+    var liftedFrame: CGRect { CGRect(origin: CGPoint(x: location.x - grab.x, y: location.y - grab.y), size: frame.size) }
+
+    mutating func begin(_ uid: String, frame: CGRect, start: CGPoint) {
+        source = uid; self.frame = frame; self.start = start; location = start
+    }
+}
+
 /// A drag is presentation state until mouse-up. Cancelling never writes an
 /// intermediate order, and the original UID remains the editor/undo target.
 struct CardPlacement: Equatable {
     var order: [String] = []
-    var source: String?
-    var location = CGPoint.zero
-    var grabY: CGFloat = 0
-    var height: CGFloat = 0
+    var lift = LiftPlacement()
+    var source: String? { lift.source }
+    var location: CGPoint { get { lift.location } set { lift.location = newValue } }
+    var grabY: CGFloat { lift.grab.y }
+    var height: CGFloat { lift.frame.height }
 
     mutating func begin(_ uid: String, order: [String], frame: CGRect, start: CGPoint) {
         self.order = order
-        source = uid
-        grabY = start.y - frame.minY
-        height = frame.height
+        lift.begin(uid, frame: frame, start: start)
     }
 
     mutating func move(to location: CGPoint, frames: [String: CGRect], canMove: (String, String) -> Bool) {
@@ -140,7 +155,7 @@ struct ReorderableCards<Item: Identifiable, Row: View>: View where Item.ID == St
     }
 
     private func drag(_ uid: String, bounds: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 5, coordinateSpace: .named(space))
+        DragGesture(minimumDistance: LiftPlacement.threshold, coordinateSpace: .named(space))
             .onChanged { value in
                 guard !saving.value && !cancelled.value else { return }
                 if placement.value.source == nil {

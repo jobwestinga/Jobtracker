@@ -10,6 +10,7 @@ public final class GraphsStore: ObservableObject {
     @Published public private(set) var rangePreset = "weeks"
     @Published public var pulseSettings = false
     @Published public private(set) var loading = false
+    @Published public private(set) var moving = false
 
     private unowned let app: AppModel
     private var stale = true
@@ -83,6 +84,18 @@ public final class GraphsStore: ObservableObject {
     public func openBlock(_ block: AgendaBlockDTO) {
         guard let uid = block.uid else { openDay(block.day); return }
         app.present(.sessions(SessionPanelModel(app: app, scope: .day(block.day), select: uid)))
+    }
+
+    @MainActor
+    public func moveBlock(_ block: AgendaBlockDTO, day: String, seconds: Int) async {
+        guard !moving, let uid = block.uid, let start = block.startTime, let end = block.endTime,
+              let subject = block.subjectUid else { return }
+        guard day != block.day || seconds != 0 else { return }
+        moving = true
+        defer { moving = false }
+        _ = await app.mutate("session.shift", ["session_uid": .string(uid), "day": .string(day), "seconds": .int(seconds),
+            "expected": .object(["start_time": .string(start), "end_time": .string(end), "subject_uid": .string(subject)])])
+        await reload()
     }
 
     public func openSettings() {

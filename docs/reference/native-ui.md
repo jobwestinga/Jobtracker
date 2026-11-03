@@ -3,6 +3,24 @@
 Read this reference when the task touches these owners. Start with the shared
 [engineering rules](../engineering-rules.md) and [task index](../index.md).
 
+## Mac frontend and interaction rules
+
+The packaged app uses [SwiftUI/AppKit](../../native/macos/README.md) over the
+[local engine](../architecture/native-engine.md). Subject/goal cards share their
+reorder component; the agenda shares lift geometry and cancellation. Dragging
+saved blocks commits one guarded move on release. The shared session editor
+saves field edits immediately on selection/editing completion and provides
+separate move and duration adjustments. See the native guide for exact rules.
+
+Design for a tall, roughly half-screen Mac window (about 680–800 points wide):
+keep trailing actions reachable and panels inside the current window. Goals
+remain separate from Subjects. No hourly targets or KPI strips. Keep bar stacks
+contiguous so short sessions remain visible, with coloured magnitude-scaled
+totals. Weight retains explicit whole and decimal tiles, blue/red changes,
+fullscreen, and small dots for dense history.
+
+The remaining sections document the retained Qt fallback.
+
 ## Dialogs are inline, never native windows (macOS constraint)
 
 **Never show a `QDialog` as its own window, and never reparent one into the

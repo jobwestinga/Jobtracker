@@ -113,3 +113,41 @@ The Tangent toggle replaces hover inspection and click-to-edit with a tangent
 to the trend at the pointer's date, labelled with the implied kcal/day and
 kg/week (`Charts/WeightTangent.swift`; constants in
 [the weight task map](../../docs/features/weight.md#charts-and-fullscreen)).
+
+## Subject colours and session editing
+
+New subjects offer four suggestions above the eight preset swatches and Custom.
+The engine greedily maximizes the nearest Oklab distance to active subject
+colours and earlier picks, using a bounded colourful palette. Archived colours
+are excluded; the first suggestion is the initial choice. Existing custom
+colours are preserved exactly. The pure algorithm lives in
+[`colors.py`](../../jobtracker/core/colors.py).
+
+Subject history, graph-day history and agenda clicks open one session panel.
+The history rows contain time, duration and subject; repeated selection/day
+summaries and Quick Add presets are absent. Subject changes save immediately;
+start/end edits save on Return or editing completion. Invalid input stays visible
+for correction, and Save remains an explicit retry. Closing a dirty editor offers
+to keep editing or explicitly discard; pending writes keep the editor open. New Session in subject
+history keeps manual entry available. Moving a selected row out of the current
+scope clears selection, so another tap cannot modify a different row.
+
+Move presets shift both endpoints by ±15 minutes, ±1 hour or ±1 day. Duration
+presets (±5 minutes, ±15 minutes, ±1 hour) keep the start fixed and adjust only
+the end. Reductions below 30 seconds are refused before mutation. Duplicate
+to Today and +1 Day keep the existing logical-day rules.
+
+Saved agenda blocks lift under a left-button drag. Cards and blocks share lift
+geometry, a five-point threshold and Escape cancellation; Subjects and Goals
+share the complete reorder component. Agenda drops snap the relative vertical
+movement to five-minute steps and choose the destination logical-day column.
+The exact recorded seconds and microseconds, subject, duration and UID survive.
+Arranged overlapping blocks use their displayed position as the grab origin;
+only the dragged session changes. An outside drop or Escape writes nothing.
+Running blocks are read-only; an ordinary click still opens the exact session.
+Graph legends are omitted because labels and hover inspection identify subjects.
+
+The engine owns all day/time arithmetic. Each edit/move/resize captures expected
+endpoints and subject; a stale capture is refused instead of overwriting a change
+from another device. Writes use the ordinary service overrides, atomic outbox
+and local replay receipts. One unresolved command blocks later mutations.

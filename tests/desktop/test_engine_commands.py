@@ -54,6 +54,64 @@ def test_retrying_a_committed_shift_replays_without_moving_again(synced_engine):
     assert count == 1
 
 
+def _expected(session):
+    return {key: session[key] for key in ("start_time", "end_time", "subject_uid")}
+
+
+@pytest.mark.parametrize("seconds", [-3600, -900, -300, 300, 900, 3600])
+def test_duration_buttons_keep_start_identity_and_queue_one_write(synced_engine, seconds):
+    _subject, session = _closed_session(synced_engine, minutes=120)
+    params = {"session_uid": session["uid"], "seconds": seconds, "expected": _expected(session)}
+    before = len(_outbox(synced_engine))
+    rid = request_id()
+    resized = synced_engine.ok("session.resize", params, rid=rid)["session"]
+    assert resized["uid"] == session["uid"]
+    assert resized["start_time"] == session["start_time"]
+    assert resized["subject_uid"] == session["subject_uid"]
+    assert resized["duration_seconds"] == session["duration_seconds"] + seconds
+    assert synced_engine.call("session.resize", params, rid=rid)["outcome"] == protocol.REPLAYED
+    assert _outbox(synced_engine)[before:] == ["update_session"]
+
+
+def test_duration_underflow_and_stale_moves_preserve_the_row(synced_engine):
+    _subject, session = _closed_session(synced_engine, minutes=5)
+    before = _outbox(synced_engine)
+    assert synced_engine.call("session.resize", {"session_uid": session["uid"], "seconds": -300})["outcome"] == protocol.REFUSED
+    assert _outbox(synced_engine) == before
+    assert synced_engine.ok("session.get", {"session_uid": session["uid"]})["session"] == session
+    synced_engine.ok("session.shift", {"session_uid": session["uid"], "seconds": 300})
+    before = _outbox(synced_engine)
+    for command, params in [("session.shift", {"seconds": 900}), ("session.resize", {"seconds": 900}),
+                            ("session.update", {**_expected(session)})]:
+        response = synced_engine.call(command, {**params, "session_uid": session["uid"], "expected": _expected(session)})
+        assert response["outcome"] == protocol.REFUSED
+        assert "changed elsewhere" in response["error"]
+    assert _outbox(synced_engine) == before
+
+
+def test_agenda_drag_preserves_exact_duration_across_logical_days_and_dst(synced_engine):
+    subject, session = _closed_session(synced_engine)
+    session = synced_engine.ok("session.update", {"session_uid": session["uid"], "subject_uid": subject["uid"],
+        "start_time": "2026-10-24T01:12:03.123456", "end_time": "2026-10-25T04:13:04.654321"})["session"]
+    params = {"session_uid": session["uid"], "day": "2026-10-25", "seconds": -300, "expected": _expected(session)}
+    moved = synced_engine.ok("session.shift", params)["session"]
+    assert moved["start_time"] == "2026-10-26T01:07:03.123456"
+    assert moved["end_time"] == "2026-10-27T04:08:04.654321"
+    assert moved["duration_seconds"] == session["duration_seconds"]
+    assert moved["uid"] == session["uid"]
+
+
+def test_resize_receipt_failure_rolls_back_end_and_outbox(synced_engine, monkeypatch):
+    _subject, session = _closed_session(synced_engine)
+    before = _outbox(synced_engine)
+    def fail(*args, **kwargs):
+        raise receipts.sqlite3.OperationalError("disk full")
+    monkeypatch.setattr(receipts, "store", fail)
+    assert synced_engine.call("session.resize", {"session_uid": session["uid"], "seconds": 300})["outcome"] == protocol.STORAGE_ERROR
+    assert synced_engine.ok("session.get", {"session_uid": session["uid"]})["session"] == session
+    assert _outbox(synced_engine) == before
+
+
 def test_reusing_a_request_id_for_other_parameters_is_a_conflict(engine):
     _subject, session = _closed_session(engine)
     rid = request_id()

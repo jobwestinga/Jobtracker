@@ -244,8 +244,10 @@ struct FeatureStateTests: CheckSuite {
         live.harness.pump(10) { panel.loaded }
         expect(panel.selectedUid == nil, "no implicit selection")
         let before = panel.rows.count
-        live.run { await panel.quickAdd(minutes: 75) }
-        expect(panel.rows.count == before + 1, "quick add created one session")
+        panel.beginNew()
+        panel.draft?.start = LocalTime.format(LocalTime.isoString(Date().addingTimeInterval(-4500), microseconds: false), "yyyy-MM-dd HH:mm:ss")
+        live.run { await panel.save() }
+        expect(panel.rows.count == before + 1, "manual entry created one session")
         guard let created = panel.selected else { expect(false, "new session selected"); return }
         expect(created.durationSeconds == 75 * 60)
         let originalStart = LocalTime.parse(created.startTime)!

@@ -28,7 +28,7 @@ public struct PanelEntry: Identifiable {
             case .subjectEditor(let model): return model.saving
             case .goalForm(let model): return model.saving
             case .templateEditor(let model): return model.saving
-            case .sessions(let model): return !model.inFlight.isEmpty
+            case .sessions(let model): return !model.canMutate
             case .settings(let model): return model.saving || model.dataBusy
             case .graphSettings(let model): return model.saving
             default: return false

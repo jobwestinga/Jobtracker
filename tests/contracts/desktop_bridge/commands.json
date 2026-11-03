@@ -199,6 +199,14 @@
         "graphs"
       ]
     },
+    "session.resize": {
+      "kind": "mutation",
+      "topics": [
+        "sessions",
+        "subjects",
+        "graphs"
+      ]
+    },
     "session.shift": {
       "kind": "mutation",
       "topics": [

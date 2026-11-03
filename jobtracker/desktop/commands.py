@@ -173,6 +173,14 @@ def _closed_session(ctx, params: dict, key: str = "session_uid"):
         raise Missing("session no longer exists")
     if row.end_time is None:
         raise Refused("A running session cannot be edited here")
+    expected = params.get("expected")
+    if expected is not None:
+        actual = {"start_time": row.start_time, "end_time": row.end_time,
+                  "subject_uid": ctx.service.db.uid_for_id("tasks", row.subject_id)}
+        if not isinstance(expected, dict) or set(expected) != set(actual):
+            raise Invalid("expected must contain start_time, end_time and subject_uid")
+        if expected != actual:
+            raise Refused("This session changed elsewhere. Use the latest values before changing it again.")
     return row
 
 
@@ -476,9 +484,35 @@ def session_delete(ctx, params):
 def session_shift(ctx, params):
     row = _closed_session(ctx, params)
     seconds = _int(params, "seconds", low=-400 * 86400, high=400 * 86400)
-    moved = ctx.service.shift_session(row.id, seconds)
+    target_day = _day(params, "day", required=False)
+    if target_day is None:
+        moved = ctx.service.shift_session(row.id, seconds)
+    else:
+        try:
+            start, end = timeutils.shift_session_to_logical_day(
+                timeutils.parse_iso(row.start_time), timeutils.parse_iso(row.end_time),
+                target_day, ctx.service.get_day_start())
+            start, end = timeutils.shift_session_by_seconds(start, end, seconds)
+            moved = ctx.service.update_session(row.id, row.subject_id, start, end)
+        except OverflowError:
+            moved = None
     if moved is None:
         raise Refused("The session could not be moved")
+    return {"session": _session_dto(ctx, ctx.service.get_session(row.id))}
+
+
+@command("session.resize", MUTATION, ("sessions", "subjects", "graphs"))
+def session_resize(ctx, params):
+    row = _closed_session(ctx, params)
+    seconds = _int(params, "seconds", low=-86400, high=86400)
+    try:
+        start, end = timeutils.resize_session_by_seconds(
+            timeutils.parse_iso(row.start_time), timeutils.parse_iso(row.end_time), seconds)
+        updated = ctx.service.update_session(row.id, row.subject_id, start, end)
+    except OverflowError:
+        updated = None
+    if updated is None:
+        raise Refused("Sessions must end after they start and last at least 30 seconds")
     return {"session": _session_dto(ctx, ctx.service.get_session(row.id))}
 
 

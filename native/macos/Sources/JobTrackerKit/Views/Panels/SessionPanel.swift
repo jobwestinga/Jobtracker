@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// W1: one panel for subject history, day history and agenda blocks. A stable
-/// selection header, the exact editable fields, visible quick-add and move
-/// presets, and distinct Save / Move / Quick add / Duplicate / Delete commands.
+/// Shared session history and editor. Existing fields commit on selection or
+/// editing completion; moves and duration changes preserve explicit identity.
 struct SessionPanel: View {
     @ObservedObject var app: AppModel
     let id: UUID
@@ -12,62 +11,36 @@ struct SessionPanel: View {
     private var presets: DesignTokens.SessionPresets { DesignTokens.shared.roles.sessionPresets }
 
     var body: some View {
-        PanelChrome(model.title, width: 560, onClose: { app.dismiss(id) }) {
-            header
+        PanelChrome(model.title, width: 560, onClose: close) {
             historyList
-            if model.isDayScope { daySummary }
             Divider()
             selectionSection
-            Divider()
-            quickAddSection
             InlineMessage(text: model.message, isError: false)
         } footer: {
             Button("Delete") { model.requestDelete() }
                 .actionStyle(.destructive)
                 .disabled(!canAct || model.inFlight.contains("delete"))
+            if !model.isDayScope {
+                Button("New Session") { model.beginNew() }.actionStyle(.secondary).disabled(!model.canMutate)
+            }
             Spacer()
-            Button("Close") { app.dismiss(id) }.actionStyle(.secondary).keyboardShortcut(.cancelAction)
+            Button("Close", action: close).actionStyle(.secondary).keyboardShortcut(.cancelAction)
             Button(model.draft?.isNew == true ? "Add Session" : "Save Session") { Task { @MainActor in await model.save() } }
                 .actionStyle(.primary)
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.draft == nil || model.draft?.isDirty != true || model.inFlight.contains { $0.hasPrefix("save") || $0 == "add" })
+                .disabled(!model.canMutate || model.draft == nil || model.draft?.isDirty != true || model.inFlight.contains { $0.hasPrefix("save") || $0 == "add" })
         }
         .overlay(pendingSelectionPrompt)
     }
 
-    private var canAct: Bool { model.selected.map { !$0.open && $0.uid != nil } ?? false }
-
-    // MARK: selection header
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if let row = model.selected {
-                ColorMarker(row.color, width: 4, height: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.subjectName).font(TypeRole.cardTitle.font).lineLimit(1)
-                    Text("\(LocalTime.format(row.startTime, "EEE d MMM yyyy  HH:mm"))\u{2013}\(row.endTime.map { LocalTime.format($0, "HH:mm") } ?? "running")  \u{00B7}  \(DurationText.session(row.durationSeconds))")
-                        .font(TypeRole.secondary.font.monospacedDigit()).foregroundColor(theme.textSecondary.color)
-                }
-            } else if model.draft?.isNew == true {
-                Image(systemName: "plus.circle").foregroundColor(theme.accent.color)
-                Text("New session").font(TypeRole.cardTitle.font)
-            } else {
-                Text("No session selected").font(TypeRole.cardTitle.font).foregroundColor(theme.textSecondary.color)
-                Text("Choose a row to edit or move it.").font(TypeRole.secondary.font).foregroundColor(theme.textDimmed.color)
-            }
-            Spacer()
-        }
-        .frame(minHeight: 40)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.selected.map { "Selected session: \($0.subjectName), \(DurationText.session($0.durationSeconds))" } ?? "No session selected")
-    }
+    private var canAct: Bool { (model.selected.map { !$0.open && $0.uid != nil } ?? false) && model.canMutate }
 
     // MARK: history
 
     private var historyList: some View {
         VStack(spacing: 0) {
             if model.loaded && model.rows.isEmpty {
-                Text(model.isDayScope ? "No sessions on this day." : "No sessions recorded yet. Use Quick add or New session.")
+                Text(model.isDayScope ? "No sessions on this day." : "No sessions recorded yet.")
                     .italic().foregroundColor(theme.textDimmed.color)
                     .frame(maxWidth: .infinity).padding(.vertical, 22)
             } else {
@@ -96,20 +69,6 @@ struct SessionPanel: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(theme.border.color))
     }
 
-    private var daySummary: some View {
-        let entries = model.daySummary
-        let total = entries.reduce(0) { $0 + $1.seconds }
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("\(DurationText.session(total)) across \(model.rows.count) session\(model.rows.count == 1 ? "" : "s")")
-                .font(TypeRole.secondary.font.weight(.semibold))
-            entries.enumerated().reduce(Text("")) { text, item in
-                text + Text(item.offset == 0 ? "" : "    ") + Text("\u{25A0} ").foregroundColor(RGBA(hex: item.element.color).color)
-                    + Text("\(item.element.name) \(DurationText.session(item.element.seconds))").foregroundColor(theme.textSecondary.color)
-            }
-            .font(TypeRole.caption.font)
-        }
-    }
-
     // MARK: fields and move
 
     @ViewBuilder
@@ -124,7 +83,7 @@ struct SessionPanel: View {
             HStack(spacing: 8) {
                 InlineMessage(text: conflict)
                 Spacer()
-                Button("Keep my edits") { model.conflict = nil }.actionStyle(.secondary, compact: true)
+                Button("Keep my edits") { model.keepEdits() }.actionStyle(.secondary, compact: true)
                 Button("Use latest") { model.useLatest() }.actionStyle(.secondary, compact: true)
             }
         }
@@ -136,6 +95,15 @@ struct SessionPanel: View {
                         .actionStyle(.secondary, compact: true, fill: true)
                         .disabled(!canAct)
                         .help("Move this session \(seconds < 0 ? "back" : "forward") \(abs(seconds) == 86400 ? "1 day" : "\(abs(seconds) / 60) minutes")")
+                }
+            }
+            FieldLabel("Change duration of selected session")
+            HStack(spacing: 4) {
+                ForEach([-3600, -900, -300, 300, 900, 3600], id: \.self) { seconds in
+                    Button(moveLabel(seconds)) { Task { @MainActor in await model.resize(seconds) } }
+                        .actionStyle(.secondary, compact: true, fill: true)
+                        .disabled(!canAct)
+                        .help("Keep the start time and change the end by \(seconds / 60) minutes")
                 }
             }
             HStack(spacing: 6) {
@@ -150,26 +118,34 @@ struct SessionPanel: View {
     }
 
     private var fields: some View {
-        let binding = Binding<SessionPanelModel.Draft>(get: { model.draft! }, set: { model.draft = $0 })
+        let captured = model.draft!
+        let binding = Binding<SessionPanelModel.Draft>(get: {
+            guard let current = model.draft, current.targetUid == captured.targetUid else { return captured }
+            return current
+        }, set: { value in
+            guard model.draft?.targetUid == captured.targetUid else { return }
+            model.draft = value
+        })
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     FieldLabel("Subject")
                     CompactSelector("Session subject", options: model.subjects.map { ($0.uid, $0.name) }, selection: binding.wrappedValue.subjectUid) {
-                        model.draft?.subjectUid = $0
-                    }
+                        let uid = $0
+                        Task { @MainActor in await model.changeSubject(uid) }
+                    }.disabled(!model.canMutate)
                 }
                 Spacer()
             }
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     FieldLabel("Start Time")
-                    TextField("YYYY-MM-DD HH:MM:SS", text: binding.start).textFieldStyle(FieldStyle())
+                    TextField("YYYY-MM-DD HH:MM:SS", text: binding.start, onEditingChanged: { if !$0 { commitFields() } }, onCommit: commitFields).textFieldStyle(FieldStyle())
                         .accessibilityLabel("Session start date and time")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     FieldLabel("End Time")
-                    TextField("YYYY-MM-DD HH:MM:SS", text: binding.end).textFieldStyle(FieldStyle())
+                    TextField("YYYY-MM-DD HH:MM:SS", text: binding.end, onEditingChanged: { if !$0 { commitFields() } }, onCommit: commitFields).textFieldStyle(FieldStyle())
                         .accessibilityLabel("Session end date and time")
                 }
             }
@@ -177,45 +153,20 @@ struct SessionPanel: View {
                 HStack {
                     Text("Unsaved edits").font(TypeRole.caption.font).foregroundColor(theme.accent.color)
                     Button("Discard") { model.discardDraft() }.actionStyle(.quiet, compact: true)
+                        .disabled(!model.canMutate)
                 }
             }
         }
     }
 
-    // MARK: quick add
+    private func commitFields() {
+        Task { @MainActor in await model.commitFields() }
+    }
 
-    private var quickAddSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                FieldLabel("Quick add \u{00B7} ending now")
-                if model.isDayScope {
-                    CompactSelector("Subject for new sessions", options: model.subjects.filter { !$0.archived }.map { ($0.uid, $0.name) },
-                                    selection: model.quickAddSubjectUid ?? "") { model.quickAddSubjectUid = $0 }
-                }
-                Spacer()
-                Button("New session\u{2026}") { model.beginNew() }.actionStyle(.quiet, compact: true)
-            }
-            HStack(spacing: 4) {
-                ForEach(presets.durationsMinutes, id: \.self) { minutes in
-                    Button(DurationText.preset(minutes: minutes)) { Task { @MainActor in await model.quickAdd(minutes: minutes) } }
-                        .actionStyle(.secondary, compact: true, fill: true)
-                        .disabled(model.quickAddSubjectUid == nil || model.inFlight.contains("quick:\(minutes)"))
-                        .accessibilityLabel("Add \(DurationText.preset(minutes: minutes)) ending now")
-                }
-                Button("Custom\u{2026}") { model.openCustomDuration() }
-                    .actionStyle(.secondary, compact: true)
-                    .disabled(model.quickAddSubjectUid == nil)
-                    .help("Enter any duration (hours and minutes)")
-            }
-            if !model.isDayScope {
-                HStack(spacing: 4) {
-                    Text("Time slot, today:").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
-                    ForEach([(9, 11), (11, 13), (13, 15), (15, 17), (17, 19)], id: \.0) { slot in
-                        Button("\(slot.0)\u{2013}\(slot.1)") { Task { @MainActor in await model.addSlot(startHour: slot.0, endHour: slot.1) } }
-                            .actionStyle(.secondary, compact: true)
-                    }
-                }
-            }
+    private func close() {
+        Task { @MainActor in
+            await model.commitFields()
+            app.dismiss(id)
         }
     }
 

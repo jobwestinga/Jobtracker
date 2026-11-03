@@ -190,12 +190,41 @@ public struct AgendaLayout {
     }
 }
 
+/// Screen-space projection only. The engine resolves dates and wall-clock
+/// arithmetic; the view supplies a logical column and a five-minute offset.
+struct AgendaDrop: Equatable {
+    let day: String
+    let seconds: Int
+    let rect: CGRect
+
+    static func project(block: AgendaLayout.Block, lift: LiftPlacement, layout: AgendaLayout, dayStart: Double) -> AgendaDrop? {
+        let point = lift.location
+        guard layout.chart.contains(point), !layout.columns.isEmpty else { return nil }
+        let column = layout.columns.min { abs($0.rect.midX - point.x) < abs($1.rect.midX - point.x) }!
+        let scale = layout.chart.height / CGFloat(layout.hourEnd - layout.hourStart)
+        let raw = Int(((point.y - lift.start.y) / scale * 12).rounded()) * 300
+        // A column represents exactly one logical day, even for 24+ hours.
+        let lower = Int(ceil((dayStart - block.source.startH) * 12)) * 300
+        let upper = Int(ceil((dayStart + 24 - block.source.startH) * 12) - 1) * 300
+        let seconds = min(upper, max(lower, raw))
+        let inset = block.rect.minX - (layout.columns.first { $0.day == block.source.day }?.rect.minX ?? block.rect.minX)
+        return AgendaDrop(day: column.day, seconds: seconds,
+                          rect: CGRect(x: column.rect.minX + inset, y: block.rect.minY + CGFloat(seconds) / 3600 * scale,
+                                       width: column.rect.width - inset * 2, height: block.rect.height))
+    }
+}
+
 struct AgendaChartView: View {
     let data: AgendaDTO
     let onDay: (String) -> Void
     let onBlock: (AgendaBlockDTO) -> Void
+    var onMove: (AgendaBlockDTO, String, Int) async -> Void = { _, _, _ in }
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
+    var reduceMotion = false
+    @StateObject private var lift = ViewState(LiftPlacement())
+    @StateObject private var dragged = ViewState<AgendaLayout.Block?>(nil)
+    @StateObject private var saving = ViewState(false)
 
     var body: some View {
         GeometryReader { proxy in
@@ -205,13 +234,22 @@ struct AgendaChartView: View {
             ScrollView(.horizontal, showsIndicators: !data.fitWidth) {
                 ZStack(alignment: .topLeading) {
                     canvas(layout)
-                    ChartHitArea(regions: regions(layout))
+                    dragPreview(layout).allowsHitTesting(false)
+                    ChartHitArea(regions: regions(layout)).allowsHitTesting(!saving.value)
                     accessibilityLayer(layout)
                 }
                 .frame(width: size.width, height: size.height)
             }
         }
         .frame(minHeight: 360)
+        .onReceive(NotificationCenter.default.publisher(for: .cancelCardDrag)) { _ in
+            if !saving.value { resetDrag() }
+        }
+        .onChange(of: data) { next in
+            if !saving.value, let source = dragged.value?.source,
+               !next.sessions.contains(source) { resetDrag() }
+        }
+        .onDisappear { resetDrag() }
     }
 
     private func regions(_ layout: AgendaLayout) -> [ChartHitArea.Region] {
@@ -223,12 +261,66 @@ struct AgendaChartView: View {
                 let source = block.source
                 let tip = "\(source.subjectName)\n\(LocalTime.format(source.day, "EEEE, dd MMMM yyyy"))\n" +
                     "\(AgendaLayout.timeLabel(source.startH))\u{2013}\(AgendaLayout.timeLabel(source.endH)) \u{00B7} \(String(format: "%.1fh", Double(source.durationSeconds) / 3600))" +
-                    (source.uid != nil ? "\nClick to edit \u{00B7} click empty space for the whole day" : "") +
+                    (source.uid != nil ? "\nClick to edit · drag to move (5-minute steps)" : "") +
                     (block.arranged ? "\nArranged to avoid overlap; recorded times unchanged" : "")
-                regions.append(.init(rect: block.rect, tooltip: tip, clickable: true, action: { onBlock(source) }))
+                let drag: ChartHitArea.Drag? = source.uid != nil && source.startTime != nil && source.endTime != nil ? .init(
+                    changed: { start, point in
+                        guard !saving.value else { return }
+                        if lift.value.source == nil {
+                            dragged.value = block
+                            lift.value.begin(block.id, frame: block.rect, start: start)
+                        }
+                        lift.value.location = point
+                    },
+                    ended: { point in finishDrag(at: point, layout: layout) },
+                    cancelled: { resetDrag() }) : nil
+                regions.append(.init(rect: block.rect, tooltip: tip, clickable: true, action: { onBlock(source) }, drag: drag))
             }
         }
         return regions
+    }
+
+    private func resetDrag() { lift.value = LiftPlacement(); dragged.value = nil }
+
+    private func finishDrag(at point: CGPoint, layout: AgendaLayout) {
+        guard let block = dragged.value else { return }
+        lift.value.location = point
+        guard let drop = AgendaDrop.project(block: block, lift: lift.value, layout: layout, dayStart: data.dayStartHour) else { resetDrag(); return }
+        saving.value = true
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+            lift.value.location = CGPoint(x: drop.rect.minX + lift.value.grab.x, y: drop.rect.minY + lift.value.grab.y)
+        }
+        Task { @MainActor in
+            await onMove(block.source, drop.day, drop.seconds)
+            // Finish the slot animation before handing back to the canvas.
+            if !reduceMotion { try? await Task.sleep(nanoseconds: 140_000_000) }
+            resetDrag(); saving.value = false
+        }
+    }
+
+    @ViewBuilder
+    private func dragPreview(_ layout: AgendaLayout) -> some View {
+        if let block = dragged.value {
+            let rect = lift.value.liftedFrame
+            if let drop = AgendaDrop.project(block: block, lift: lift.value, layout: layout, dayStart: data.dayStartHour) {
+                RoundedRectangle(cornerRadius: 5).stroke(theme.accent.color, style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                    .frame(width: drop.rect.width, height: drop.rect.height)
+                    .offset(x: drop.rect.minX, y: drop.rect.minY)
+                Text("\(LocalTime.format(drop.day, "EEE d MMM")) · \(AgendaLayout.timeLabel(block.source.startH + Double(drop.seconds) / 3600))")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundColor(theme.textPrimary.color)
+                    .padding(5).background(RoundedRectangle(cornerRadius: 5).fill(theme.bgPrimary.color))
+                    .fixedSize()
+                    .offset(x: min(max(4, drop.rect.minX), max(4, layout.chart.maxX - 170)), y: max(2, min(drop.rect.minY - 26, layout.chart.maxY - 24)))
+            }
+            RoundedRectangle(cornerRadius: 5).fill(AgendaLayout.boldFill(for: block.source.color, theme: theme).color)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(RGBA(hex: block.source.color).color, lineWidth: 2))
+                .overlay(Text(block.source.subjectName).font(.system(size: 11, weight: .bold)).foregroundColor(theme.textPrimary.color).lineLimit(1).padding(4))
+                .shadow(color: .black.opacity(0.4), radius: 12, y: 5)
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
+                .accessibilityHidden(true)
+        }
     }
 
     private func canvas(_ layout: AgendaLayout) -> some View {
@@ -278,7 +370,7 @@ struct AgendaChartView: View {
                         for block in group {
                             // Half-pixel overlap: no seam or black divider between joined blocks.
                             let rect = block.rect.insetBy(dx: 0, dy: -0.5)
-                            layer.fill(Path(rect), with: .color(AgendaLayout.boldFill(for: block.source.color, theme: theme).color))
+                            layer.fill(Path(rect), with: .color(AgendaLayout.boldFill(for: block.source.color, theme: theme).alpha(lift.value.source == block.id ? 0.25 : 1).color))
                             layer.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: min(edge, rect.width / 3), height: rect.height)),
                                        with: .color(RGBA(hex: block.source.color).color))
                         }

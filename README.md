@@ -11,13 +11,15 @@ source and synthetic test data. See the [privacy policy](docs/privacy.md).
 ## What it does
 
 - **Track time:** colour-coded subjects, start/stop/switch controls, manual
-  entries, session editing, archive and crash-safe recovery.
+  entries, immediate session edits, duration adjustments, archive and crash-safe recovery.
+  New subjects offer four distinct colour suggestions alongside eight presets.
 - **Manage goals:** descriptions, milestones, recurring templates and weekly
   focus. Goals stay separate from timed subjects.
 - **Record weight:** whole-kilogram and decimal tiles, calendar dates, historical
   entries, editing and deletion. The phone's ↻ button clears a selection.
 - **Explore history:** stacked time bars, agenda timelines and weight trends.
-  Phone weight plots offer fullscreen with pinch-to-zoom and panning, custom
+  Drag a saved agenda block to move it in five-minute steps or to another day;
+  click it to edit that exact session. Phone weight plots offer fullscreen with pinch-to-zoom and panning, custom
   ranges and PNG/CSV export. Thin year lines help orient long histories.
 - **Work offline:** local SQLite on the Mac and a durable write queue on the
   phone. Reconnecting sends queued changes in order without duplicating saves.

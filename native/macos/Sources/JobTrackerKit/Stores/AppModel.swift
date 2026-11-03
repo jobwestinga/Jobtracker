@@ -233,14 +233,22 @@ public final class AppModel: ObservableObject {
 
     public func dismissTop() {
         guard let top = panels.last else { return }
-        if top.kind.dismissalBlocked { return }
-        top.kind.willDismiss()
-        panels.removeLast()
+        dismiss(top.id)
     }
 
     public func dismiss(_ id: UUID) {
         guard let index = panels.firstIndex(where: { $0.id == id }) else { return }
         guard !panels[index...].contains(where: { $0.kind.dismissalBlocked }) else { return }
+        if case .sessions(let model) = panels[index].kind, model.draft?.isDirty == true {
+            present(.confirm(ConfirmModel(title: "Unsaved Session Edits", message: "Keep editing this session, or discard its unsaved changes.",
+                confirmTitle: "Discard Edits", role: .destructive, action: { [weak self, weak model] in
+                    model?.discardDraft()
+                    // The confirmation's running guard clears when its
+                    // button finishes. Close the original panel afterwards.
+                    DispatchQueue.main.async { [weak self] in self?.dismiss(id) }
+                })))
+            return
+        }
         for entry in panels[index...].reversed() { entry.kind.willDismiss() }
         panels.removeSubrange(index...)
     }

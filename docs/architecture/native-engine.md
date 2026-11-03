@@ -19,7 +19,7 @@ flowchart LR
 
 | Mode | Store | Notes |
 | --- | --- | --- |
-| `production` | `~/Library/Application Support/JobTracker/jobtracker.db` | Installed data; only for the guarded production cutover |
+| `production` | `~/Library/Application Support/JobTracker/jobtracker.db` | Installed data; guarded production installation |
 | `development` | `<checkout>/data/jobtracker.db` | Refused by a frozen helper |
 | `isolated` | explicit `--db *.db` | Refuses either real store; prototypes and tests |
 
@@ -68,7 +68,7 @@ kind and topic set for the Python and Swift tests.
 | Kind | Examples | Durability |
 | --- | --- | --- |
 | `read` | `subjects.list`, `timer.get`, `graphs.agenda`, `sessions.for_subject` (paginated) | No commit |
-| `mutation` | `timer.start`, `session.shift`, `goal.complete`, `weight.upsert`, `backup.import` | Mutation, outbox entries and receipt in one `Database.atomic` |
+| `mutation` | `timer.start`, `session.shift/resize`, `goal.complete`, `weight.upsert`, `backup.import` | Mutation, outbox entries and receipt in one `Database.atomic` |
 | `action` | `sync.configure`, `backup.export`, `app.quit`, `app.foreground`, `recovery.dismiss` | Not receipt-backed; files are written to a temporary file and replaced |
 
 | Outcome | Meaning |
@@ -127,3 +127,16 @@ request and posts results back to the inbox.
 
 The [sync status wording](../../jobtracker/sync/presentation.py) is shared with
 the Qt window. Tests: [tests/desktop](../../tests/desktop/test_engine_commands.py).
+
+## Guarded session interactions
+
+`session.update`, `session.shift`, `session.resize` and `session.duplicate`
+accept an optional `expected` object with exact stored `start_time`, `end_time`
+and `subject_uid`. A mismatch is a receipt-backed refusal before mutation.
+Native editors and agenda drags supply it; older callers keep their signatures.
+`session.shift` also accepts a destination logical `day` plus relative `seconds`;
+`timeutils` resolves the day before shifting both endpoints. `session.resize`
+keeps the start fixed and offsets the end, then calls the facade's validated
+`update_session`. Both paths retain synced override dispatch and atomic writes.
+Agenda DTOs include exact endpoints for guarded captures; the displayed block
+can be clamped or arranged without losing its original interval.

@@ -195,6 +195,8 @@ public struct AgendaBlockDTO: Decodable, Equatable, Hashable, Identifiable {
     public let startH: Double
     public let endH: Double
     public let durationSeconds: Int
+    public var startTime: String? = nil
+    public var endTime: String? = nil
     public var id: String { uid ?? "live-\(day)-\(startH)" }
 }
 

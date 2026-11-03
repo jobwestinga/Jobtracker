@@ -20,7 +20,10 @@ preferences retain their existing limits. These display differences do not
 change session-start attribution, logical-day clamping or stored timestamps.
 
 Session moves use `timeutils.shift_session_by_seconds`: ±1 day moves both local
-endpoints by 86400 recorded seconds and preserves duration and identity. Phone
+endpoints by 86400 recorded seconds and preserves duration and identity. Agenda dragging resolves a destination logical day before applying a snapped
+relative offset; duration changes use `resize_session_by_seconds` to keep the
+start and adjust only the end. The 30-second service minimum applies before any
+write. Phone
 quick-add uses the [duration helper](../../web/features/sessions/duration.js)
 to subtract the selected wall-clock minutes from one captured end time. Its UTC
 surrogate is calendar arithmetic only; stored values remain naive local ISO.

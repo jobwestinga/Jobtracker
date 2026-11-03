@@ -22,7 +22,7 @@ struct GraphsPage: View {
             Text(subtitle).font(.system(size: 12, weight: .medium)).foregroundColor(theme.textSecondary.color)
             Group {
                 if store.mode == "agenda", let agenda = store.agenda {
-                    AgendaChartView(data: agenda, onDay: store.openDay, onBlock: store.openBlock)
+                    AgendaChartView(data: agenda, onDay: store.openDay, onBlock: store.openBlock, onMove: store.moveBlock, reduceMotion: app.reduceMotion)
                 } else if store.mode == "bar", let breakdown = store.breakdown {
                     BarChartView(data: breakdown, onDay: store.openDay)
                 } else {
@@ -30,7 +30,6 @@ struct GraphsPage: View {
                 }
             }
             .frame(maxHeight: .infinity)
-            Legend(entries: legend)
         }
         .task { await store.reloadIfStale() }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
@@ -52,43 +51,4 @@ struct GraphsPage: View {
         return " "
     }
 
-    private var legend: [(String, String)] {
-        var seen: [(String, String)] = []
-        var names = Set<String>()
-        if store.mode == "agenda" {
-            for block in store.agenda?.sessions ?? [] where names.insert(block.subjectName).inserted { seen.append((block.subjectName, block.color)) }
-        } else {
-            for bucket in store.breakdown?.buckets ?? [] {
-                for segment in bucket.segments where names.insert(segment.subjectName).inserted { seen.append((segment.subjectName, segment.color)) }
-            }
-        }
-        return seen
-    }
-}
-
-struct Legend: View {
-    let entries: [(String, String)]
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        if entries.isEmpty {
-            Text("No tracked sessions in the displayed range.").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
-        } else {
-            FlowText(entries: entries)
-        }
-    }
-
-    private struct FlowText: View {
-        let entries: [(String, String)]
-        @Environment(\.theme) private var theme
-        var body: some View {
-            entries.enumerated().reduce(Text("")) { text, item in
-                let (index, entry) = item
-                let separator = index == 0 ? Text("") : Text("     ")
-                return text + separator + Text("\u{25CF} ").foregroundColor(RGBA(hex: entry.1).color) + Text(entry.0).foregroundColor(theme.textSecondary.color)
-            }
-            .font(TypeRole.caption.font)
-            .lineLimit(3)
-        }
-    }
 }

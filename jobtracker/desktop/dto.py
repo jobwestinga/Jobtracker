@@ -161,6 +161,8 @@ def agenda_block(codec, block: dict) -> dict:
         "start_h": block["start_h"],
         "end_h": block["end_h"],
         "duration_seconds": block["duration_seconds"],
+        "start_time": block.get("start_time"),
+        "end_time": block.get("end_time"),
     }
 
 

@@ -10,6 +10,13 @@ struct ChartHitArea: NSViewRepresentable {
         let tooltip: String
         let clickable: Bool
         let action: () -> Void
+        var drag: Drag? = nil
+    }
+
+    struct Drag {
+        let changed: (CGPoint, CGPoint) -> Void
+        let ended: (CGPoint) -> Void
+        let cancelled: () -> Void
     }
 
     let regions: [Region]
@@ -21,6 +28,22 @@ struct ChartHitArea: NSViewRepresentable {
     }
 
     final class HitView: NSView {
+        private var pressed: Region?
+        private var start = CGPoint.zero
+        private var dragging = false
+        private var cancelled = false
+        private var cancelObserver: NSObjectProtocol?
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            cancelObserver = NotificationCenter.default.addObserver(forName: .cancelCardDrag, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.pressed != nil else { return }
+                self.pressed?.drag?.cancelled()
+                self.cancelled = true
+            }
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        deinit { if let cancelObserver { NotificationCenter.default.removeObserver(cancelObserver) } }
         var regions: [Region] = [] {
             didSet { refreshTracking() }
         }
@@ -55,7 +78,26 @@ struct ChartHitArea: NSViewRepresentable {
             return regions.contains { $0.rect.contains(local) } ? self : nil
         }
 
-        override func mouseDown(with event: NSEvent) { region(at: event)?.action() }
+        override func mouseDown(with event: NSEvent) {
+            pressed = region(at: event)
+            start = convert(event.locationInWindow, from: nil)
+            dragging = false; cancelled = false
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard !cancelled, let drag = pressed?.drag else { return }
+            let point = convert(event.locationInWindow, from: nil)
+            guard dragging || hypot(point.x - start.x, point.y - start.y) >= LiftPlacement.threshold else { return }
+            dragging = true
+            drag.changed(start, point)
+            autoscroll(with: event)
+        }
+        override func mouseUp(with event: NSEvent) {
+            defer { pressed = nil; dragging = false; cancelled = false }
+            guard !cancelled, let pressed else { return }
+            let point = convert(event.locationInWindow, from: nil)
+            if dragging { pressed.drag?.ended(point) }
+            else if pressed.rect.contains(point) { pressed.action() }
+        }
         override func rightMouseDown(with event: NSEvent) { region(at: event)?.action() }
     }
 }

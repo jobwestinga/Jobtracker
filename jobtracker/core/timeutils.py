@@ -199,6 +199,14 @@ def shift_session_by_seconds(
     return start + delta, end + delta
 
 
+def resize_session_by_seconds(start: datetime, end: datetime, seconds: int) -> Tuple[datetime, datetime]:
+    """Keep the exact start and adjust only the naive local end.
+
+    The service validates the resulting minimum duration before any write.
+    """
+    return start, end + timedelta(seconds=int(seconds))
+
+
 def week_start(day: date) -> date:
     """Monday of the week containing ``day`` (weeks are Monday-start)."""
     return day - timedelta(days=day.weekday())
