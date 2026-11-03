@@ -12,6 +12,10 @@ struct SessionPanel: View {
 
     var body: some View {
         PanelChrome(model.title, width: 560, onClose: close) {
+            if !model.isDayScope {
+                creationSection
+                Divider()
+            }
             historyList
             Divider()
             selectionSection
@@ -34,6 +38,38 @@ struct SessionPanel: View {
     }
 
     private var canAct: Bool { (model.selected.map { !$0.open && $0.uid != nil } ?? false) && model.canMutate }
+
+    // MARK: subject session creation
+
+    private var creationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Add session \u{00B7} ending now")
+            HStack(spacing: 4) {
+                ForEach(presets.durationsMinutes, id: \.self) { minutes in
+                    Button(DurationText.preset(minutes: minutes)) {
+                        let at = Date()
+                        Task { @MainActor in await model.quickAdd(minutes: minutes, at: at) }
+                    }
+                    .actionStyle(.secondary, compact: true, fill: true)
+                    .accessibilityLabel("Add \(DurationText.preset(minutes: minutes)) ending now")
+                }
+                Button("Custom\u{2026}") { model.openCustomDuration() }
+                    .actionStyle(.secondary, compact: true)
+                    .help("Enter any duration in hours and minutes")
+            }
+            HStack(spacing: 4) {
+                Text("Time slot, today:").font(TypeRole.caption.font).foregroundColor(theme.textSecondary.color)
+                ForEach([(9, 11), (11, 13), (13, 15), (15, 17), (17, 19)], id: \.0) { slot in
+                    Button("\(slot.0)\u{2013}\(slot.1)") {
+                        let at = Date()
+                        Task { @MainActor in await model.addSlot(startHour: slot.0, endHour: slot.1, at: at) }
+                    }
+                    .actionStyle(.secondary, compact: true)
+                }
+            }
+        }
+        .disabled(!model.canCreateSessions)
+    }
 
     // MARK: history
 

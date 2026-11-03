@@ -178,11 +178,20 @@
         "tests/mobile/session-duration.test.mjs",
         "tests/test_operation_contracts.py",
         "tests/mobile/sheet-action.test.mjs",
-        "tests/mobile/subject-quick-add.cjs"
+        "tests/mobile/subject-quick-add.cjs",
+        "native/macos/Sources/JobTrackerChecks/SessionCreationChecks.swift"
       ],
       "related": [
         "graphs.tracking",
         "sync.replication"
+      ],
+      "supporting": [
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Views/Panels/SessionPanel.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/SessionPanelModel.swift"
+        }
       ]
     },
     {
@@ -1143,7 +1152,8 @@
       "tests": [
         "tests/desktop/test_engine_protocol.py",
         "native/macos/Sources/JobTrackerChecks/main.swift",
-        "native/macos/Sources/JobTrackerChecks/InteractionChecks.swift"
+        "native/macos/Sources/JobTrackerChecks/InteractionChecks.swift",
+        "native/macos/Sources/JobTrackerChecks/SessionCreationChecks.swift"
       ],
       "related": [
         "native.engine",

@@ -10,7 +10,10 @@ The packaged app uses [SwiftUI/AppKit](../../native/macos/README.md) over the
 reorder component; the agenda shares lift geometry and cancellation. Dragging
 saved blocks commits one guarded move on release. The shared session editor
 saves field edits immediately on selection/editing completion and provides
-separate move and duration adjustments. See the native guide for exact rules.
+separate move and duration adjustments. Subject history also keeps its six
+one-click session durations, Custom duration and calendar-day time slots above
+the history list; these creation controls are available with no row selected.
+See the native guide for exact rules.
 
 Design for a tall, roughly half-screen Mac window (about 680–800 points wide):
 keep trailing actions reachable and panels inside the current window. Goals

@@ -30,7 +30,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SWIFT_SCRATCH = Path.home() / "Library/Caches/JobTracker/native-build"
-NATIVE_VERSION = "2.1.2"
+NATIVE_VERSION = "2.1.3"
 IDENTITIES = {
     "pilot": {"bundle_id": "com.jobtracker.native-pilot", "name": "JobTracker Native Pilot",
               "mode": "isolated", "folder": "JobTracker Native Pilot"},

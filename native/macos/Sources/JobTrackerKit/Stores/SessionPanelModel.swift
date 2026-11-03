@@ -279,6 +279,7 @@ public final class SessionPanelModel: ObservableObject {
     // MARK: commands
 
     public var canMutate: Bool { inFlight.isEmpty && !requestIds.values.contains(where: { app.engine.unresolved.contains($0) }) }
+    public var canCreateSessions: Bool { !isDayScope && canMutate }
 
     @MainActor
     public func changeSubject(_ uid: String) async {
@@ -319,6 +320,13 @@ public final class SessionPanelModel: ObservableObject {
             adopt(saved, submitted: submitted)
             message = "The earlier save was confirmed. Any newer edits are kept."
             if autoCommitRequested { Task { @MainActor in await commitFields() } }
+        } else if response.outcome.succeeded, key.hasPrefix("quick:") || key.hasPrefix("slot:"),
+                  let created = try? response.result(SessionResult.self).session {
+            inFlight.insert(key)
+            Task { @MainActor in
+                defer { self.inFlight.remove(key) }
+                await self.adoptCreated(created)
+            }
         } else if !response.outcome.succeeded {
             message = response.error ?? "The earlier change was not applied. Your input is kept."
         }
@@ -447,6 +455,54 @@ public final class SessionPanelModel: ObservableObject {
         await refresh()
     }
 
+    /// Subject history owns creation, independently of the selected edit row.
+    @MainActor
+    public func quickAdd(minutes: Int, at: Date = Date()) async {
+        guard canCreateSessions, let subject = uidForScope else { return }
+        let key = "quick:\(minutes)"
+        guard let response = await run(key, "session.quick_add", [
+            "subject_uid": .string(subject), "minutes": .int(minutes), "at": .string(LocalTime.isoString(at)),
+        ]) else { return }
+        defer { inFlight.remove(key) }
+        guard response.outcome.succeeded, let created = try? response.result(SessionResult.self).session else { return }
+        await adoptCreated(created)
+    }
+
+    @MainActor
+    public func addSlot(startHour: Int, endHour: Int, at: Date = Date()) async {
+        guard canCreateSessions, let subject = uidForScope else { return }
+        let key = "slot:\(startHour):\(endHour)"
+        guard let response = await run(key, "session.add_slot", [
+            "subject_uid": .string(subject), "start_hour": .int(startHour), "end_hour": .int(endHour),
+            "at": .string(LocalTime.isoString(at)),
+        ]) else { return }
+        defer { inFlight.remove(key) }
+        guard response.outcome.succeeded, let created = try? response.result(SessionResult.self).session else { return }
+        await adoptCreated(created)
+    }
+
+    @MainActor
+    private func adoptCreated(_ created: SessionDTO) async {
+        // A topic-triggered refresh can supersede this call's refresh. Bind the
+        // confirmed identity first so that refresh also retains this exact row.
+        if !rows.contains(where: { $0.uid == created.uid }) {
+            rows.append(created)
+            rows.sort { $0.startTime > $1.startTime }
+        }
+        if draft?.isDirty != true {
+            selectedUid = created.uid
+            draft = Draft(session: created)
+        }
+        await refresh()
+        message = "Added \(DurationText.session(created.durationSeconds))."
+    }
+
+    public func openCustomDuration() {
+        guard canCreateSessions else { return }
+        app.present(.customDuration(CustomDurationModel(onConfirm: { [weak self] minutes in
+            await self?.quickAdd(minutes: minutes)
+        })))
+    }
 
 }
 

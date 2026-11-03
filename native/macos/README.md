@@ -124,8 +124,14 @@ colours are preserved exactly. The pure algorithm lives in
 [`colors.py`](../../jobtracker/core/colors.py).
 
 Subject history, graph-day history and agenda clicks open one session panel.
-The history rows contain time, duration and subject; repeated selection/day
-summaries and Quick Add presets are absent. Subject changes save immediately;
+Subject history starts with one-click **15m, 30m, 1h, 1h 15m, 1h 30m and 2h**
+creation buttons, **Custom…** duration, and the 9–11, 11–13, 13–15, 15–17 and
+17–19 calendar-day slots. Duration presets end at the captured click time and
+always use that history's subject. The controls stay visible above the history,
+including for subjects without sessions. Existing drafts survive an add; pending
+creations block extra taps until their original request is confirmed.
+Day history keeps the session editor without these subject-creation controls.
+The history rows contain time, duration and subject. Subject changes save immediately;
 start/end edits save on Return or editing completion. Invalid input stays visible
 for correction, and Save remains an explicit retry. Closing a dirty editor offers
 to keep editing or explicitly discard; pending writes keep the editor open. New Session in subject
