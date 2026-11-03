@@ -58,7 +58,7 @@ public enum ChartText {
     }
 }
 
-/// R1 soft bloom: a blurred colour mask of the label, cached by text, font,
+/// Soft bloom: a blurred colour mask of the label, cached by text, font,
 /// colour, radius and display scale, drawn beneath crisp foreground glyphs.
 public final class BloomCache {
     public static let shared = BloomCache()

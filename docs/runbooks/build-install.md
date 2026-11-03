@@ -95,7 +95,7 @@ let pending changes sync normally. Inspect status and report the blocking reason
 Reuse authorization already given for the update; do not add a second approval
 step merely because the safe tool waits for idle.
 
-## Native Mac app (A4)
+## Native Mac app
 
 The native frontend builds outside iCloud with SwiftPM and a frozen, Qt-free
 engine; the Command Line Tools are sufficient. It never installs:
@@ -110,8 +110,13 @@ The default `pilot` identity is a separate app, `com.jobtracker.native-pilot`
 `~/Library/Application Support/JobTracker Native Pilot/`. It cannot replace
 `/Applications/JobTracker.app` (the installer requires `com.jobtracker.app`).
 `--identity production` keeps the established identity and store and exists
-only for the guarded cutover described in the
-[A4 guide](../guides/a4-native-mac-overhaul.md#p17--pilot-switch-defaults-and-maintain-the-result).
+for production updates through the same guarded installer.
+Build and sign the production identity, then pass the reported staged bundle
+to `scripts/install_macos.py` as described above. The native frontend uses the
+existing store; installation must preserve settings, credentials, UIDs, timestamps
+and pending requests. Rollback restores the previous app bundle and keeps the
+current database. The Qt fallback can read that database; never restore old
+history over newer writes.
 
 The engine is frozen with PyInstaller into `Contents/Resources/engine/`; every
 nested Mach-O is signed before the app, and `codesign --verify --deep

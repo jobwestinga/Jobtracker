@@ -386,7 +386,7 @@ class TrackerService:
     ) -> None:
         return self._goals.set_todo_task_order(ordered_ids, completed)
 
-    # ── Goals (the redesigned Tasks tab) ────────────────────────────────
+    # ── Goals ────────────────────────────────
     # A "Goal" is a todo_tasks row. These are convenience aliases plus the
     # milestone-aware completion rules.
     def get_active_goals(self) -> List[TodoTask]:

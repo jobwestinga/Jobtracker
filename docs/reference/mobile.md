@@ -74,7 +74,7 @@ them does.
   share of that bucket. Rounded caps and gentle shading leave segments
   contiguous. Hour labels have no boxes, grow continuously with daily intensity
   (capped at 14h) and use
-  one soft colour bloom (R1) behind crisp text for achievement tiers,
+  one soft colour bloom behind crisp text for achievement tiers,
   strongest above 10 hours per day. Bloom radii and tier colours come from the
   generated role block in [tokens.css](../../web/styles/tokens.css).
   Dense columns scroll within the chart and text scaling stays available.

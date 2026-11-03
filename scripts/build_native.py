@@ -13,7 +13,7 @@ Stages under ~/Library/Caches/JobTracker/builds/native-*:
 
 The default ``pilot`` identity is a separate app (``com.jobtracker.native-pilot``)
 on an isolated pilot store. ``production`` keeps the established identity
-and Application Support store, and is only for the guarded cutover. This
+and Application Support store, and uses the guarded installer for production updates. This
 script never installs anything.
 """
 from __future__ import annotations

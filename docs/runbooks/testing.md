@@ -70,7 +70,7 @@ that start `python -m jobtracker.desktop` on disposable isolated stores
 feature flows). It needs only the Command Line Tools. XCUIAutomation requires
 full Xcode. The current release combines the executable checks with actual Mac
 window/input checks and the user's pilot; see the
-[A4 evidence](../guides/a4-evidence.md#m6--native-cutover-and-phone-delivery-23-october-2026).
+[native validation reference](../reference/native-validation.md).
 
 The full test command runs pytest. `check` also runs the repository privacy
 guard; enable its staged-content hook with `git config core.hooksPath .githooks`.

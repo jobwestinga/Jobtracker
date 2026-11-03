@@ -433,7 +433,7 @@ enum TokensData {
     }
    ]
   },
-  "note": "F1 semantic roles shared by the native Mac frontend and phone styles. Colours come from jobtracker/core/themes.py; run scripts/generate_ui_tokens.py after editing.",
+  "note": "Shared semantic roles shared by the native Mac frontend and phone styles. Colours come from jobtracker/core/themes.py; run scripts/generate_ui_tokens.py after editing.",
   "radius": {
    "agenda_group": 6,
    "bar_max": 6,

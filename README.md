@@ -29,8 +29,8 @@ source and synthetic test data. See the [privacy policy](docs/privacy.md).
 ## Run on a Mac
 
 The packaged Mac frontend uses SwiftUI/AppKit over the bundled Python engine.
-The native cutover and retained Qt fallback are recorded in the
-[A4 release evidence](docs/guides/a4-evidence.md#m6--native-cutover-and-phone-delivery-23-october-2026).
+The [native frontend guide](native/macos/README.md) describes its architecture
+and interactions; the compatible Qt frontend remains available.
 
 For the compatible Qt source frontend, use macOS 12+ and Python 3.12+:
 

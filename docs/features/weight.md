@@ -77,7 +77,7 @@ compare consecutive readings, retaining hundredth-kilogram differences.
 
 The shared Python LOESS kernel retains every fitted point and the same tricube
 weights while using direct cubic multiplication. The
-[long-history measurement](../guides/a4-evidence.md#local-long-history-weight-fitting-25-october-2026)
+[long-history measurement](../reference/native-validation.md#long-history-weight-fitting)
 records the command boundary, synthetic data, repeated results and limits.
 
 ## Phone shell and home screen

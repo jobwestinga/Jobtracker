@@ -1,7 +1,7 @@
 """Generate frontend design tokens from the theme authority and UI roles.
 
 ``jobtracker/core/themes.py`` stays the only palette/FX definition and
-``design/ui_roles.json`` holds the F1 semantic roles. This script loads
+``design/ui_roles.json`` holds the shared semantic roles. This script loads
 ``themes.py`` as a standalone module (no package import, no database
 singleton), resolves every palette/FX pair with ``get_tokens`` and writes a
 checked, generated Swift source for the native app. ``--check`` reports drift.

@@ -50,7 +50,7 @@ class GoalRepository:
         """Migrate the legacy deadline-sorted Tasks view to manual Goal order.
 
         The currently visible deadline order is materialised first, so the
-        redesign does not unexpectedly scramble existing items.
+        presentation changes do not unexpectedly scramble existing items.
         """
         self._database._ensure_manual_todo_order()
 

@@ -10,7 +10,7 @@ Read this reference when the task touches these owners. Start with the shared
 - `Database._init_db()` remains the compatibility entry point; schema work lives
   in [SchemaManager](../../jobtracker/core/persistence/schema.py). Migrations use
   additive, idempotent `ALTER TABLE` blocks guarded by `_column_exists`.
-  Preserve their order and that pattern; this extraction is not a schema redesign.
+  Preserve their order and that pattern; repository extraction keeps the schema intact.
 - **Before any non-additive / hard-to-reverse schema change** (e.g. renaming the
   legacy `tasks` table — which actually stores *subjects* — to `subjects`):
   - Explain the migration in the PR/description and in code comments.

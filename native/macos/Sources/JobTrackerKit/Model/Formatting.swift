@@ -116,7 +116,7 @@ public enum DurationText {
         return h > 0 ? String(format: "%dh %02dm", h, m) : "\(m)m"
     }
 
-    /// Session duration label used by history rows and the W1 panel.
+    /// Session duration label used by history rows and the shared session panel.
     public static func session(_ seconds: Int) -> String {
         let seconds = max(0, seconds)
         let h = seconds / 3600, m = (seconds % 3600) / 60

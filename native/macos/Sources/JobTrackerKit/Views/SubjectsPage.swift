@@ -132,7 +132,7 @@ struct StopButtonStyle: ButtonStyle {
     }
 }
 
-/// S1 calm cards: separate blocks, colour marker, neutral text, quiet actions.
+/// Calm cards: separate blocks, colour marker, neutral text, quiet actions.
 struct SubjectList: View {
     @ObservedObject var app: AppModel
     @ObservedObject var store: SubjectsStore

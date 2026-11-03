@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// F1 shared components. Every state (normal, hover, focus, pressed, disabled,
+// Shared components. Every state (normal, hover, focus, pressed, disabled,
 // selected) keeps the same geometry: borders are drawn as overlays and the
 // focus ring sits outside the control, so nothing shifts when state changes.
 
@@ -83,7 +83,7 @@ public extension View {
         buttonStyle(ActionButtonStyle(role, compact: compact, selected: selected, fill: fill))
     }
 
-    /// A content card with one quiet border (S1) and an optional strong state.
+    /// A content card with one quiet border and an optional strong state.
     /// A `tint` (the subject colour) replaces the theme accent for hover and
     /// highlight, so each card lights up in its own colour.
     func card(radius: CGFloat? = nil, highlighted: Bool = false, hovering: Bool = false, dimmed: Bool = false, tint: RGBA? = nil) -> some View {

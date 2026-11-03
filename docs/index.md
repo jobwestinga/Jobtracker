@@ -46,17 +46,12 @@ are split by domain so unrelated implementation history stays out of a task.
   each app, reinstall cleanly, sync, exports and rollback.
 - [Privacy](privacy.md): local data, public source, commit guards and history.
 
-## Design proposals
+## Native Mac app
 
-- [A4 native Mac overhaul guide](guides/a4-native-mac-overhaul.md): complete
-  staged implementation plan, selected designs, recent fixes to preserve,
-  feature parity, validation and guarded cutover. Implementation and release results are in
-  the [A4 evidence record](guides/a4-evidence.md); the
-  [correctness review](guides/a4-review-2026-10-22.md) records subsequent fixes
-  and remaining verification gates.
-- [UI foundations and future options](proposals/ui-foundations-and-future-options.md):
-  unselected visual, workflow and frontend architecture choices accompanying the
-  separate Visual options v2 review.
+- [Native frontend](../native/macos/README.md): current layout, interaction
+  behaviour, bridge, presentation state and local development.
+- [Native validation](reference/native-validation.md): verification scope,
+  measured performance and remaining platform limits.
 
 ## Architecture
 

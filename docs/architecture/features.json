@@ -47,11 +47,19 @@
         "tests/test_deletion.py",
         "tests/ui/test_subjects.py",
         "tests/ui/test_workflow_races.py",
-        "tests/mobile/subject-quick-add.cjs"
+        "tests/mobile/subject-quick-add.cjs",
+        "tests/test_colors.py"
       ],
       "related": [
         "timer.sessions"
-      ]
+      ],
+      "supporting": [
+        {
+          "path": "jobtracker/core/colors.py",
+          "symbol": "suggest_colors"
+        }
+      ],
+      "guide": "docs/features/subjects.md"
     },
     {
       "id": "timer.sessions",
@@ -976,8 +984,7 @@
         "ipc",
         "receipt",
         "pipe",
-        "protocol",
-        "a4"
+        "protocol"
       ],
       "entrypoints": [
         {
@@ -1052,17 +1059,13 @@
     },
     {
       "id": "native.mac",
-      "title": "Native SwiftUI Mac frontend (A4)",
+      "title": "Native SwiftUI Mac frontend",
       "keywords": [
         "native",
         "swift",
         "swiftui",
         "appkit",
         "mac",
-        "a4",
-        "w1",
-        "s1",
-        "r1",
         "bold agenda",
         "pilot"
       ],
@@ -1119,6 +1122,15 @@
         },
         {
           "path": "native/macos/Sources/JobTrackerKit/Charts/WeightViewport.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Charts/ChartHitArea.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/GraphsStore.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Views/Panels/SessionPanel.swift"
         }
       ],
       "guide": "native/macos/README.md",
@@ -1130,7 +1142,8 @@
       "routes": [],
       "tests": [
         "tests/desktop/test_engine_protocol.py",
-        "native/macos/Sources/JobTrackerChecks/main.swift"
+        "native/macos/Sources/JobTrackerChecks/main.swift",
+        "native/macos/Sources/JobTrackerChecks/InteractionChecks.swift"
       ],
       "related": [
         "native.engine",

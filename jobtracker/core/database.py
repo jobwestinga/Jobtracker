@@ -278,7 +278,7 @@ class Database:
         """Migrate the legacy deadline-sorted Tasks view to manual Goal order.
 
         The currently visible deadline order is materialised first, so the
-        redesign does not unexpectedly scramble existing items.
+        presentation changes do not unexpectedly scramble existing items.
         """
         return self._goals.ensure_manual_goal_order()
 

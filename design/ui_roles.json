@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "F1 semantic roles shared by the native Mac frontend and phone styles. Colours come from jobtracker/core/themes.py; run scripts/generate_ui_tokens.py after editing.",
+  "note": "Shared semantic roles shared by the native Mac frontend and phone styles. Colours come from jobtracker/core/themes.py; run scripts/generate_ui_tokens.py after editing.",
   "typography": {
     "page_title": {"size": 22, "weight": "bold"},
     "section": {"size": 15, "weight": "bold"},

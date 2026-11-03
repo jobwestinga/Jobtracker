@@ -201,7 +201,7 @@ def main(argv=None):
             return 0
         if args.command == "build" and args.native:
             if args.install or args.setup or args.keep_dist:
-                raise ValueError("--native builds only; installation goes through the guarded A4 cutover")
+                raise ValueError("--native builds only; installation goes through the guarded native installer")
             executable = validate_python(args.python, ["PyInstaller"])
             return run([executable, str(ROOT / "scripts/build_native.py"), "--python", executable, "--identity", args.identity])
         if args.command == "build":

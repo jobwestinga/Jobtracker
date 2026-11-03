@@ -11,10 +11,10 @@ Minimum macOS 12. Apple frameworks only.
 | --- | --- |
 | `Sources/JobTrackerKit/Bridge` | Engine child process, NDJSON framing, handshake, request journal, launch configuration |
 | `Sources/JobTrackerKit/Model` | DTOs matching `jobtracker/desktop/dto.py`; naive local time display and capture |
-| `Sources/JobTrackerKit/Stores` | F2 presentation state: page, panel stack, drafts, selections, topic routing, single undo |
-| `Sources/JobTrackerKit/Theme` | Generated F1 tokens (`TokensData.generated.swift`), themes, shared components |
-| `Sources/JobTrackerKit/Charts` | Stacked bars with R1 cached bloom, Bold agenda, weight plot, AppKit hit testing |
-| `Sources/JobTrackerKit/Views` | Shell, sidebar, pages and window-local panels (W1 session panel) |
+| `Sources/JobTrackerKit/Stores` | Presentation state: page, panel stack, drafts, selections, topic routing, single undo |
+| `Sources/JobTrackerKit/Theme` | Generated tokens (`TokensData.generated.swift`), themes, shared components |
+| `Sources/JobTrackerKit/Charts` | Stacked bars with cached bloom, bold agenda, weight plot, AppKit hit testing |
+| `Sources/JobTrackerKit/Views` | Shell, sidebar, pages and window-local panels and shared session editor |
 | `Sources/JobTrackerKit/KeyRouter.swift` | Page arrows, Goals digits, graph keys, Escape order |
 | `Sources/JobTrackerChecks` | Macro-free check runner (layouts, fixtures, journal, live engine) |
 
@@ -55,7 +55,7 @@ view-local state in `ViewState` objects, and checks run as an executable.
 XCUIAutomation requires full Xcode. The release instead combines the executable
 checks, real-window macOS input/accessibility automation and the user's pilot
 review. Test methods and limits are recorded in the
-[evidence record](../../docs/guides/a4-evidence.md).
+[native validation reference](../../docs/reference/native-validation.md).
 
 ## Review corrections
 
