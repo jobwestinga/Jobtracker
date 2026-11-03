@@ -60,6 +60,10 @@
         "goals"
       ]
     },
+    "goal.get": {
+      "kind": "read",
+      "topics": []
+    },
     "goal.reorder": {
       "kind": "mutation",
       "topics": [
@@ -389,6 +393,10 @@
       ]
     },
     "weight.view": {
+      "kind": "read",
+      "topics": []
+    },
+    "widget.goals": {
       "kind": "read",
       "topics": []
     }

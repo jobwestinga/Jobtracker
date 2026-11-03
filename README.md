@@ -23,6 +23,9 @@ source and synthetic test data. See the [privacy policy](docs/privacy.md).
   ranges and PNG/CSV export. Thin year lines help orient long histories.
 - **Work offline:** local SQLite on the Mac and a durable write queue on the
   phone. Reconnecting sends queued changes in order without duplicating saves.
+- **Desktop goals widget:** a medium Mac widget shows four active goals, with
+  starred goals first, then deadlines and recently added goals. Click a row to
+  open that goal. See the [widget guide](docs/features/mac-widget.md).
 - **Keep control:** local backups, explicit restore, per-device preferences,
   themes, reduced motion, keyboard access and visible sync status.
 

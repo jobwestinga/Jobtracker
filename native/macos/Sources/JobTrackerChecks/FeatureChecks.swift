@@ -8,7 +8,7 @@ final class LiveApp {
     let harness = EngineIntegrationTests.Harness()
     var app: AppModel!
 
-    init?(foreignTimer: Bool = false, requestTimeout: TimeInterval = 15) {
+    init?(foreignTimer: Bool = false, requestTimeout: TimeInterval = 15, publishWidget: Bool = false) {
         let python = ProcessInfo.processInfo.environment["JOBTRACKER_ENGINE_PYTHON"] ?? "/usr/local/bin/python3"
         try? FileManager.default.createDirectory(at: harness.directory, withIntermediateDirectories: true)
         let build = Process()
@@ -22,7 +22,8 @@ final class LiveApp {
         guard build.terminationStatus == 0 else { return nil }
         let client = EngineClient(launch: harness.launch, journal: harness.journal, requestTimeout: requestTimeout)
         harness.client = client
-        app = AppModel(engine: client, configuration: nil)
+        app = AppModel(engine: client, configuration: nil,
+                       widgetOutput: publishWidget ? harness.directory.appendingPathComponent("Widget/goals.json") : nil)
         client.start()
         guard harness.pump(20, until: { client.isReady && app.settings != nil && app.subjects.list != nil }) else { return nil }
     }

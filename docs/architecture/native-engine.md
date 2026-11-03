@@ -140,3 +140,19 @@ keeps the start fixed and offsets the end, then calls the facade's validated
 `update_session`. Both paths retain synced override dispatch and atomic writes.
 Agenda DTOs include exact endpoints for guarded captures; the displayed block
 can be clamped or arranged without losing its original interval.
+
+
+## Read-only desktop widget
+
+`widget.goals` returns a bounded four-row projection with stable UIDs, titles,
+focus, deadline labels, milestone counts and a captured local update time.
+It uses the facade's non-mutating `get_all_todo_tasks` query; `get_active_goals`
+also performs a legacy manual-order migration and must not be called by this
+read. The projection exports no descriptions, tokens or sync settings and never
+generates recurring instances. `goal.get` resolves widget links by exact UID,
+including completed goals; missing targets never fall back to another row.
+
+Only the native containing app publishes the confirmed display cache. The
+sandboxed widget reads one explicitly permitted cache file and never opens the
+live database or launches a competing engine. See [widget behaviour and
+validation](../features/mac-widget.md).

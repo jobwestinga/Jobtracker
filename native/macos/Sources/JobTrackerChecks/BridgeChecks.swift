@@ -1,4 +1,5 @@
 import Foundation
+import JobTrackerWidgetSupport
 @testable import JobTrackerKit
 
 /// Repository root, derived from this file's location.
@@ -107,6 +108,10 @@ struct SharedFixtureTests: CheckSuite {
         expect(settings.themes.map(\.name) == ["OLED Midnight", "Carbon Dark", "Ocean", "Slate", "Ocean Aura", "Violet Space"])
         let goals = try frame("goals.list").result(GoalsListDTO.self)
         expect(goals.goals.contains { $0.milestones.count == 3 })
+        let widget = try frame("widget.goals").result(GoalsWidgetSnapshot.self)
+        try widget.validate()
+        expect(widget.goals.count == 4)
+        _ = try frame("goal.get").result(GoalResult.self)
         _ = try frame("templates.list").result(TemplatesListDTO.self)
         let breakdown = try frame("graphs.breakdown").result(BreakdownDTO.self)
         expect(!breakdown.buckets.isEmpty)

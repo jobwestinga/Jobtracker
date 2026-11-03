@@ -11,10 +11,13 @@ let package = Package(
         .executable(name: "JobTracker", targets: ["JobTracker"]),
     ],
     targets: [
-        .target(name: "JobTrackerKit", path: "Sources/JobTrackerKit"),
+        .target(name: "JobTrackerWidgetSupport", path: "Sources/JobTrackerWidgetSupport"),
+        .target(name: "JobTrackerKit", dependencies: ["JobTrackerWidgetSupport"], path: "Sources/JobTrackerKit"),
+        .executableTarget(name: "JobTrackerGoalsWidget", dependencies: ["JobTrackerWidgetSupport"], path: "Sources/JobTrackerGoalsWidget",
+                          swiftSettings: [.unsafeFlags(["-application-extension"])]),
         .executableTarget(name: "JobTracker", dependencies: ["JobTrackerKit"], path: "Sources/JobTracker"),
         // Checks run as an executable (`swift run JobTrackerChecks`): the Command
         // Line Tools provide no macro plugins for swift-testing or XCTest UI.
-        .executableTarget(name: "JobTrackerChecks", dependencies: ["JobTrackerKit"], path: "Sources/JobTrackerChecks"),
+        .executableTarget(name: "JobTrackerChecks", dependencies: ["JobTrackerKit", "JobTrackerWidgetSupport"], path: "Sources/JobTrackerChecks"),
     ]
 )

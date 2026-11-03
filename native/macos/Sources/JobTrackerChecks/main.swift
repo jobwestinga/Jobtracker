@@ -70,6 +70,12 @@ let checks: [(String, () throws -> Void)] = [
     ("NativeSyncTests.remoteSessionChangeKeepsTheNativeDraftAndExactIdentity", { try NativeSyncTests().remoteSessionChangeKeepsTheNativeDraftAndExactIdentity() }),
     ("WeightViewportTests.weightZoomAnchorsBoundsAxesAndReset", { try WeightViewportTests().weightZoomAnchorsBoundsAxesAndReset() }),
     ("WeightTangentTests.tangentFollowsTheTrendSlopeAndConvertsItToKcal", { try WeightTangentTests().tangentFollowsTheTrendSlopeAndConvertsItToKcal() }),
+    ("WidgetTests.snapshotReplacementRejectsInvalidDataAndKeepsLastGoodCache", { try WidgetTests().snapshotReplacementRejectsInvalidDataAndKeepsLastGoodCache() }),
+    ("WidgetTests.routesKeepIdentityAndRejectOtherChannelsOrWriteActions", { try WidgetTests().routesKeepIdentityAndRejectOtherChannelsOrWriteActions() }),
+    ("WidgetTests.publisherUsesActiveGoalsEvenWhenCompletedHistoryIsVisible", { try WidgetTests().publisherUsesActiveGoalsEvenWhenCompletedHistoryIsVisible() }),
+    ("WidgetTests.widgetGoalLinksOpenThatGoalAndKeepExistingDrafts", { try WidgetTests().widgetGoalLinksOpenThatGoalAndKeepExistingDrafts() }),
+    ("WidgetTests.coldLaunchAndDeletedGoalLinksKeepTheOriginalIdentity", { try WidgetTests().coldLaunchAndDeletedGoalLinksKeepTheOriginalIdentity() }),
+    ("WidgetTests.mediumWidgetRendersFourRowsAndEmptyStates", { try WidgetTests().mediumWidgetRendersFourRowsAndEmptyStates() }),
 ]
 
 exit(runChecks(checks))

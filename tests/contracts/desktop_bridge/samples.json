@@ -1,10 +1,10 @@
 {
  "engine.info": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "6eb29f2f-82b1-4867-a1aa-41384ee0c24d",
+  "request_id": "13bb0b7c-016c-480f-8a8a-6c46e1d51958",
   "result": {
    "commands": [
     {
@@ -62,6 +62,11 @@
      "topics": [
       "goals"
      ]
+    },
+    {
+     "kind": "read",
+     "name": "goal.get",
+     "topics": []
     },
     {
      "kind": "mutation",
@@ -447,10 +452,15 @@
      "kind": "read",
      "name": "weight.view",
      "topics": []
+    },
+    {
+     "kind": "read",
+     "name": "widget.goals",
+     "topics": []
     }
    ],
    "db_path": "/synthetic/store.db",
-   "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+   "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
    "mode": "isolated",
    "pid": 0,
    "qt_loaded": false,
@@ -462,19 +472,72 @@
   "revision": 0,
   "topics": []
  },
- "goals.list": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+ "goal.get": {
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "8e33b451-f4c2-4917-b2b8-d67495f50d19",
+  "request_id": "a090bb2f-4f05-4ad3-89e4-0c5adf26c424",
+  "result": {
+   "goal": {
+    "can_complete": false,
+    "completed": false,
+    "created_at": "2026-11-03 16:47:27",
+    "deadline": "2026-11-15",
+    "focused": true,
+    "milestones": [
+     {
+      "done": true,
+      "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+      "note": "",
+      "sort_order": 1,
+      "title": "Outline",
+      "uid": "6a64715a-f32e-5923-a98b-556b1149521a"
+     },
+     {
+      "done": false,
+      "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+      "note": "",
+      "sort_order": 2,
+      "title": "First draft",
+      "uid": "6c93cc2c-51b4-56ff-a32a-f1a9dbd832da"
+     },
+     {
+      "done": false,
+      "goal_uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306",
+      "note": "",
+      "sort_order": 3,
+      "title": "Revision",
+      "uid": "774f3daf-c641-5d99-b9a6-f3048673a90b"
+     }
+    ],
+    "name": "Submit thesis chapter",
+    "notes": "Draft, revise and submit chapter three.",
+    "progress": [
+     1,
+     3
+    ],
+    "sort_order": 1,
+    "template_uid": null,
+    "uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306"
+   }
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "goals.list": {
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "35fe7f8d-81d2-4bb9-8c50-91ba347c88f5",
   "result": {
    "completed": false,
    "goals": [
     {
      "can_complete": false,
      "completed": false,
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "deadline": "2026-11-15",
      "focused": true,
      "milestones": [
@@ -516,7 +579,7 @@
     {
      "can_complete": true,
      "completed": false,
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "deadline": null,
      "focused": false,
      "milestones": [],
@@ -533,7 +596,7 @@
     {
      "can_complete": true,
      "completed": false,
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "deadline": null,
      "focused": false,
      "milestones": [],
@@ -550,7 +613,7 @@
     {
      "can_complete": true,
      "completed": false,
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "deadline": null,
      "focused": false,
      "milestones": [],
@@ -567,7 +630,7 @@
     {
      "can_complete": true,
      "completed": false,
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "deadline": "2026-12-01",
      "focused": false,
      "milestones": [],
@@ -587,11 +650,11 @@
   "topics": []
  },
  "graphs.agenda": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "cb37f4c0-d8bc-4625-9ca9-cf3b9f0e91d2",
+  "request_id": "f4257066-ad7c-49ca-82a2-add991f12dd7",
   "result": {
    "day_start_hour": 3.0,
    "days": [
@@ -611,7 +674,7 @@
    "hour_end": 23,
    "hour_start": 6,
    "now_day": "2026-11-03",
-   "now_hour": 16.628055555555555,
+   "now_hour": 17.790833333333335,
    "range_label": "Weeks",
    "sessions": [
     {
@@ -822,9 +885,9 @@
      "color": "#3B82F6",
      "day": "2026-11-03",
      "duration_seconds": 1500,
-     "end_h": 16.628055555555555,
+     "end_h": 17.790833333333335,
      "end_time": null,
-     "start_h": 16.211388888888887,
+     "start_h": 17.374166666666667,
      "start_time": null,
      "subject_name": "Physics",
      "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
@@ -836,11 +899,11 @@
   "topics": []
  },
  "graphs.breakdown": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "5204ada2-9c91-452c-94c0-dd0f9697bb62",
+  "request_id": "746eaca5-13b9-4ceb-ac64-02cd489bd5e3",
   "result": {
    "buckets": [
     {
@@ -1057,9 +1120,9 @@
       },
       {
        "color": "#3B82F6",
-       "end_time": "2026-11-03T16:37:41.423396",
+       "end_time": "2026-11-03T17:47:27.716749",
        "seconds": 1500,
-       "start_time": "2026-11-03T16:12:41",
+       "start_time": "2026-11-03T17:22:27",
        "subject_name": "Physics",
        "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6"
       }
@@ -1162,6 +1225,11 @@
     "topics": [
      "goals"
     ]
+   },
+   {
+    "kind": "read",
+    "name": "goal.get",
+    "topics": []
    },
    {
     "kind": "mutation",
@@ -1547,10 +1615,15 @@
     "kind": "read",
     "name": "weight.view",
     "topics": []
+   },
+   {
+    "kind": "read",
+    "name": "widget.goals",
+    "topics": []
    }
   ],
   "db_path": "/synthetic/store.db",
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "hello",
   "mode": "isolated",
   "pid": 0,
@@ -1562,12 +1635,12 @@
   "sync_enabled": false
  },
  "session.missing": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "error": "session_uid 00000000-0000-4000-8000-000000000000 no longer exists",
   "kind": "response",
   "outcome": "missing",
   "protocol_version": 1,
-  "request_id": "b4b80cfd-0bbd-48c2-9442-cfe17a098f0f",
+  "request_id": "26ff1d73-590b-4a1c-a82a-260fc0909567",
   "result": {
    "reason": "session_uid 00000000-0000-4000-8000-000000000000 no longer exists"
   },
@@ -1575,11 +1648,11 @@
   "topics": []
  },
  "sessions.for_day": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "40e65964-a656-4fd7-ba27-b077a644ea46",
+  "request_id": "8f66a3ca-09e9-4b50-bf0a-104929fedb64",
   "result": {
    "day": "2026-11-02",
    "sessions": [
@@ -1629,11 +1702,11 @@
   "topics": []
  },
  "sessions.for_subject": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "f67c0633-c07e-4611-a13e-6f768ab9ff7a",
+  "request_id": "08d2408c-b811-4774-b60c-c235927c502f",
   "result": {
    "next_offset": null,
    "offset": 0,
@@ -1656,11 +1729,11 @@
   "topics": []
  },
  "settings.get": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "1cbaa84d-5795-4de4-b05f-da74b2cc7660",
+  "request_id": "8960351e-417e-474e-8c31-ece84c39fc15",
   "result": {
    "day_start_time": "03:00",
    "fx_names": [
@@ -1745,11 +1818,11 @@
   "topics": []
  },
  "subjects.list": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "10450004-8567-4281-adee-9cc5fb87c3bc",
+  "request_id": "fbc47c97-d3ab-4a14-b0cc-5d61e398cf12",
   "result": {
    "archived": false,
    "filter": "Total",
@@ -1758,7 +1831,7 @@
     {
      "archived": false,
      "color": "#3B82F6",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Physics",
      "notes": "Mechanics and waves",
      "sort_order": 1,
@@ -1768,7 +1841,7 @@
     {
      "archived": false,
      "color": "#22C55E",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Linear Algebra and a deliberately long subject name for elision",
      "notes": "",
      "sort_order": 2,
@@ -1778,7 +1851,7 @@
     {
      "archived": false,
      "color": "#A855F7",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Thesis writing",
      "notes": "Chapter drafts",
      "sort_order": 3,
@@ -1788,7 +1861,7 @@
     {
      "archived": false,
      "color": "#F59E0B",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Reading",
      "notes": "",
      "sort_order": 4,
@@ -1798,7 +1871,7 @@
     {
      "archived": false,
      "color": "#EF4444",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Spanish",
      "notes": "",
      "sort_order": 5,
@@ -1819,13 +1892,13 @@
      "end_time": null,
      "open": true,
      "owned": true,
-     "start_time": "2026-11-03T16:12:41",
+     "start_time": "2026-11-03T17:22:27",
      "subject_name": "Physics",
      "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
      "uid": "124c026a-69bc-5d56-8f24-de364ff4c5e6"
     },
     "elapsed_seconds": 1500,
-    "engine_now": "2026-11-03T16:37:41.422784",
+    "engine_now": "2026-11-03T17:47:27.716144",
     "foreign_open": [
      {
       "color": "#EF4444",
@@ -1833,17 +1906,17 @@
       "end_time": null,
       "open": true,
       "owned": false,
-      "start_time": "2026-11-03T15:37:41",
+      "start_time": "2026-11-03T16:47:27",
       "subject_name": "Spanish",
       "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
-      "uid": "5f711080-91f6-49e9-a7c4-844ba1bad6a3"
+      "uid": "cefd3b50-55f9-4497-a178-a10d39190b2c"
      }
     ],
     "recovery": null,
     "subject": {
      "archived": false,
      "color": "#3B82F6",
-     "created_at": "2026-11-03 15:37:41",
+     "created_at": "2026-11-03 16:47:27",
      "name": "Physics",
      "notes": "Mechanics and waves",
      "sort_order": 1,
@@ -1857,11 +1930,11 @@
   "topics": []
  },
  "sync.status": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "16a66637-c545-4d98-b378-ec503895dea8",
+  "request_id": "9290fd5f-c6da-4aeb-8e60-7c232dde6a69",
   "result": {
    "action": "Settings",
    "busy": false,
@@ -1879,11 +1952,11 @@
   "topics": []
  },
  "templates.list": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "b40f513f-00d3-466a-bc26-e125baed6867",
+  "request_id": "39881d3d-152d-41af-84b4-f46646695753",
   "result": {
    "templates": [
     {
@@ -1912,11 +1985,11 @@
   "topics": []
  },
  "timer.get": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "05a0113a-5c4b-4810-b929-25f2f6312931",
+  "request_id": "fbbc08cb-88b2-49f7-8f20-0647fdeda28f",
   "result": {
    "active": {
     "color": "#3B82F6",
@@ -1924,13 +1997,13 @@
     "end_time": null,
     "open": true,
     "owned": true,
-    "start_time": "2026-11-03T16:12:41",
+    "start_time": "2026-11-03T17:22:27",
     "subject_name": "Physics",
     "subject_uid": "c2dc6c12-6213-5c58-a59f-9755c97261a6",
     "uid": "124c026a-69bc-5d56-8f24-de364ff4c5e6"
    },
    "elapsed_seconds": 1500,
-   "engine_now": "2026-11-03T16:37:41.422889",
+   "engine_now": "2026-11-03T17:47:27.716235",
    "foreign_open": [
     {
      "color": "#EF4444",
@@ -1938,17 +2011,17 @@
      "end_time": null,
      "open": true,
      "owned": false,
-     "start_time": "2026-11-03T15:37:41",
+     "start_time": "2026-11-03T16:47:27",
      "subject_name": "Spanish",
      "subject_uid": "60699ff6-6b32-5cc2-bb89-ce695353b1db",
-     "uid": "5f711080-91f6-49e9-a7c4-844ba1bad6a3"
+     "uid": "cefd3b50-55f9-4497-a178-a10d39190b2c"
     }
    ],
    "recovery": null,
    "subject": {
     "archived": false,
     "color": "#3B82F6",
-    "created_at": "2026-11-03 15:37:41",
+    "created_at": "2026-11-03 16:47:27",
     "name": "Physics",
     "notes": "Mechanics and waves",
     "sort_order": 1,
@@ -1960,17 +2033,17 @@
   "topics": []
  },
  "weight.view": {
-  "engine_instance": "0dd2f013-5e42-4c15-9c31-734365b6866d",
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
   "kind": "response",
   "outcome": "ok",
   "protocol_version": 1,
-  "request_id": "4f20b59f-4f2c-4138-a882-d77ef4c5405e",
+  "request_id": "7810ee24-401f-4983-bd21-2f885c7076db",
   "result": {
    "axis": {
     "end_label": "03 Nov",
     "fallback_year": "2026",
-    "first": 739836.3573032407,
-    "last": 739923.3595023148,
+    "first": 739836.4057523148,
+    "last": 739923.4079513889,
     "start_label": "08 Aug",
     "years": []
    },
@@ -1983,220 +2056,220 @@
    "historic": false,
    "points": [
     {
-     "measured_at": "2026-08-08T08:34:31",
+     "measured_at": "2026-08-08T09:44:17",
      "source": "scale",
-     "uid": "25dcddc9-b180-562a-a8d2-ad635f9d44ef",
-     "x": 739836.3573032407,
+     "uid": "23cddeb1-092e-5d84-bfa3-53e2045b10eb",
+     "x": 739836.4057523148,
      "y": 78.977
     },
     {
-     "measured_at": "2026-08-11T08:37:34",
+     "measured_at": "2026-08-11T09:47:20",
      "source": "scale",
-     "uid": "8647b643-f121-536e-a9c3-c9d03bacf3ef",
-     "x": 739839.3594212963,
+     "uid": "1f684400-b8fa-5c1a-8c77-c7c154615571",
+     "x": 739839.4078703703,
      "y": 79.344
     },
     {
-     "measured_at": "2026-08-14T08:33:37",
+     "measured_at": "2026-08-14T09:43:23",
      "source": "scale",
-     "uid": "ed46d115-0760-5014-973a-e0edb8ca274c",
-     "x": 739842.3566782407,
+     "uid": "a98d7ff3-f7a5-5e8c-85ea-3b20508f17fb",
+     "x": 739842.4051273149,
      "y": 79.026
     },
     {
-     "measured_at": "2026-08-17T08:36:40",
+     "measured_at": "2026-08-17T09:46:26",
      "source": "scale",
-     "uid": "73f96d96-3ae7-56d1-94ca-c0e52f35f316",
-     "x": 739845.3587962963,
+     "uid": "739abef0-9be4-52fb-82b8-33d1697ae021",
+     "x": 739845.4072453703,
      "y": 79.393
     },
     {
-     "measured_at": "2026-08-20T08:32:32",
+     "measured_at": "2026-08-20T09:42:18",
      "source": "scale",
-     "uid": "52665876-9f2e-5883-9d32-f63955bed5c8",
-     "x": 739848.3559259259,
+     "uid": "826e9e9c-5fb1-567a-aff9-f68800ba830b",
+     "x": 739848.404375,
      "y": 79.075
     },
     {
-     "measured_at": "2026-08-23T08:35:35",
+     "measured_at": "2026-08-23T09:45:21",
      "source": "scale",
-     "uid": "1f738914-64c2-50d5-8b00-9e6b2b507f2f",
-     "x": 739851.3580439815,
+     "uid": "3e9cf21e-04d2-5d86-a7b8-ded2ea531385",
+     "x": 739851.4064930555,
      "y": 79.442
     },
     {
-     "measured_at": "2026-08-26T08:31:38",
+     "measured_at": "2026-08-26T09:41:24",
      "source": "scale",
-     "uid": "2c2e955c-221c-57b8-a9ef-a17ac7af7ace",
-     "x": 739854.3553009259,
+     "uid": "b3cffe3b-87e1-5211-89e8-582a3b8d4d31",
+     "x": 739854.40375,
      "y": 79.809
     },
     {
-     "measured_at": "2026-08-29T08:34:41",
+     "measured_at": "2026-08-29T09:44:27",
      "source": "scale",
-     "uid": "a462f473-3698-50e0-93bc-2e4df1a1e544",
-     "x": 739857.3574189815,
+     "uid": "210d2f7c-dba4-5889-be25-b346fff4f9b0",
+     "x": 739857.4058680555,
      "y": 79.491
     },
     {
-     "measured_at": "2026-09-01T08:37:33",
+     "measured_at": "2026-09-01T09:47:19",
      "source": "scale",
-     "uid": "92074b4c-2c5e-5712-9d34-bfddc0e4fe2c",
-     "x": 739860.3594097223,
+     "uid": "31bc555f-7c69-5234-b366-2bd595e6965f",
+     "x": 739860.4078587963,
      "y": 79.858
     },
     {
-     "measured_at": "2026-09-04T08:33:36",
+     "measured_at": "2026-09-04T09:43:22",
      "source": "scale",
-     "uid": "71d662eb-cfdd-5e1b-9c9b-9735e1dc29de",
-     "x": 739863.3566666667,
+     "uid": "bf16f56f-1dad-5378-9e37-3f9f469835d3",
+     "x": 739863.4051157407,
      "y": 79.54
     },
     {
-     "measured_at": "2026-09-07T08:36:39",
+     "measured_at": "2026-09-07T09:46:25",
      "source": "scale",
-     "uid": "2104cc40-c814-544d-9093-eded97958834",
-     "x": 739866.3587847222,
+     "uid": "8a591956-7196-5cd3-9f93-99be38679012",
+     "x": 739866.4072337963,
      "y": 79.907
     },
     {
-     "measured_at": "2026-09-10T08:32:31",
+     "measured_at": "2026-09-10T09:42:17",
      "source": "scale",
-     "uid": "71797f2f-86f6-5afa-950e-2ccf6e4d89dd",
-     "x": 739869.3559143519,
+     "uid": "9f9e974f-196a-5f9e-8af2-fc1bb5d00b3a",
+     "x": 739869.4043634259,
      "y": 80.274
     },
     {
-     "measured_at": "2026-09-13T08:35:34",
+     "measured_at": "2026-09-13T09:45:20",
      "source": "scale",
-     "uid": "9fe7aa54-82b0-5858-802c-b01d8d0786c3",
-     "x": 739872.3580324074,
+     "uid": "8eb4e665-5c62-51da-a706-3d78df8e8fb6",
+     "x": 739872.4064814815,
      "y": 79.956
     },
     {
-     "measured_at": "2026-09-16T08:31:37",
+     "measured_at": "2026-09-16T09:41:23",
      "source": "scale",
-     "uid": "f8eb1c49-f09d-519a-9dc4-483cf2359d07",
-     "x": 739875.3552893519,
+     "uid": "60f65797-ed7b-5522-86b1-9f286013bd49",
+     "x": 739875.4037384259,
      "y": 80.323
     },
     {
-     "measured_at": "2026-09-19T08:34:40",
+     "measured_at": "2026-09-19T09:44:26",
      "source": "scale",
-     "uid": "598fcfe0-99a8-57e7-820f-4318c8427f48",
-     "x": 739878.3574074074,
+     "uid": "9c106df7-2bd7-5edd-843c-49b49bc11592",
+     "x": 739878.4058564815,
      "y": 80.005
     },
     {
-     "measured_at": "2026-09-22T08:37:32",
+     "measured_at": "2026-09-22T09:47:18",
      "source": "scale",
-     "uid": "86c5414f-8b1f-583f-829e-6bd9c5b127d3",
-     "x": 739881.3593981481,
+     "uid": "70aa55d3-7111-5d13-9b36-4c78e6bdbd16",
+     "x": 739881.4078472222,
      "y": 80.372
     },
     {
-     "measured_at": "2026-09-25T08:33:35",
+     "measured_at": "2026-09-25T09:43:21",
      "source": "scale",
-     "uid": "aff8e3cb-f4a9-5bd1-bdff-1d0f7cd81bf0",
-     "x": 739884.3566550926,
+     "uid": "2b364a24-82d5-5856-869b-4b2621fb438b",
+     "x": 739884.4051041667,
      "y": 80.739
     },
     {
-     "measured_at": "2026-09-28T08:36:38",
+     "measured_at": "2026-09-28T09:46:24",
      "source": "scale",
-     "uid": "22cfb2ae-c537-5d13-952a-7f2bc451b1b5",
-     "x": 739887.3587731482,
+     "uid": "0920fb13-eec5-5d34-9c80-7e4dfbbc8f63",
+     "x": 739887.4072222222,
      "y": 80.421
     },
     {
-     "measured_at": "2026-10-01T08:32:41",
+     "measured_at": "2026-10-01T09:42:27",
      "source": "scale",
-     "uid": "327f9e55-bb15-5207-b86c-c6a1b3467992",
-     "x": 739890.3560300926,
+     "uid": "05043535-61af-5618-a987-4ed19c43812c",
+     "x": 739890.4044791666,
      "y": 80.788
     },
     {
-     "measured_at": "2026-10-04T08:35:33",
+     "measured_at": "2026-10-04T09:45:19",
      "source": "scale",
-     "uid": "86c2ad60-507a-533b-a7c3-b481533e35e4",
-     "x": 739893.3580208333,
+     "uid": "1062c587-1c98-559c-a5f8-44c8e003673d",
+     "x": 739893.4064699074,
      "y": 80.47
     },
     {
-     "measured_at": "2026-10-07T08:31:36",
+     "measured_at": "2026-10-07T09:41:22",
      "source": "scale",
-     "uid": "f5d3149a-5c5a-5ef5-8f51-daf5d46b610b",
-     "x": 739896.3552777778,
+     "uid": "3e9c75d9-ba62-5727-9733-918287a2cf41",
+     "x": 739896.4037268518,
      "y": 80.837
     },
     {
-     "measured_at": "2026-10-10T08:34:39",
+     "measured_at": "2026-10-10T09:44:25",
      "source": "scale",
-     "uid": "4a627410-3567-5a6b-a47b-cc9fe2701c59",
-     "x": 739899.3573958334,
+     "uid": "0ca20ffb-cb0e-57dd-b45a-9df40b2e23ba",
+     "x": 739899.4058449074,
      "y": 81.204
     },
     {
-     "measured_at": "2026-10-13T08:37:31",
+     "measured_at": "2026-10-13T09:47:17",
      "source": "scale",
-     "uid": "b5eaf16f-7aea-5b5c-a42f-72cde57a4f75",
-     "x": 739902.3593865741,
+     "uid": "473c897a-8953-581f-b9f0-05c78b9b7953",
+     "x": 739902.4078356482,
      "y": 80.886
     },
     {
-     "measured_at": "2026-10-16T08:33:34",
+     "measured_at": "2026-10-16T09:43:20",
      "source": "scale",
-     "uid": "d949881b-646e-5440-bd9a-e44e94a6faa9",
-     "x": 739905.3566435185,
+     "uid": "4cf9c8d2-b3b0-5b2e-931c-4655d1df38b8",
+     "x": 739905.4050925926,
      "y": 81.253
     },
     {
-     "measured_at": "2026-10-19T08:36:37",
+     "measured_at": "2026-10-19T09:46:23",
      "source": "scale",
-     "uid": "8d0580e2-e1f1-5180-9c3c-63b7c677a283",
-     "x": 739908.358761574,
+     "uid": "c38d856b-c183-5634-8382-72b8601a3c26",
+     "x": 739908.4072106482,
      "y": 80.935
     },
     {
-     "measured_at": "2026-10-22T08:32:40",
+     "measured_at": "2026-10-22T09:42:26",
      "source": "scale",
-     "uid": "13d50625-77a5-5a23-a671-54bd8efa7962",
-     "x": 739911.3560185186,
+     "uid": "bfe708bc-561c-5ea2-925a-5c281616616d",
+     "x": 739911.4044675926,
      "y": 81.302
     },
     {
-     "measured_at": "2026-10-25T08:35:32",
+     "measured_at": "2026-10-25T09:45:18",
      "source": "scale",
-     "uid": "b41c0feb-c360-5621-86de-dd07505bef2f",
-     "x": 739914.3580092592,
+     "uid": "54150da0-7a8f-5c7c-8e7e-3f984c379eaf",
+     "x": 739914.4064583334,
      "y": 81.669
     },
     {
-     "measured_at": "2026-10-28T08:31:35",
+     "measured_at": "2026-10-28T09:41:21",
      "source": "scale",
-     "uid": "6122e7fe-a6f9-5d34-99ef-55c38e027dd9",
-     "x": 739917.3552662038,
+     "uid": "02a1560f-540d-5263-95df-a4f6e246f5f3",
+     "x": 739917.4037152778,
      "y": 81.351
     },
     {
-     "measured_at": "2026-10-31T08:34:38",
+     "measured_at": "2026-10-31T09:44:24",
      "source": "scale",
-     "uid": "d975125a-6912-5f62-b37d-19ba1a3ae755",
-     "x": 739920.3573842592,
+     "uid": "60bd1d29-94fa-5004-97e3-d33f522bd58e",
+     "x": 739920.4058333334,
      "y": 81.718
     },
     {
-     "measured_at": "2026-11-03T07:30:41",
+     "measured_at": "2026-11-03T07:30:27",
      "source": "manual",
-     "uid": "5bb5de05-e47f-4f7a-ae05-53ce85ccbe66",
-     "x": 739923.312974537,
+     "uid": "a24fad76-902f-4455-a48a-382b585346a8",
+     "x": 739923.3128125,
      "y": 78.6
     },
     {
-     "measured_at": "2026-11-03T08:37:41",
+     "measured_at": "2026-11-03T09:47:27",
      "source": "scale",
-     "uid": "30aba498-d210-5797-abd7-e2bb7c08516b",
-     "x": 739923.3595023148,
+     "uid": "564cf37c-a9ea-5979-b8eb-6e94efcfe60b",
+     "x": 739923.4079513889,
      "y": 81.4
     }
    ],
@@ -2204,330 +2277,330 @@
    "rows": [
     {
      "change": 2.8000000000000114,
-     "created_at": "2026-11-03T16:37:41.415398",
-     "measured_at": "2026-11-03T08:37:41",
+     "created_at": "2026-11-03T17:47:27.708347",
+     "measured_at": "2026-11-03T09:47:27",
      "source": "scale",
-     "uid": "30aba498-d210-5797-abd7-e2bb7c08516b",
+     "uid": "564cf37c-a9ea-5979-b8eb-6e94efcfe60b",
      "weight_kg": 81.4
     },
     {
      "change": -3.118000000000009,
-     "created_at": "2026-11-03 15:37:41",
-     "measured_at": "2026-11-03T07:30:41",
+     "created_at": "2026-11-03 16:47:27",
+     "measured_at": "2026-11-03T07:30:27",
      "source": "manual",
-     "uid": "5bb5de05-e47f-4f7a-ae05-53ce85ccbe66",
+     "uid": "a24fad76-902f-4455-a48a-382b585346a8",
      "weight_kg": 78.6
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415413",
-     "measured_at": "2026-10-31T08:34:38",
+     "created_at": "2026-11-03T17:47:27.708360",
+     "measured_at": "2026-10-31T09:44:24",
      "source": "scale",
-     "uid": "d975125a-6912-5f62-b37d-19ba1a3ae755",
+     "uid": "60bd1d29-94fa-5004-97e3-d33f522bd58e",
      "weight_kg": 81.718
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415421",
-     "measured_at": "2026-10-28T08:31:35",
+     "created_at": "2026-11-03T17:47:27.708368",
+     "measured_at": "2026-10-28T09:41:21",
      "source": "scale",
-     "uid": "6122e7fe-a6f9-5d34-99ef-55c38e027dd9",
+     "uid": "02a1560f-540d-5263-95df-a4f6e246f5f3",
      "weight_kg": 81.351
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415428",
-     "measured_at": "2026-10-25T08:35:32",
+     "created_at": "2026-11-03T17:47:27.708373",
+     "measured_at": "2026-10-25T09:45:18",
      "source": "scale",
-     "uid": "b41c0feb-c360-5621-86de-dd07505bef2f",
+     "uid": "54150da0-7a8f-5c7c-8e7e-3f984c379eaf",
      "weight_kg": 81.669
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415433",
-     "measured_at": "2026-10-22T08:32:40",
+     "created_at": "2026-11-03T17:47:27.708379",
+     "measured_at": "2026-10-22T09:42:26",
      "source": "scale",
-     "uid": "13d50625-77a5-5a23-a671-54bd8efa7962",
+     "uid": "bfe708bc-561c-5ea2-925a-5c281616616d",
      "weight_kg": 81.302
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415439",
-     "measured_at": "2026-10-19T08:36:37",
+     "created_at": "2026-11-03T17:47:27.708384",
+     "measured_at": "2026-10-19T09:46:23",
      "source": "scale",
-     "uid": "8d0580e2-e1f1-5180-9c3c-63b7c677a283",
+     "uid": "c38d856b-c183-5634-8382-72b8601a3c26",
      "weight_kg": 80.935
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415444",
-     "measured_at": "2026-10-16T08:33:34",
+     "created_at": "2026-11-03T17:47:27.708390",
+     "measured_at": "2026-10-16T09:43:20",
      "source": "scale",
-     "uid": "d949881b-646e-5440-bd9a-e44e94a6faa9",
+     "uid": "4cf9c8d2-b3b0-5b2e-931c-4655d1df38b8",
      "weight_kg": 81.253
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415450",
-     "measured_at": "2026-10-13T08:37:31",
+     "created_at": "2026-11-03T17:47:27.708395",
+     "measured_at": "2026-10-13T09:47:17",
      "source": "scale",
-     "uid": "b5eaf16f-7aea-5b5c-a42f-72cde57a4f75",
+     "uid": "473c897a-8953-581f-b9f0-05c78b9b7953",
      "weight_kg": 80.886
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415455",
-     "measured_at": "2026-10-10T08:34:39",
+     "created_at": "2026-11-03T17:47:27.708400",
+     "measured_at": "2026-10-10T09:44:25",
      "source": "scale",
-     "uid": "4a627410-3567-5a6b-a47b-cc9fe2701c59",
+     "uid": "0ca20ffb-cb0e-57dd-b45a-9df40b2e23ba",
      "weight_kg": 81.204
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415460",
-     "measured_at": "2026-10-07T08:31:36",
+     "created_at": "2026-11-03T17:47:27.708405",
+     "measured_at": "2026-10-07T09:41:22",
      "source": "scale",
-     "uid": "f5d3149a-5c5a-5ef5-8f51-daf5d46b610b",
+     "uid": "3e9c75d9-ba62-5727-9733-918287a2cf41",
      "weight_kg": 80.837
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415466",
-     "measured_at": "2026-10-04T08:35:33",
+     "created_at": "2026-11-03T17:47:27.708410",
+     "measured_at": "2026-10-04T09:45:19",
      "source": "scale",
-     "uid": "86c2ad60-507a-533b-a7c3-b481533e35e4",
+     "uid": "1062c587-1c98-559c-a5f8-44c8e003673d",
      "weight_kg": 80.47
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415471",
-     "measured_at": "2026-10-01T08:32:41",
+     "created_at": "2026-11-03T17:47:27.708415",
+     "measured_at": "2026-10-01T09:42:27",
      "source": "scale",
-     "uid": "327f9e55-bb15-5207-b86c-c6a1b3467992",
+     "uid": "05043535-61af-5618-a987-4ed19c43812c",
      "weight_kg": 80.788
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415477",
-     "measured_at": "2026-09-28T08:36:38",
+     "created_at": "2026-11-03T17:47:27.708420",
+     "measured_at": "2026-09-28T09:46:24",
      "source": "scale",
-     "uid": "22cfb2ae-c537-5d13-952a-7f2bc451b1b5",
+     "uid": "0920fb13-eec5-5d34-9c80-7e4dfbbc8f63",
      "weight_kg": 80.421
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415482",
-     "measured_at": "2026-09-25T08:33:35",
+     "created_at": "2026-11-03T17:47:27.708425",
+     "measured_at": "2026-09-25T09:43:21",
      "source": "scale",
-     "uid": "aff8e3cb-f4a9-5bd1-bdff-1d0f7cd81bf0",
+     "uid": "2b364a24-82d5-5856-869b-4b2621fb438b",
      "weight_kg": 80.739
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415487",
-     "measured_at": "2026-09-22T08:37:32",
+     "created_at": "2026-11-03T17:47:27.708430",
+     "measured_at": "2026-09-22T09:47:18",
      "source": "scale",
-     "uid": "86c5414f-8b1f-583f-829e-6bd9c5b127d3",
+     "uid": "70aa55d3-7111-5d13-9b36-4c78e6bdbd16",
      "weight_kg": 80.372
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415492",
-     "measured_at": "2026-09-19T08:34:40",
+     "created_at": "2026-11-03T17:47:27.708435",
+     "measured_at": "2026-09-19T09:44:26",
      "source": "scale",
-     "uid": "598fcfe0-99a8-57e7-820f-4318c8427f48",
+     "uid": "9c106df7-2bd7-5edd-843c-49b49bc11592",
      "weight_kg": 80.005
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415497",
-     "measured_at": "2026-09-16T08:31:37",
+     "created_at": "2026-11-03T17:47:27.708440",
+     "measured_at": "2026-09-16T09:41:23",
      "source": "scale",
-     "uid": "f8eb1c49-f09d-519a-9dc4-483cf2359d07",
+     "uid": "60f65797-ed7b-5522-86b1-9f286013bd49",
      "weight_kg": 80.323
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415502",
-     "measured_at": "2026-09-13T08:35:34",
+     "created_at": "2026-11-03T17:47:27.708445",
+     "measured_at": "2026-09-13T09:45:20",
      "source": "scale",
-     "uid": "9fe7aa54-82b0-5858-802c-b01d8d0786c3",
+     "uid": "8eb4e665-5c62-51da-a706-3d78df8e8fb6",
      "weight_kg": 79.956
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415507",
-     "measured_at": "2026-09-10T08:32:31",
+     "created_at": "2026-11-03T17:47:27.708450",
+     "measured_at": "2026-09-10T09:42:17",
      "source": "scale",
-     "uid": "71797f2f-86f6-5afa-950e-2ccf6e4d89dd",
+     "uid": "9f9e974f-196a-5f9e-8af2-fc1bb5d00b3a",
      "weight_kg": 80.274
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415513",
-     "measured_at": "2026-09-07T08:36:39",
+     "created_at": "2026-11-03T17:47:27.708455",
+     "measured_at": "2026-09-07T09:46:25",
      "source": "scale",
-     "uid": "2104cc40-c814-544d-9093-eded97958834",
+     "uid": "8a591956-7196-5cd3-9f93-99be38679012",
      "weight_kg": 79.907
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415518",
-     "measured_at": "2026-09-04T08:33:36",
+     "created_at": "2026-11-03T17:47:27.708460",
+     "measured_at": "2026-09-04T09:43:22",
      "source": "scale",
-     "uid": "71d662eb-cfdd-5e1b-9c9b-9735e1dc29de",
+     "uid": "bf16f56f-1dad-5378-9e37-3f9f469835d3",
      "weight_kg": 79.54
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415523",
-     "measured_at": "2026-09-01T08:37:33",
+     "created_at": "2026-11-03T17:47:27.708465",
+     "measured_at": "2026-09-01T09:47:19",
      "source": "scale",
-     "uid": "92074b4c-2c5e-5712-9d34-bfddc0e4fe2c",
+     "uid": "31bc555f-7c69-5234-b366-2bd595e6965f",
      "weight_kg": 79.858
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415528",
-     "measured_at": "2026-08-29T08:34:41",
+     "created_at": "2026-11-03T17:47:27.708470",
+     "measured_at": "2026-08-29T09:44:27",
      "source": "scale",
-     "uid": "a462f473-3698-50e0-93bc-2e4df1a1e544",
+     "uid": "210d2f7c-dba4-5889-be25-b346fff4f9b0",
      "weight_kg": 79.491
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415533",
-     "measured_at": "2026-08-26T08:31:38",
+     "created_at": "2026-11-03T17:47:27.708475",
+     "measured_at": "2026-08-26T09:41:24",
      "source": "scale",
-     "uid": "2c2e955c-221c-57b8-a9ef-a17ac7af7ace",
+     "uid": "b3cffe3b-87e1-5211-89e8-582a3b8d4d31",
      "weight_kg": 79.809
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415538",
-     "measured_at": "2026-08-23T08:35:35",
+     "created_at": "2026-11-03T17:47:27.708479",
+     "measured_at": "2026-08-23T09:45:21",
      "source": "scale",
-     "uid": "1f738914-64c2-50d5-8b00-9e6b2b507f2f",
+     "uid": "3e9cf21e-04d2-5d86-a7b8-ded2ea531385",
      "weight_kg": 79.442
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415543",
-     "measured_at": "2026-08-20T08:32:32",
+     "created_at": "2026-11-03T17:47:27.708484",
+     "measured_at": "2026-08-20T09:42:18",
      "source": "scale",
-     "uid": "52665876-9f2e-5883-9d32-f63955bed5c8",
+     "uid": "826e9e9c-5fb1-567a-aff9-f68800ba830b",
      "weight_kg": 79.075
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415548",
-     "measured_at": "2026-08-17T08:36:40",
+     "created_at": "2026-11-03T17:47:27.708489",
+     "measured_at": "2026-08-17T09:46:26",
      "source": "scale",
-     "uid": "73f96d96-3ae7-56d1-94ca-c0e52f35f316",
+     "uid": "739abef0-9be4-52fb-82b8-33d1697ae021",
      "weight_kg": 79.393
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415554",
-     "measured_at": "2026-08-14T08:33:37",
+     "created_at": "2026-11-03T17:47:27.708495",
+     "measured_at": "2026-08-14T09:43:23",
      "source": "scale",
-     "uid": "ed46d115-0760-5014-973a-e0edb8ca274c",
+     "uid": "a98d7ff3-f7a5-5e8c-85ea-3b20508f17fb",
      "weight_kg": 79.026
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415559",
-     "measured_at": "2026-08-11T08:37:34",
+     "created_at": "2026-11-03T17:47:27.708499",
+     "measured_at": "2026-08-11T09:47:20",
      "source": "scale",
-     "uid": "8647b643-f121-536e-a9c3-c9d03bacf3ef",
+     "uid": "1f684400-b8fa-5c1a-8c77-c7c154615571",
      "weight_kg": 79.344
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415564",
-     "measured_at": "2026-08-08T08:34:31",
+     "created_at": "2026-11-03T17:47:27.708504",
+     "measured_at": "2026-08-08T09:44:17",
      "source": "scale",
-     "uid": "25dcddc9-b180-562a-a8d2-ad635f9d44ef",
+     "uid": "23cddeb1-092e-5d84-bfa3-53e2045b10eb",
      "weight_kg": 78.977
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415569",
-     "measured_at": "2026-08-05T08:31:39",
+     "created_at": "2026-11-03T17:47:27.708509",
+     "measured_at": "2026-08-05T09:41:25",
      "source": "scale",
-     "uid": "c45b0d44-cf42-5263-8553-e8d23a4610d4",
+     "uid": "1b0337e6-783c-53af-8399-54c82e23df89",
      "weight_kg": 78.61
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415574",
-     "measured_at": "2026-08-02T08:35:36",
+     "created_at": "2026-11-03T17:47:27.708514",
+     "measured_at": "2026-08-02T09:45:22",
      "source": "scale",
-     "uid": "2e776a13-47f9-5cd7-ac2f-71320878d3b2",
+     "uid": "a4e58de0-d9b4-5c35-b3eb-bd8a2f7ece5b",
      "weight_kg": 78.928
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415579",
-     "measured_at": "2026-07-30T08:32:33",
+     "created_at": "2026-11-03T17:47:27.708519",
+     "measured_at": "2026-07-30T09:42:19",
      "source": "scale",
-     "uid": "f8839ca8-710e-501b-bf9d-2bac95d3ab06",
+     "uid": "dcd164d3-d9a4-596f-8ecd-ab93b39dc0f5",
      "weight_kg": 78.561
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415585",
-     "measured_at": "2026-07-27T08:36:41",
+     "created_at": "2026-11-03T17:47:27.708524",
+     "measured_at": "2026-07-27T09:46:27",
      "source": "scale",
-     "uid": "50770a50-18c6-5e98-ac21-2740788bc22a",
+     "uid": "f058181b-315c-58d5-bd29-995c48e29a4f",
      "weight_kg": 78.879
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415590",
-     "measured_at": "2026-07-24T08:33:38",
+     "created_at": "2026-11-03T17:47:27.708529",
+     "measured_at": "2026-07-24T09:43:24",
      "source": "scale",
-     "uid": "d6a45293-262a-5e1e-8961-0fc612e34ec5",
+     "uid": "17867f67-5ef3-5eaa-b867-62df97161cbf",
      "weight_kg": 78.512
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415595",
-     "measured_at": "2026-07-21T08:37:35",
+     "created_at": "2026-11-03T17:47:27.708534",
+     "measured_at": "2026-07-21T09:47:21",
      "source": "scale",
-     "uid": "225da8ff-a831-5f9c-b680-194b9a6e0412",
+     "uid": "cdca5287-0089-5e8a-9017-1d069e535870",
      "weight_kg": 78.145
     },
     {
      "change": 0.3669999999999902,
-     "created_at": "2026-11-03T16:37:41.415600",
-     "measured_at": "2026-07-18T08:34:32",
+     "created_at": "2026-11-03T17:47:27.708539",
+     "measured_at": "2026-07-18T09:44:18",
      "source": "scale",
-     "uid": "de6e1693-f266-5036-96cb-70105aee127a",
+     "uid": "dd11cb14-0a71-5f45-830e-fa33a1d93784",
      "weight_kg": 78.463
     },
     {
      "change": -0.31799999999999784,
-     "created_at": "2026-11-03T16:37:41.415605",
-     "measured_at": "2026-07-15T08:31:40",
+     "created_at": "2026-11-03T17:47:27.708544",
+     "measured_at": "2026-07-15T09:41:26",
      "source": "scale",
-     "uid": "d4ff0233-29ec-5bc4-82ad-873571f9fc1e",
+     "uid": "8d53c4db-39c2-575b-82d8-3c160a7edb5d",
      "weight_kg": 78.096
     },
     {
      "change": 0.36700000000000443,
-     "created_at": "2026-11-03T16:37:41.415610",
-     "measured_at": "2026-07-12T08:35:37",
+     "created_at": "2026-11-03T17:47:27.708548",
+     "measured_at": "2026-07-12T09:45:23",
      "source": "scale",
-     "uid": "42bf913e-ffe7-5531-a91b-99e3c346199a",
+     "uid": "f64e3c6b-d3f9-5328-bd38-68dbb3bc8809",
      "weight_kg": 78.414
     },
     {
      "change": null,
-     "created_at": "2026-11-03T16:37:41.415615",
-     "measured_at": "2026-07-09T08:32:34",
+     "created_at": "2026-11-03T17:47:27.708553",
+     "measured_at": "2026-07-09T09:42:20",
      "source": "scale",
-     "uid": "b60f96e9-7160-5ba8-bbb0-c0039ed86a10",
+     "uid": "01236aa0-4acb-5959-a741-a96b0271d385",
      "weight_kg": 78.047
     }
    ],
@@ -2540,130 +2613,179 @@
    },
    "trend": [
     [
-     739836.3573032407,
+     739836.4057523148,
      78.977
     ],
     [
-     739839.3594212963,
+     739839.4078703703,
      79.344
     ],
     [
-     739842.3566782407,
+     739842.4051273149,
      79.026
     ],
     [
-     739845.3587962963,
+     739845.4072453703,
      79.393
     ],
     [
-     739848.3559259259,
+     739848.404375,
      79.075
     ],
     [
-     739851.3580439815,
+     739851.4064930555,
      79.442
     ],
     [
-     739854.3553009259,
+     739854.40375,
      79.809
     ],
     [
-     739857.3574189815,
+     739857.4058680555,
      79.491
     ],
     [
-     739860.3594097223,
+     739860.4078587963,
      79.858
     ],
     [
-     739863.3566666667,
+     739863.4051157407,
      79.54
     ],
     [
-     739866.3587847222,
+     739866.4072337963,
      79.907
     ],
     [
-     739869.3559143519,
+     739869.4043634259,
      80.274
     ],
     [
-     739872.3580324074,
+     739872.4064814815,
      79.956
     ],
     [
-     739875.3552893519,
+     739875.4037384259,
      80.323
     ],
     [
-     739878.3574074074,
+     739878.4058564815,
      80.005
     ],
     [
-     739881.3593981481,
+     739881.4078472222,
      80.372
     ],
     [
-     739884.3566550926,
+     739884.4051041667,
      80.739
     ],
     [
-     739887.3587731482,
+     739887.4072222222,
      80.421
     ],
     [
-     739890.3560300926,
+     739890.4044791666,
      80.788
     ],
     [
-     739893.3580208333,
+     739893.4064699074,
      80.47
     ],
     [
-     739896.3552777778,
+     739896.4037268518,
      80.837
     ],
     [
-     739899.3573958334,
+     739899.4058449074,
      81.204
     ],
     [
-     739902.3593865741,
+     739902.4078356482,
      80.886
     ],
     [
-     739905.3566435185,
+     739905.4050925926,
      81.253
     ],
     [
-     739908.358761574,
+     739908.4072106482,
      80.935
     ],
     [
-     739911.3560185186,
+     739911.4044675926,
      81.302
     ],
     [
-     739914.3580092592,
+     739914.4064583334,
      81.669
     ],
     [
-     739917.3552662038,
+     739917.4037152778,
      81.351
     ],
     [
-     739920.3573842592,
+     739920.4058333334,
      81.718
     ],
     [
-     739923.312974537,
+     739923.3128125,
      78.6
     ],
     [
-     739923.3595023148,
+     739923.4079513889,
      81.4
     ]
    ]
+  },
+  "revision": 0,
+  "topics": []
+ },
+ "widget.goals": {
+  "engine_instance": "fdfe12e6-2987-413e-97ce-e732fb0cb938",
+  "kind": "response",
+  "outcome": "ok",
+  "protocol_version": 1,
+  "request_id": "1befad9a-c566-4358-b3ff-46248886ba44",
+  "result": {
+   "captured_at": "2026-11-03T17:47:27.716537",
+   "goals": [
+    {
+     "deadline_label": "15 Nov",
+     "done_milestones": 1,
+     "focused": true,
+     "title": "Submit thesis chapter",
+     "total_milestones": 3,
+     "uid": "dbb2e404-edeb-5f4b-97a9-937c8de0f306"
+    },
+    {
+     "deadline_label": "01 Dec",
+     "done_milestones": 0,
+     "focused": false,
+     "title": "Renew passport",
+     "total_milestones": 0,
+     "uid": "6984844a-8f2f-54f6-961e-b7128f321d85"
+    },
+    {
+     "deadline_label": null,
+     "done_milestones": 0,
+     "focused": false,
+     "title": "Read four books",
+     "total_milestones": 0,
+     "uid": "8d95bb94-aa32-530b-b16a-89d29fb2f048"
+    },
+    {
+     "deadline_label": null,
+     "done_milestones": 0,
+     "focused": false,
+     "title": "Run 10k",
+     "total_milestones": 0,
+     "uid": "9d8eeb30-9598-540f-931a-8a5cd607ab0e"
+    }
+   ],
+   "total_count": 5,
+   "updated_label": "03 Nov 17:47",
+   "version": 1
   },
   "revision": 0,
   "topics": []

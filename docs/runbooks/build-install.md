@@ -126,3 +126,12 @@ folder on a disposable store and reports architectures and size.
 Installer guards treat a running native UI or a settling engine helper as a
 running app, and unresolved native requests (`native-pending-requests/` beside
 a store) as pending work, exactly like an open session or outbox.
+
+
+The native bundle also embeds the medium Goals widget under `Contents/PlugIns`.
+It requires macOS 14+ for desktop placement; the containing app retains its
+macOS 12 minimum. The local extension is ad-hoc signed and sandboxed, with a
+single read-only snapshot-file permission. The guarded installer must preserve
+nested entitlements when resealing after copying. Never replace the widget or
+installed app separately. Launch JobTracker once after installation, then add
+**JobTracker → Goals** from the desktop's **Edit Widgets** gallery.

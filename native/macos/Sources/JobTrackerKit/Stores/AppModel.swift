@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import JobTrackerWidgetSupport
 
 /// Window-level presentation state and the single route to the engine.
 ///
@@ -48,12 +49,16 @@ public final class AppModel: ObservableObject {
     private var undoAction: (() async -> Void)?
     private var noticeWork: DispatchWorkItem?
     private var connectionObserver: Any?
+    private let widgetPublisher: GoalsWidgetPublisher?
+    private var pendingWidgetRoute: WidgetRoute?
+    private var widgetRouteEpoch = 0
 
     public var effectiveTheme: Theme { previewTheme ?? theme }
 
-    public init(engine: EngineClient, configuration: EngineConfiguration?) {
+    public init(engine: EngineClient, configuration: EngineConfiguration?, widgetOutput: URL? = nil, widgetKind: String = WidgetChannel.pilot.kind) {
         self.engine = engine
         self.configuration = configuration
+        widgetPublisher = widgetOutput.map { GoalsWidgetPublisher(output: $0, kind: widgetKind) }
         engine.onEvent = { [weak self] event in self?.handle(event) }
         connectionObserver = engine.$state.sink { [weak self] state in self?.connection = state }
     }
@@ -149,6 +154,7 @@ public final class AppModel: ObservableObject {
         if !topics.isDisjoint(with: ["subjects", "timer"]) { await subjects.reload() }
         else if topics.contains("timer") { await loadTimer() }
         if !topics.isDisjoint(with: ["goals", "templates"]) { await goals.reload(includeTemplates: topics.contains("templates")) }
+        if !topics.isDisjoint(with: ["goals", "templates"]) { await widgetPublisher?.refresh(using: self) }
         if !topics.isDisjoint(with: ["graphs", "sessions", "subjects", "settings"]) { graphs.markStale(); if page == .graphs { await graphs.reload() } }
         if topics.contains("weight") || topics.contains("settings") { await weight.reload() }
         if !topics.isDisjoint(with: ["sessions", "subjects", "timer"]) {
@@ -166,6 +172,7 @@ public final class AppModel: ObservableObject {
         await subjects.reload()
         JobTrackerMain.mark("subjects-loaded")
         await goals.reload(includeTemplates: true)
+        await widgetPublisher?.refresh(using: self)
         graphs.markStale()
         if page == .graphs { await graphs.reload() }
         await weight.reload()
@@ -173,6 +180,7 @@ public final class AppModel: ObservableObject {
         if timer.recovery != nil && !panels.contains(where: { if case .recovery = $0.kind { return true }; return false }) {
             present(.recovery(RecoveryModel(app: self, timer: timer)))
         }
+        await applyWidgetRoute()
     }
 
     @MainActor
@@ -207,6 +215,35 @@ public final class AppModel: ObservableObject {
     }
 
     // MARK: navigation and panels
+
+    /// URL routes select an entity only. They never complete goals, start a
+    /// timer, or discard an editor. Cold launches wait for the engine handshake.
+    @discardableResult
+    public func openWidgetURL(_ url: URL, channel: WidgetChannel) -> Bool {
+        guard let route = channel.route(url) else { return false }
+        widgetRouteEpoch += 1
+        pendingWidgetRoute = route
+        if engine.isReady { Task { @MainActor in await applyWidgetRoute() } }
+        return true
+    }
+
+    @MainActor
+    private func applyWidgetRoute() async {
+        guard engine.isReady, let route = pendingWidgetRoute else { return }
+        pendingWidgetRoute = nil
+        let mine = widgetRouteEpoch
+        select(.goals)
+        guard case .goal(let uid) = route else { return }
+        let response = await call("goal.get", ["goal_uid": .string(uid)], kind: .read)
+        guard mine == widgetRouteEpoch else { return }
+        guard let goal = try? response.result(GoalResult.self).goal else {
+            show(response.outcome == .missing ? "That goal is no longer available." : "The goal could not be opened. Try again.", error: true)
+            return
+        }
+        if panels.contains(where: { if case .goal(let model) = $0.kind { return model.goal.uid == uid }; return false }) { return }
+        // Existing panels/drafts remain underneath this goal's editor.
+        goals.open(goal)
+    }
 
     public func select(_ newPage: Page) {
         guard newPage != page else { return }

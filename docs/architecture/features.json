@@ -1151,6 +1151,79 @@
         "graphs.tracking",
         "sessions.edit"
       ]
+    },
+    {
+      "id": "native.widget",
+      "title": "Mac desktop goals widget",
+      "keywords": [
+        "widget",
+        "widgetkit",
+        "desktop",
+        "goals",
+        "focus",
+        "deadline",
+        "recent",
+        "mac"
+      ],
+      "entrypoints": [
+        {
+          "path": "native/macos/Sources/JobTrackerGoalsWidget/GoalsWidget.swift"
+        }
+      ],
+      "rule_owner": {
+        "path": "jobtracker/core/goal_widget.py",
+        "symbol": "select_goals"
+      },
+      "persistence": [
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/GoalsWidgetPublisher.swift"
+        }
+      ],
+      "supporting": [
+        {
+          "path": "native/macos/Sources/JobTrackerWidgetSupport/GoalsSnapshot.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerWidgetSupport/GoalsWidgetView.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/Stores/AppModel.swift"
+        },
+        {
+          "path": "native/macos/Sources/JobTrackerKit/JobTrackerMain.swift"
+        },
+        {
+          "path": "jobtracker/desktop/commands.py"
+        },
+        {
+          "path": "scripts/build_native.py"
+        },
+        {
+          "path": "scripts/install_macos.py"
+        }
+      ],
+      "guide": "docs/features/mac-widget.md",
+      "contracts": [
+        "native.local-bridge"
+      ],
+      "operations": [],
+      "routes": [],
+      "tables": [
+        "todo_tasks",
+        "milestones"
+      ],
+      "tests": [
+        "tests/test_goal_widget.py",
+        "tests/test_native_widget_packaging.py",
+        "tests/desktop/test_engine_commands.py",
+        "native/macos/Sources/JobTrackerChecks/WidgetChecks.swift"
+      ],
+      "related": [
+        "goals.milestones",
+        "native.mac",
+        "native.engine",
+        "release.packaging"
+      ]
     }
   ]
 }

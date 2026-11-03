@@ -18,7 +18,7 @@ FIXTURE = FIXTURES / "commands.json"
 SAMPLES = FIXTURES / "samples.json"
 
 # (command, params builder) run against the synthetic store, in order.
-SAMPLE_READS = ("engine.info", "settings.get", "subjects.list", "timer.get", "goals.list", "templates.list",
+SAMPLE_READS = ("engine.info", "settings.get", "subjects.list", "timer.get", "goals.list", "widget.goals", "templates.list",
                 "graphs.breakdown", "graphs.agenda", "weight.view", "sync.status")
 
 
@@ -44,6 +44,8 @@ def live_samples() -> dict:
         try:
             engine = InProcessEngine(database, Path(directory), recover=False)
             samples = {name: engine.call(name) for name in SAMPLE_READS}
+            goal_uid = samples["goals.list"]["result"]["goals"][0]["uid"]
+            samples["goal.get"] = engine.call("goal.get", {"goal_uid": goal_uid})
             subject_uid = samples["subjects.list"]["result"]["subjects"][1]["uid"]
             samples["sessions.for_subject"] = engine.call("sessions.for_subject", {"subject_uid": subject_uid, "limit": 3})
             day = samples["graphs.agenda"]["result"]["days"][-4]

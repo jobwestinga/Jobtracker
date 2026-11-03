@@ -77,7 +77,35 @@ def build_swift(run=subprocess.run) -> Path:
     return binary
 
 
+def build_widget(run=subprocess.run) -> Path:
+    run(["swift", "build", "-c", "release", "--package-path", str(PROJECT_ROOT / "native/macos"),
+         "--scratch-path", str(SWIFT_SCRATCH), "--product", "JobTrackerGoalsWidget"], check=True)
+    binary = SWIFT_SCRATCH / "release/JobTrackerGoalsWidget"
+    if not binary.is_file():
+        raise RuntimeError("Swift build did not produce the goals widget")
+    return binary
+
+
+def widget_entitlements(identity_name: str) -> dict:
+    # This locally distributed Mac app has no Apple team/App Group. Grant the
+    # sandboxed, read-only widget exactly one display-cache file, never the DB.
+    return {"com.apple.security.app-sandbox": True,
+            "com.apple.security.temporary-exception.files.home-relative-path.read-only": [
+                f"/Library/Application Support/JobTracker Widget/{identity_name}/goals.json"]}
+
+
+def widget_info(identity_name: str, version: str) -> dict:
+    identity = IDENTITIES[identity_name]
+    return {"CFBundleIdentifier": identity["bundle_id"] + ".GoalsWidget",
+            "CFBundleName": identity["name"] + " Goals", "CFBundleDisplayName": identity["name"] + " Goals",
+            "CFBundleExecutable": "JobTrackerGoalsWidget", "CFBundlePackageType": "XPC!",
+            "CFBundleVersion": version, "CFBundleShortVersionString": version,
+            "LSMinimumSystemVersion": "14.0", "JTWidgetChannel": identity_name,
+            "NSExtension": {"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"}}
+
+
 def info_plist(identity: dict, version: str) -> dict:
+    channel = "production" if identity["mode"] == "production" else "pilot"
     return {
         "CFBundleIdentifier": identity["bundle_id"],
         "CFBundleName": identity["name"],
@@ -92,6 +120,9 @@ def info_plist(identity: dict, version: str) -> dict:
         "NSPrincipalClass": "NSApplication",
         "JTEngineMode": identity["mode"],
         "JTStoreFolder": identity["folder"],
+        "JTWidgetChannel": channel,
+        "CFBundleURLTypes": [{"CFBundleURLName": identity["bundle_id"] + ".goals",
+                              "CFBundleURLSchemes": ["jobtracker" if channel == "production" else "jobtracker-pilot"]}],
     }
 
 
@@ -110,11 +141,19 @@ def sign(application: Path, run=subprocess.run) -> None:
     # Inside-out: deepest code first, the app bundle last.
     for path in sorted(nested, key=lambda item: len(item.parts), reverse=True):
         run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(path)], check=True, capture_output=True)
+    for extension in sorted((application / "Contents/PlugIns").glob("*.appex")):
+        with (extension / "Contents/Info.plist").open("rb") as source:
+            channel = plistlib.load(source)["JTWidgetChannel"]
+        with tempfile.NamedTemporaryFile(suffix=".entitlements", mode="wb") as entitlements:
+            plistlib.dump(widget_entitlements(channel), entitlements)
+            entitlements.flush()
+            run(["codesign", "--force", "--sign", "-", "--timestamp=none", "--entitlements", entitlements.name,
+                 str(extension)], check=True, capture_output=True)
     run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(application)], check=True, capture_output=True)
     run(["codesign", "--verify", "--deep", "--strict", str(application)], check=True, capture_output=True)
 
 
-def assemble(stage: Path, binary: Path, helper: Path, identity_name: str, version: str) -> Path:
+def assemble(stage: Path, binary: Path, helper: Path, identity_name: str, version: str, widget: Path | None = None) -> Path:
     identity = IDENTITIES[identity_name]
     application = stage / "dist" / f"{identity['name']}.app"
     contents = application / "Contents"
@@ -125,6 +164,11 @@ def assemble(stage: Path, binary: Path, helper: Path, identity_name: str, versio
     shutil.copy2(PROJECT_ROOT / "assets/icon.icns", contents / "Resources/icon.icns")
     with (contents / "Info.plist").open("wb") as handle:
         plistlib.dump(info_plist(identity, version), handle)
+    if widget is not None:
+        extension = contents / "PlugIns/JobTrackerGoalsWidget.appex/Contents"
+        (extension / "MacOS").mkdir(parents=True)
+        shutil.copy2(widget, extension / "MacOS/JobTrackerGoalsWidget")
+        (extension / "Info.plist").write_bytes(plistlib.dumps(widget_info(identity_name, version)))
     (contents / "PkgInfo").write_text("APPL????")
     return application
 
@@ -152,13 +196,14 @@ def architectures(path: Path, run=subprocess.run) -> str:
     return run(["lipo", "-archs", str(path)], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def build(python: str, *, identity: str = "pilot", version: str = "2.0.0", build_root: Path | None = None) -> dict:
+def build(python: str, *, identity: str = "pilot", version: str = "2.1.0", build_root: Path | None = None) -> dict:
     if identity not in IDENTITIES:
         raise ValueError(f"identity must be one of {', '.join(IDENTITIES)}")
     stage = _stage_root(build_root)
     helper = freeze_engine(python, stage)
     binary = build_swift()
-    application = assemble(stage, binary, helper, identity, version)
+    widget = build_widget()
+    application = assemble(stage, binary, helper, identity, version, widget=widget)
     sign(application)
     smoke = smoke_helper(application)
     size = sum(path.stat().st_size for path in application.rglob("*") if path.is_file() and not path.is_symlink())
@@ -170,6 +215,7 @@ def build(python: str, *, identity: str = "pilot", version: str = "2.0.0", build
         "helper_arch": architectures(application / "Contents/Resources/engine/jobtracker-engine"),
         "size_mb": round(size / 1048576, 1),
         "helper_smoke": smoke,
+        "widget": str(application / "Contents/PlugIns/JobTrackerGoalsWidget.appex"),
     }
 
 
@@ -177,7 +223,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--python", default=os.environ.get("JOBTRACKER_PYTHON", sys.executable))
     parser.add_argument("--identity", choices=sorted(IDENTITIES), default="pilot")
-    parser.add_argument("--version", default="2.0.0")
+    parser.add_argument("--version", default="2.1.0")
     parser.add_argument("--build-root", type=Path)
     args = parser.parse_args(argv)
     if sys.platform != "darwin":

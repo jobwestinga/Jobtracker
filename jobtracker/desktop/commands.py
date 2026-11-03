@@ -24,7 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from ..core import export_bundle, recovery, sync_policy, timeutils, weight_plot
+from ..core import export_bundle, goal_widget, recovery, sync_policy, timeutils, weight_plot
 from ..core.colors import suggest_colors
 from ..core.themes import THEME_PRESETS, FX_NAMES, PALETTE_NAMES
 from ..services import graph_window
@@ -529,6 +529,34 @@ def session_duplicate(ctx, params):
 
 
 # ── goals, milestones and templates ────────────────────────────────────
+@command("widget.goals", READ)
+def widget_goals(ctx, params):
+    """Small, confirmed local projection; never export notes or credentials."""
+    service = ctx.service
+    # get_active_goals also materialises legacy ordering on first use. A
+    # widget read must not perform that migration or change local preferences.
+    active = service.get_all_todo_tasks()
+    captured = datetime.now()
+    rows = []
+    for goal in goal_widget.select_goals(active):
+        done, total = service.get_goal_progress(goal.id)
+        rows.append({"uid": goal.uid, "title": goal.name, "focused": bool(goal.is_focused),
+                     "deadline_label": goal_widget.deadline_label(goal.deadline),
+                     "done_milestones": done, "total_milestones": total})
+    return {"version": 1, "captured_at": captured.isoformat(),
+            "updated_label": captured.strftime("%d %b %Y %H:%M"),
+            "total_count": len(active), "goals": rows}
+
+
+@command("goal.get", READ)
+def goal_get(ctx, params):
+    goal_id = _id(ctx, params, "goal_uid", "todo_tasks")
+    row = ctx.service.get_goal(goal_id)
+    if row is None:
+        raise Missing("This goal no longer exists")
+    return {"goal": dto.goal(ctx.service, row)}
+
+
 @command("goals.list", READ)
 def goals_list(ctx, params):
     completed = _bool(params, "completed", False)

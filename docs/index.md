@@ -34,6 +34,7 @@ in [features.json](architecture/features.json); compatibility contracts live in
 | Goals, milestones, recurring templates | `context goals.milestones` / `context goals.recurrence` |
 | Queue, replay, mirror, connection | `context sync.replication` |
 | Backup, import/export, restore | `context backups.restore` |
+| Desktop goals widget | [Mac widget](features/mac-widget.md) · `context native.widget` |
 | Mac window, shortcuts, sync lifecycle | `context native.shell` |
 | Public source, credentials, private exports, commit guard | [Privacy policy](privacy.md) · `context repository.privacy` |
 

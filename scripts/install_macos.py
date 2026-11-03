@@ -126,7 +126,8 @@ def verify_bundle(application: Path, *, run=subprocess.run) -> None:
 def sign_bundle(application: Path, *, run=subprocess.run) -> None:
     validate_bundle(application)
     run(["xattr", "-cr", str(application)], check=True, capture_output=True)
-    run(["codesign", "--force", "--deep", "-s", "-", str(application)],
+    run(["codesign", "--force", "--deep", "-s", "-",
+         "--preserve-metadata=entitlements,requirements,flags,runtime", str(application)],
         check=True, capture_output=True)
     verify_bundle(application, run=run)
 

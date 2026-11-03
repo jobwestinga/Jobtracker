@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import JobTrackerWidgetSupport
 
 public enum JobTrackerMain {
     static let launchStarted = Date()
@@ -20,7 +21,15 @@ public enum JobTrackerMain {
         do { configuration = try EngineConfiguration.resolve() } catch { configurationError = error.localizedDescription }
         let launch = configuration?.launch ?? EngineLaunch(executable: URL(fileURLWithPath: "/usr/bin/false"), arguments: [])
         let engine = EngineClient(launch: launch, journal: RequestJournal(directory: configuration?.journalDirectory ?? journalFallback))
-        let model = AppModel(engine: engine, configuration: configuration)
+        let channel = WidgetChannel(rawValue: Bundle.main.object(forInfoDictionaryKey: "JTWidgetChannel") as? String ?? "")
+        // Source runs and explicit isolated-store captures must never publish
+        // synthetic goals into the installed production widget's cache.
+        let overrides = ProcessInfo.processInfo.environment
+        let publish = overrides["JOBTRACKER_NATIVE_MODE"] == nil && overrides["JOBTRACKER_NATIVE_DB"] == nil
+            && overrides["JOBTRACKER_ENGINE_ROOT"] == nil && overrides["JOBTRACKER_ENGINE_PYTHON"] == nil
+        let model = AppModel(engine: engine, configuration: configuration,
+                             widgetOutput: publish ? channel?.snapshotURL : nil,
+                             widgetKind: channel?.kind ?? WidgetChannel.pilot.kind)
         if let configurationError { engine.fail(configurationError) } else { engine.start() }
         mark("engine-started")
 
@@ -85,6 +94,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         Task { @MainActor in await model.foregroundChanged(true) }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let channel = WidgetChannel(rawValue: Bundle.main.object(forInfoDictionaryKey: "JTWidgetChannel") as? String ?? "") else { return }
+        for url in urls {
+            if model.openWidgetURL(url, channel: channel) {
+                window?.makeKeyAndOrderFront(nil)
+                application.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     func applicationDidResignActive(_ notification: Notification) {

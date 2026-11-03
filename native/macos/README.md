@@ -152,3 +152,32 @@ The engine owns all day/time arithmetic. Each edit/move/resize captures expected
 endpoints and subject; a stale capture is refused instead of overwriting a change
 from another device. Writes use the ordinary service overrides, atomic outbox
 and local replay receipts. One unresolved command blocks later mutations.
+
+## Desktop goals widget
+
+The bundled medium WidgetKit extension uses `JobTrackerWidgetSupport`, a small
+module shared with the native app. It displays four confirmed active goals:
+focused goals in the app's order, then earliest deadlines, then newest creation
+timestamps. It provides links to the exact goal, with no completion controls.
+
+The main app publishes `widget.goals` responses after launch and committed goal /
+sync changes, independently of the Completed-history filter. Publication is
+atomic and keeps the last good cache on failure. The widget reads that cache;
+it opens no SQLite connection, starts no engine and has no network entitlement.
+After a full app quit it retains its last published goals. WidgetKit controls
+refresh timing; the visible update date identifies the cache's age.
+
+This local build uses a documented sandbox home-relative **read-only** file
+permission for `/Library/Application Support/JobTracker Widget/<channel>/goals.json`.
+The containing app stays outside App Sandbox, preserving the frozen Python
+engine, existing store and backup/file-dialog behaviour. Production and pilot
+have separate extension IDs, URL schemes and snapshot files. No Apple team or
+App Group is required for this local packaging route; do not invent a team ID.
+Public/App Store distribution would need a separate signing/capability review.
+
+Build the extension with `swift build --product JobTrackerGoalsWidget` using the
+same package/scratch options above. The normal native build embeds and signs it;
+the installer preserves its sandbox entitlements while resealing the app.
+See the [widget guide](../../docs/features/mac-widget.md) for installation and
+refresh behaviour. WidgetKit is available in the current Command Line Tools SDK;
+the fixed, read-only widget uses no configuration-intent macros.

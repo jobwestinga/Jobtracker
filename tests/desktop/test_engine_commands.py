@@ -24,6 +24,22 @@ def _outbox(engine):
     return [row["op"] for row in sync_state.pending(engine.service.db.connection)]
 
 
+def test_widget_snapshot_is_small_active_and_does_not_write(synced_engine):
+    first = synced_engine.ok("goal.add", {"name": "Focused", "notes": "private description"})["goal"]
+    synced_engine.ok("goal.toggle_focus", {"goal_uid": first["uid"]})
+    completed = synced_engine.ok("goal.add", {"name": "Finished", "notes": "private"})["goal"]
+    synced_engine.ok("goal.complete", {"goal_uid": completed["uid"]})
+    before = synced_engine.service.db.connection.total_changes
+    snapshot = synced_engine.ok("widget.goals")
+    assert snapshot["version"] == 1 and snapshot["total_count"] == 1
+    assert snapshot["goals"] == [{"uid": first["uid"], "title": "Focused", "focused": True,
+                                  "deadline_label": None, "done_milestones": 0, "total_milestones": 0}]
+    assert "notes" not in str(snapshot) and "private" not in str(snapshot)
+    assert synced_engine.service.db.connection.total_changes == before
+    assert synced_engine.ok("goal.get", {"goal_uid": completed["uid"]})["goal"]["completed"] is True
+    assert synced_engine.service.db.connection.total_changes == before
+
+
 def _closed_session(engine, minutes=75, days_ago=2):
     subject = engine.ok("subject.add", {"name": "Physics", "color": "#3B82F6", "notes": ""})["subject"]
     start = (datetime.now() - timedelta(days=days_ago)).replace(hour=9, minute=0, second=0, microsecond=0)
