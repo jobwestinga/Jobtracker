@@ -173,6 +173,7 @@ def test_unknown_context_and_interpreter_fail_without_app_import():
 
 def test_context_search_routes_words_and_paths_without_unrelated_features(capsys):
     assert [feature["id"] for feature in dev.find_features("weight graph")] == ["weight.plot"]
+    assert [feature["id"] for feature in dev.find_features("GraphsStore.swift")] == ["native.mac"]
     assert [feature["id"] for feature in dev.find_features("web/styles/shell.css")] == ["mobile.shell"]
     assert dev.find_features("missing feature phrase") == []
     assert len(dev.find_features()) > 5

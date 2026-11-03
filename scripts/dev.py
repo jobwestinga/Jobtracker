@@ -32,6 +32,7 @@ def find_features(query: str = "") -> list[dict]:
         return exact
     words = re.findall(r"[a-z0-9]+", query.lower())
     matches = []
+    named_matches = []
     for feature in features:
         # Related IDs/contracts are deliberately excluded: their matches would
         # send a targeted query to almost every feature in the application.
@@ -40,7 +41,13 @@ def find_features(query: str = "") -> list[dict]:
         text = json.dumps(searchable).lower()
         if all(word in text for word in words):
             matches.append(feature)
-    return matches
+            names = json.dumps({key: feature.get(key) for key in ("id", "title", "keywords")}).lower()
+            if all(word in names for word in words):
+                named_matches.append(feature)
+    # Broad owners can mention several features through their supporting
+    # files. Prefer an actual feature-name match for words; exact file/path
+    # queries still fall back to the complete owner references.
+    return named_matches or matches
 
 
 def print_context(feature: dict):

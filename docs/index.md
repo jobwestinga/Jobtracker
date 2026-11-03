@@ -15,7 +15,8 @@ in [features.json](architecture/features.json); compatibility contracts live in
 1. Read the compact [engineering rules](engineering-rules.md).
 2. Run `python3 scripts/dev.py context` for a feature list, or search with words
    or a file path, e.g. `context weight graph`, `context fullscreen`, or
-   `context web/styles/shell.css`. Multiple matches return a compact list.
+   `context web/styles/shell.css`. Words prefer feature names and keywords;
+   path queries search the owner references. Multiple matches return a compact list.
 3. Run `context FEATURE_ID` for exact entry points, supporting styles/helpers,
    contracts and focused checks. Add `--json` for machine-readable metadata.
 4. Read the relevant linked detail reference and owners; run the focused checks,
