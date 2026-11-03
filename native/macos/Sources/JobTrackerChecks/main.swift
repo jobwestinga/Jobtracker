@@ -59,6 +59,7 @@ let checks: [(String, () throws -> Void)] = [
     ("FeatureStateTests.weightEditsKeepImportedPrecisionAndDailyIdentity", { try FeatureStateTests().weightEditsKeepImportedPrecisionAndDailyIdentity() }),
     ("FeatureStateTests.movingTheSelectionOutOfTheDayClearsItWithoutReselecting", { try FeatureStateTests().movingTheSelectionOutOfTheDayClearsItWithoutReselecting() }),
     ("FeatureStateTests.unreachableServerShowsOfflineWhileLocalSavesSucceed", { try FeatureStateTests().unreachableServerShowsOfflineWhileLocalSavesSucceed() }),
+    ("InteractionTests.agendaBottomSnapStaysInsideTheChosenLogicalDay", { try InteractionTests().agendaBottomSnapStaysInsideTheChosenLogicalDay() }),
     ("InteractionTests.agendaProjectionKeepsGrabOffsetAndSnapsAcrossDays", { try InteractionTests().agendaProjectionKeepsGrabOffsetAndSnapsAcrossDays() }),
     ("InteractionTests.chartClickDragAndEscapeDispatchOnlyOneAction", { try InteractionTests().chartClickDragAndEscapeDispatchOnlyOneAction() }),
     ("InteractionTests.sessionAutosaveAndDurationKeepExactIdentity", { try InteractionTests().sessionAutosaveAndDurationKeepExactIdentity() }),

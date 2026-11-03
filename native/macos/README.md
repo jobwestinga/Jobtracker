@@ -142,6 +142,7 @@ geometry, a five-point threshold and Escape cancellation; Subjects and Goals
 share the complete reorder component. Agenda drops snap the relative vertical
 movement to five-minute steps and choose the destination logical-day column.
 The exact recorded seconds and microseconds, subject, duration and UID survive.
+Drops stay inside the chosen logical day, including fractional day boundaries.
 Arranged overlapping blocks use their displayed position as the grab origin;
 only the dragged session changes. An outside drop or Escape writes nothing.
 Running blocks are read-only; an ordinary click still opens the exact session.

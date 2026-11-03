@@ -204,8 +204,10 @@ struct AgendaDrop: Equatable {
         let scale = layout.chart.height / CGFloat(layout.hourEnd - layout.hourStart)
         let raw = Int(((point.y - lift.start.y) / scale * 12).rounded()) * 300
         // A column represents exactly one logical day, even for 24+ hours.
-        let lower = Int(ceil((dayStart - block.source.startH) * 12)) * 300
-        let upper = Int(ceil((dayStart + 24 - block.source.startH) * 12) - 1) * 300
+        // A minute expressed as hours can land just above an integer step
+        // (e.g. 09:10 → 03:00). Keep the exclusive upper edge exclusive.
+        let lower = Int(ceil((dayStart - block.source.startH) * 12 - 1e-9)) * 300
+        let upper = Int(ceil((dayStart + 24 - block.source.startH) * 12 - 1e-9) - 1) * 300
         let seconds = min(upper, max(lower, raw))
         let inset = block.rect.minX - (layout.columns.first { $0.day == block.source.day }?.rect.minX ?? block.rect.minX)
         return AgendaDrop(day: column.day, seconds: seconds,

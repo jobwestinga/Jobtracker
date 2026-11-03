@@ -3,6 +3,23 @@ import Combine
 @testable import JobTrackerKit
 
 struct InteractionTests: CheckSuite {
+    func agendaBottomSnapStaysInsideTheChosenLogicalDay() {
+        for dayStart in [3.0, 6.5, 23.75] {
+            for minute in 0..<60 {
+                let start = dayStart + 6 + Double(minute) / 60
+                let source = AgendaBlockDTO(uid: "s", day: "2026-11-02", subjectUid: "a", subjectName: "Work", color: "#3B82F6", startH: start, endH: start + 1, durationSeconds: 3600)
+                let data = AgendaDTO(days: [source.day], sessions: [source], hourStart: Int(dayStart), hourEnd: Int(ceil(dayStart + 24)), nowDay: "", nowHour: 0, dayStartHour: dayStart, rangeLabel: "", fitWidth: true)
+                let layout = AgendaLayout(agenda: data, size: CGSize(width: 600, height: 780))
+                let block = layout.columns[0].blocks[0]
+                var lift = LiftPlacement()
+                lift.begin("s", frame: block.rect, start: CGPoint(x: block.rect.midX, y: block.rect.minY))
+                lift.location = CGPoint(x: block.rect.midX, y: layout.chart.maxY - 0.1)
+                let drop = AgendaDrop.project(block: block, lift: lift, layout: layout, dayStart: dayStart)!
+                expect(start + Double(drop.seconds) / 3600 < dayStart + 24, "bottom drop stays in its logical column (boundary=\(dayStart), minute=\(minute))")
+            }
+        }
+    }
+
     func agendaProjectionKeepsGrabOffsetAndSnapsAcrossDays() {
         let source = AgendaBlockDTO(uid: "s", day: "2026-11-02", subjectUid: "a", subjectName: "Work", color: "#3B82F6", startH: 25, endH: 26, durationSeconds: 3600)
         let data = AgendaDTO(days: ["2026-11-02", "2026-11-03"], sessions: [source], hourStart: 3, hourEnd: 27, nowDay: "", nowHour: 0, dayStartHour: 3, rangeLabel: "", fitWidth: true)
