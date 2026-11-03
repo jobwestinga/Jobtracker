@@ -146,6 +146,8 @@ can be clamped or arranged without losing its original interval.
 
 `widget.goals` returns a bounded four-row projection with stable UIDs, titles,
 focus, deadline labels, milestone counts and a captured local update time.
+Display titles are limited to 500 Unicode code points, with an ellipsis for
+longer imported titles; full goal reads and stored titles remain intact.
 It uses the facade's non-mutating `get_all_todo_tasks` query; `get_active_goals`
 also performs a legacy manual-order migration and must not be called by this
 read. The projection exports no descriptions, tokens or sync settings and never

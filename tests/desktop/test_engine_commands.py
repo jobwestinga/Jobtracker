@@ -40,6 +40,25 @@ def test_widget_snapshot_is_small_active_and_does_not_write(synced_engine):
     assert synced_engine.service.db.connection.total_changes == before
 
 
+def test_widget_long_titles_fit_the_cache_without_changing_saved_goals(engine):
+    import json
+
+    titles = [f"{index} " + "🌿" * 2000 for index in range(4)]
+    # Phone edits, imports and the Qt frontend use the shared service, which
+    # accepts titles longer than the native editor's 500-character input limit.
+    saved = {engine.service.add_todo_task(title, "", None).uid: title for title in titles}
+    before = engine.service.db.connection.total_changes
+    snapshot = engine.ok("widget.goals")
+    assert len(snapshot["goals"]) == 4
+    assert all(len(row["title"]) <= 500 and row["title"].endswith("…") for row in snapshot["goals"])
+    assert len(json.dumps(snapshot).encode("utf-8")) < 32_768
+    for row in snapshot["goals"]:
+        title = saved[row["uid"]]
+        assert row["title"] == title[:499] + "…"
+        assert engine.ok("goal.get", {"goal_uid": row["uid"]})["goal"]["name"] == title
+    assert engine.service.db.connection.total_changes == before
+
+
 def _closed_session(engine, minutes=75, days_ago=2):
     subject = engine.ok("subject.add", {"name": "Physics", "color": "#3B82F6", "notes": ""})["subject"]
     start = (datetime.now() - timedelta(days=days_ago)).replace(hour=9, minute=0, second=0, microsecond=0)

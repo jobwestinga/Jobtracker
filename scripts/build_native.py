@@ -30,6 +30,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SWIFT_SCRATCH = Path.home() / "Library/Caches/JobTracker/native-build"
+NATIVE_VERSION = "2.1.2"
 IDENTITIES = {
     "pilot": {"bundle_id": "com.jobtracker.native-pilot", "name": "JobTracker Native Pilot",
               "mode": "isolated", "folder": "JobTracker Native Pilot"},
@@ -217,7 +218,7 @@ def architectures(path: Path, run=subprocess.run) -> str:
     return run(["lipo", "-archs", str(path)], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def build(python: str, *, identity: str = "pilot", version: str = "2.1.1", build_root: Path | None = None) -> dict:
+def build(python: str, *, identity: str = "pilot", version: str = NATIVE_VERSION, build_root: Path | None = None) -> dict:
     if identity not in IDENTITIES:
         raise ValueError(f"identity must be one of {', '.join(IDENTITIES)}")
     stage = _stage_root(build_root)
@@ -246,7 +247,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--python", default=os.environ.get("JOBTRACKER_PYTHON", sys.executable))
     parser.add_argument("--identity", choices=sorted(IDENTITIES), default="pilot")
-    parser.add_argument("--version", default="2.1.1")
+    parser.add_argument("--version", default=NATIVE_VERSION)
     parser.add_argument("--build-root", type=Path)
     args = parser.parse_args(argv)
     if sys.platform != "darwin":

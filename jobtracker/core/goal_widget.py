@@ -8,6 +8,19 @@ from datetime import datetime
 
 from . import timeutils
 
+MAX_TITLE_CHARACTERS = 500
+
+
+def display_title(title):
+    """Bound the display cache without shortening the stored goal title.
+
+    Imports and other frontends can create longer titles than the Mac editor.
+    Count Unicode code points so even multi-byte titles fit the widget's cache.
+    """
+    if len(title) <= MAX_TITLE_CHARACTERS:
+        return title
+    return title[:MAX_TITLE_CHARACTERS - 1] + "…"
+
 
 def _moment(value):
     parsed = timeutils.parse_iso(value) if isinstance(value, str) else None

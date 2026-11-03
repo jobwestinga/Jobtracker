@@ -540,7 +540,7 @@ def widget_goals(ctx, params):
     rows = []
     for goal in goal_widget.select_goals(active):
         done, total = service.get_goal_progress(goal.id)
-        rows.append({"uid": goal.uid, "title": goal.name, "focused": bool(goal.is_focused),
+        rows.append({"uid": goal.uid, "title": goal_widget.display_title(goal.name), "focused": bool(goal.is_focused),
                      "deadline_label": goal_widget.deadline_label(goal.deadline),
                      "done_milestones": done, "total_milestones": total})
     return {"version": 1, "captured_at": captured.isoformat(),

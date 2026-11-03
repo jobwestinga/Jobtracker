@@ -14,6 +14,9 @@ widgets. Remove or reposition it through the normal macOS widget controls.
 
 Completed goals are excluded. A deadline or milestone count appears beside each
 title when available, and the footer identifies when the Mac published the data.
+Titles longer than 500 characters are shortened with an ellipsis in the display
+cache so imported goals cannot prevent widget updates. The full saved title and
+the goal's identity are preserved when opening it in the app.
 This selection never changes your saved order, focus, recurrence or completion.
 Older unfinished goals remain in the app even when outside these four rows.
 
