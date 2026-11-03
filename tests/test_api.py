@@ -505,15 +505,15 @@ def test_segments_carry_what_a_stacked_bar_needs(api):
     assert sum(per_subject.values()) == bucket["total_seconds"]
 
 
-def test_a_long_bucket_returns_one_segment_per_session_not_per_subject(api):
+@pytest.mark.parametrize("last_day", [date(2026, 11, 3), date(2026, 1, 2), date(2024, 3, 1), date(2026, 11, 20)])
+def test_a_long_bucket_returns_one_segment_per_session_not_per_subject(api, last_day):
     """Pins the shape the phone has to aggregate: the API deliberately returns
     a segment per session, which is why the phone sums them per subject before
     drawing. Without that, a month of many sessions rendered every bar the same
     height."""
     subject_uid = make_subject(api)
-    today = date.fromisoformat(api.get("/api/context").json()["today"])
     for offset in range(5):
-        day = (today - timedelta(days=offset)).isoformat()
+        day = (last_day - timedelta(days=offset)).isoformat()
         for hour in (9, 11, 14):
             do(api, "add_session", {
                 "subject_uid": subject_uid,
@@ -521,7 +521,13 @@ def test_a_long_bucket_returns_one_segment_per_session_not_per_subject(api):
                 "end_time": f"{day}T{hour + 1:02d}:00:00",
             })
 
-    buckets = api.get("/api/graphs/breakdown?grouping=monthly&days=30").json()["buckets"]
+    # days=30 with monthly grouping deliberately means the current whole
+    # month, which excludes some of these rows near a month boundary. This
+    # test targets segment identity, so pin the exact input window instead.
+    buckets = api.get("/api/graphs/breakdown", params={
+        "grouping": "monthly", "start_date": (last_day - timedelta(days=4)).isoformat(),
+        "end_date": last_day.isoformat(),
+    }).json()["buckets"]
     segments = [s for b in buckets for s in b["segments"]]
     assert len(segments) == 15
     assert len({s["subject_uid"] for s in segments}) == 1
