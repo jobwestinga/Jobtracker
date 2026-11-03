@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
-from typing import Optional
 
 from .config import DATA_DIR
 

@@ -47,26 +47,6 @@ def _hex_to_rgba(hex_color: str, alpha: int) -> str:
     return f"rgba({r}, {g}, {b}, {max(0, min(255, alpha))})"
 
 
-def _extract_border_color(border_style: str, fallback: str) -> str:
-    """Extract a color token from '1px solid <color>' style strings."""
-    if not border_style:
-        return fallback
-
-    rgba_idx = border_style.find("rgba(")
-    if rgba_idx >= 0:
-        end = border_style.find(")", rgba_idx)
-        if end > rgba_idx:
-            return border_style[rgba_idx : end + 1]
-
-    hash_idx = border_style.rfind("#")
-    if hash_idx >= 0:
-        token = border_style[hash_idx:].split()[0]
-        if len(token) in (7, 9):
-            return token
-
-    return fallback
-
-
 class SubjectItemWidget(QFrame):
 
     start_requested = Signal(int)

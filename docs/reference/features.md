@@ -77,8 +77,7 @@ close on navigation, and restore focus/scroll without reparenting the plot.
 `ui/widgets/dialog_utils.py` and `ui/widgets/reorderable_list.py` are shared UI
 infrastructure; see the two sections below before adding dialogs or list cards.
 
-Goal editing lives in `ui/widgets/goal_dialog.py` (`GoalDialog`). An unused
-`todo_task_dialog.py` used to sit beside it and was deleted — don't recreate it.
+Goal editing lives in `ui/widgets/goal_dialog.py` (`GoalDialog`).
 
 Service methods doing the analytics (all logical-day aware, include the live
 session): `get_subject_breakdown(grouping=daily|weekly|monthly, days/start/end)`,
@@ -117,7 +116,8 @@ back without a real migration.
 Switching subjects while tracking goes through `TrackerService.switch_subject()`
 and, in the UI, always behind a confirm prompt: the running session keeps
 ticking until the user confirms, and the old session gets the normal sub-30s
-stop rule. Number-key shortcuts use the same confirm path — never a silent stop.
+stop rule. Number-key shortcuts open Goals; subject controls use this confirmed
+switching path.
 
 ## Goals, milestones, and recurring generation
 

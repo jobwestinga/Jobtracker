@@ -1,7 +1,7 @@
 """Compact persistent sync feedback; bookkeeping belongs to the controller."""
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
 
 class SyncStatusWidget(QFrame):
