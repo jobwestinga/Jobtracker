@@ -1181,6 +1181,9 @@
       ],
       "supporting": [
         {
+          "path": "native/macos/Package.swift"
+        },
+        {
           "path": "native/macos/Sources/JobTrackerWidgetSupport/GoalsSnapshot.swift"
         },
         {

@@ -135,3 +135,6 @@ single read-only snapshot-file permission. The guarded installer must preserve
 nested entitlements when resealing after copying. Never replace the widget or
 installed app separately. Launch JobTracker once after installation, then add
 **JobTracker → Goals** from the desktop's **Edit Widgets** gallery.
+The build also checks the extension's XPC bootstrap and retained Swift entry.
+For widget packaging changes, verify the actual gallery preview after installation;
+signature verification and PlugInKit registration alone are insufficient.

@@ -14,7 +14,12 @@ let package = Package(
         .target(name: "JobTrackerWidgetSupport", path: "Sources/JobTrackerWidgetSupport"),
         .target(name: "JobTrackerKit", dependencies: ["JobTrackerWidgetSupport"], path: "Sources/JobTrackerKit"),
         .executableTarget(name: "JobTrackerGoalsWidget", dependencies: ["JobTrackerWidgetSupport"], path: "Sources/JobTrackerGoalsWidget",
-                          swiftSettings: [.unsafeFlags(["-application-extension"])]),
+                          swiftSettings: [.unsafeFlags(["-application-extension"])],
+                          // macOS starts an appex through Foundation's XPC bootstrap;
+                          // WidgetKit then calls the retained Swift @main entry.
+                          // A normal executable entry crashes before gallery discovery.
+                          linkerSettings: [.unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain",
+                                                        "-Xlinker", "-application_extension"])]),
         .executableTarget(name: "JobTracker", dependencies: ["JobTrackerKit"], path: "Sources/JobTracker"),
         // Checks run as an executable (`swift run JobTrackerChecks`): the Command
         // Line Tools provide no macro plugins for swift-testing or XCTest UI.

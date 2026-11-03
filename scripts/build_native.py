@@ -192,11 +192,32 @@ def smoke_helper(application: Path, run=subprocess.run) -> dict:
         return {"hello": True, "qt_loaded": False, "commands": len(lines[0].get("commands", []))}
 
 
+def smoke_widget(application: Path, run=subprocess.run) -> dict:
+    """Reject plain executables and stripped widgets before installation.
+
+    Registration alone cannot prove WidgetKit can launch an extension. Its OS
+    entry must be Foundation's XPC bootstrap, with Swift's entry retained for
+    WidgetKit to call after bootstrap. Direct execution must refuse to run.
+    """
+    binary = application / "Contents/PlugIns/JobTrackerGoalsWidget.appex/Contents/MacOS/JobTrackerGoalsWidget"
+    symbols = run(["nm", str(binary)], check=True, capture_output=True, text=True).stdout
+    sections = run(["otool", "-l", str(binary)], check=True, capture_output=True, text=True).stdout
+    if (not any(line.strip() == "U _NSExtensionMain" for line in symbols.splitlines())
+            or not any(line.endswith(" T _main") for line in symbols.splitlines())
+            or "__swift5_entry" not in sections):
+        raise RuntimeError("Widget is missing its XPC bootstrap or retained Swift entry")
+    with tempfile.TemporaryDirectory(prefix="jobtracker-widget-smoke-") as directory:
+        result = run([str(binary)], cwd=directory, capture_output=True, text=True, timeout=10)
+    if result.returncode == 0 or "An XPC Service cannot be run directly." not in result.stderr:
+        raise RuntimeError("Widget did not enter the macOS XPC bootstrap")
+    return {"xpc_bootstrap": True, "swift_entry": True}
+
+
 def architectures(path: Path, run=subprocess.run) -> str:
     return run(["lipo", "-archs", str(path)], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def build(python: str, *, identity: str = "pilot", version: str = "2.1.0", build_root: Path | None = None) -> dict:
+def build(python: str, *, identity: str = "pilot", version: str = "2.1.1", build_root: Path | None = None) -> dict:
     if identity not in IDENTITIES:
         raise ValueError(f"identity must be one of {', '.join(IDENTITIES)}")
     stage = _stage_root(build_root)
@@ -206,6 +227,7 @@ def build(python: str, *, identity: str = "pilot", version: str = "2.1.0", build
     application = assemble(stage, binary, helper, identity, version, widget=widget)
     sign(application)
     smoke = smoke_helper(application)
+    widget_smoke = smoke_widget(application)
     size = sum(path.stat().st_size for path in application.rglob("*") if path.is_file() and not path.is_symlink())
     return {
         "status": "built",
@@ -215,6 +237,7 @@ def build(python: str, *, identity: str = "pilot", version: str = "2.1.0", build
         "helper_arch": architectures(application / "Contents/Resources/engine/jobtracker-engine"),
         "size_mb": round(size / 1048576, 1),
         "helper_smoke": smoke,
+        "widget_smoke": widget_smoke,
         "widget": str(application / "Contents/PlugIns/JobTrackerGoalsWidget.appex"),
     }
 
@@ -223,7 +246,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--python", default=os.environ.get("JOBTRACKER_PYTHON", sys.executable))
     parser.add_argument("--identity", choices=sorted(IDENTITIES), default="pilot")
-    parser.add_argument("--version", default="2.1.0")
+    parser.add_argument("--version", default="2.1.1")
     parser.add_argument("--build-root", type=Path)
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
