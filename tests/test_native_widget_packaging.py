@@ -42,20 +42,56 @@ def test_installer_resigning_preserves_the_extension_entitlements(tmp_path):
     assert plistlib.loads(result.stdout) == entitlements
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS WidgetKit integration")
-def test_built_widget_uses_xpc_bootstrap_and_retains_its_swift_entry(tmp_path):
-    # Exercise the real product's compiler/linker settings. A signed, registered
-    # plain Swift executable previously crashed before gallery descriptors loaded.
-    binary = build_native.build_widget()
+@pytest.fixture(scope="module")
+def widget_binary():
+    return build_native.build_widget()
+
+
+@pytest.fixture
+def widget_app(tmp_path, widget_binary):
     app = tmp_path / "JobTracker.app"
     extension = app / "Contents/PlugIns/JobTrackerGoalsWidget.appex"
     executable = extension / "Contents/MacOS/JobTrackerGoalsWidget"
     executable.parent.mkdir(parents=True)
-    shutil.copyfile(binary, executable)
+    shutil.copyfile(widget_binary, executable)
     executable.chmod(0o755)
-    (extension / "Contents/Info.plist").write_bytes(plistlib.dumps(build_native.widget_info("pilot", "2.1.1")))
+    (extension / "Contents/Info.plist").write_bytes(plistlib.dumps(build_native.widget_info("pilot", build_native.NATIVE_VERSION)))
     subprocess.run(["codesign", "--force", "--sign", "-", str(extension)], check=True, capture_output=True)
-    assert build_native.smoke_widget(app) == {"xpc_bootstrap": True, "swift_entry": True}
+    return app
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS WidgetKit integration")
+def test_built_widget_uses_xpc_bootstrap_and_retains_its_swift_entry(widget_app):
+    # Exercise the real product's compiler/linker settings. A signed, registered
+    # plain Swift executable previously crashed before gallery descriptors loaded.
+    assert build_native.smoke_widget(widget_app) == {"xpc_bootstrap": True, "swift_entry": True}
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS symbol visibility integration")
+def test_widget_smoke_accepts_a_retained_entry_without_an_exported_main(widget_app, tmp_path):
+    extension = widget_app / "Contents/PlugIns/JobTrackerGoalsWidget.appex"
+    executable = extension / "Contents/MacOS/JobTrackerGoalsWidget"
+    exports = tmp_path / "exports.txt"
+    exports.write_text("")
+    # Localize real Swift definitions without altering the retained entry metadata
+    # or its code. The entry need not be exposed as a global symbol named _main.
+    subprocess.run(["nmedit", "-s", str(exports), str(executable)], check=True, capture_output=True)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(extension)], check=True, capture_output=True)
+    symbols = subprocess.run(["nm", str(executable)], check=True, capture_output=True, text=True).stdout
+    assert not any(line.endswith(" T _main") for line in symbols.splitlines())
+    assert build_native.smoke_widget(widget_app) == {"xpc_bootstrap": True, "swift_entry": True}
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extension bootstrap integration")
+def test_widget_smoke_rejects_xpc_bootstrap_without_a_swift_entry(widget_app, tmp_path):
+    extension = widget_app / "Contents/PlugIns/JobTrackerGoalsWidget.appex"
+    executable = extension / "Contents/MacOS/JobTrackerGoalsWidget"
+    source = tmp_path / "bootstrap.c"
+    source.write_text("int main(void) { return 0; }\n")
+    subprocess.run(["xcrun", "clang", str(source), "-framework", "Foundation", "-Wl,-e,_NSExtensionMain", "-o", str(executable)], check=True, capture_output=True)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(extension)], check=True, capture_output=True)
+    with pytest.raises(RuntimeError, match="retained Swift entry"):
+        build_native.smoke_widget(widget_app)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS executable integration")

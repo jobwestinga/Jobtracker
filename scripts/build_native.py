@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -203,10 +204,15 @@ def smoke_widget(application: Path, run=subprocess.run) -> dict:
     binary = application / "Contents/PlugIns/JobTrackerGoalsWidget.appex/Contents/MacOS/JobTrackerGoalsWidget"
     symbols = run(["nm", str(binary)], check=True, capture_output=True, text=True).stdout
     sections = run(["otool", "-l", str(binary)], check=True, capture_output=True, text=True).stdout
-    if (not any(line.strip() == "U _NSExtensionMain" for line in symbols.splitlines())
-            or not any(line.endswith(" T _main") for line in symbols.splitlines())
-            or "__swift5_entry" not in sections):
-        raise RuntimeError("Widget is missing its XPC bootstrap or retained Swift entry")
+    if not any(line.strip() == "U _NSExtensionMain" for line in symbols.splitlines()):
+        raise RuntimeError("Widget is missing its Foundation XPC bootstrap")
+    # WidgetKit locates the Swift entry through this metadata, even when SwiftPM
+    # renames its wrapper or the linker makes _main private. Symbol visibility
+    # differs across supported toolchains and does not determine launchability.
+    sizes = {name: int(size, 16) for name, size in re.findall(
+        r"sectname\s+(\S+)\s+segname\s+__TEXT\s+addr\s+\S+\s+size\s+(0x[0-9a-fA-F]+)", sections)}
+    if sizes.get("__swift5_entry", 0) < 8 or sizes.get("__text", 0) == 0:
+        raise RuntimeError("Widget is missing retained Swift entry metadata or executable code")
     with tempfile.TemporaryDirectory(prefix="jobtracker-widget-smoke-") as directory:
         result = run([str(binary)], cwd=directory, capture_output=True, text=True, timeout=10)
     if result.returncode == 0 or "An XPC Service cannot be run directly." not in result.stderr:

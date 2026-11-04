@@ -60,11 +60,15 @@ native Widget checks to inspect synthetic layout captures.
 
 The macOS extension must link through Foundation's `_NSExtensionMain` XPC
 bootstrap while retaining Swift's `@main` and `__swift5_entry` metadata for
-WidgetKit. Starting the Swift widget as an ordinary executable crashes during
-extension initialization and leaves it absent from the gallery, even when
+WidgetKit. The Swift wrapper's exported symbol name varies across toolchains;
+validation checks nonempty entry metadata and executable code rather than
+requiring a global `_main` symbol. Starting the Swift widget as an ordinary
+executable crashes during extension initialization and leaves it absent from the gallery, even when
 PlugInKit registration and signature checks succeed. Packaging verifies both
 entries and requires a direct launch to refuse with **An XPC Service cannot be
-run directly.** The real-product packaging test covers this startup contract.
+run directly.** Real-product packaging tests cover ordinary and private Swift
+entry symbols and reject both a plain executable and an XPC bootstrap without
+Swift entry metadata.
 
 That bootstrap check and PlugInKit registration still do not prove gallery
 availability. After installing a widget packaging change, open **Edit Widgets**,
