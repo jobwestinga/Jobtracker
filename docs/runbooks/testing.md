@@ -81,6 +81,8 @@ them only for new changes, failures or unresolved concerns.
 
 The browser command runs four harnesses sequentially, using Playwright and
 Chromium: the full app, feature sheets, Subject Quick Add and accessibility.
+CI runs the phone contracts and browser checks before the longer Python suite
+so browser failures surface earlier; all checks are still required.
 
 ```sh
 python scripts/dev.py browser
@@ -90,6 +92,15 @@ It honors `PLAYWRIGHT_MODULE` for an existing Playwright installation and
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` for an existing Chromium executable. Browser
 tooling is a development dependency, not a phone runtime dependency; do not add
 a bundler or package manager to the app to run these checks.
+
+Set `JOBTRACKER_BROWSER_ARTIFACTS` to choose the artifact directory. On failure,
+the full-app harness saves `failure.json` with the error, browser version,
+viewport and agenda scroll dimensions, plus screenshots of its open mock-data
+pages. CI uploads that directory as `browser-checks`, including after failure.
+Agenda rotation checks wait for resize delivery before rotating again; the
+queued-resize regression separately forces scrolling before the resize frame.
+Profile reconnection also dispatches `online` explicitly: changing emulated
+network availability alone does not guarantee that event in every open tab.
 
 For icon-only work, `JOBTRACKER_BROWSER_SCOPE=icons node tests/mobile/browser.cjs`
 checks the installation guide, both apps' icons and manifests, the root default icon,

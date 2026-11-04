@@ -60,7 +60,11 @@ them does.
   control. An untouched saved colour is resubmitted exactly as stored.
 - **Graphs show only view and range**; bar grouping and agenda hours are in the
   options sheet. Fullscreen is a fixed column whose chart fills the remaining
-  height, so the header never scrolls over the controls.
+  height, so the header never scrolls over the controls. Agenda refreshes retain
+  the horizontal day position, including the left edge. A new range starts at
+  the latest day. Rotation clamps the displayed position to the available range
+  without replacing the saved intent; scrolling while a resize is pending wins
+  over the older position.
 - No `backdrop-filter` on the chrome. Nothing scrolls under the bars any more,
   so it was a GPU composite every frame for a blur of a solid colour — and the
   translucency is what made the bottom look two-toned.

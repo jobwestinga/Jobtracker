@@ -316,25 +316,44 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
     scroll.addEventListener("scroll", () => {
       // A wide rotated viewport may temporarily fit every day. Preserve the
       // user's intended position for the narrow viewport instead of caching0.
-      if (agendaLayout?.scroll === scroll && !agendaLayout.restoring && scroll.scrollWidth > scroll.clientWidth) {
-        agendaScroll.set(scrollKey, scroll.scrollLeft);
+      if (agendaLayout?.scroll !== scroll) return;
+      const maximum = scroll.scrollWidth - scroll.clientWidth;
+      if (maximum <= 0) return;
+      const position = Math.max(0, Math.min(maximum, scroll.scrollLeft));
+      // Ignore a new element's automatic initial zero, but keep user movement
+      // even when a resize frame is pending. That frame must use the new intent.
+      if (agendaLayout.initializing && position === 0) return;
+      const intended = agendaScroll.get(scrollKey) ?? maximum;
+      const clamped = Math.max(0, Math.min(maximum, intended));
+      // Resizing can clamp the displayed position without changing the user's
+      // intent. Do not replace it with that transient, narrower scroll range.
+      if (position !== clamped && position !== agendaLayout.restoredLeft) {
+        agendaScroll.set(scrollKey, position);
+        agendaLayout.restoredLeft = null;
       }
     }, { passive: true });
     agendaLayout = { days, lo, hi, wrap, gutter, scroll, tracks, marker: null,
-      scrollKey, restoring: false, boundary: dayStartHour(data, store.context?.day_start) };
+      scrollKey, initializing: true, restoredLeft: null, boundary: dayStartHour(data, store.context?.day_start) };
     updateAgendaNow();
     requestAnimationFrame(() => {
       // A refresh keeps exactly the days the user was looking at. A new range
       // opens at the most recent end, matching the original view.
-      if (!scroll.isConnected) return;
-      scroll.scrollLeft = agendaScroll.get(scrollKey) ?? scroll.scrollWidth;
+      if (!scroll.isConnected || agendaLayout?.scroll !== scroll) return;
+      restoreAgendaPosition(agendaLayout);
       if (!agendaScroll.has(scrollKey)) {
-        // Capture the initial latest-day position before resize suppresses scroll
-        // events. An initially wide viewport should also reopen at the latest end.
+        // An initially wide viewport should also reopen at the latest end.
         agendaScroll.set(scrollKey, scroll.scrollWidth > scroll.clientWidth ? scroll.scrollLeft : scroll.scrollWidth);
       }
+      agendaLayout.initializing = false;
       queueGraphResize();
     });
+  }
+
+  function restoreAgendaPosition(layout) {
+    layout.scroll.scrollLeft = agendaScroll.get(layout.scrollKey) ?? layout.scroll.scrollWidth;
+    // A browser can deliver this scroll event after the viewport changes again.
+    // Remember the actual clamped assignment, so it cannot overwrite intent.
+    layout.restoredLeft = layout.scroll.scrollLeft;
   }
 
   function updateAgendaNow() {
@@ -357,7 +376,6 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
 
   function queueGraphResize() {
     if (graphResizeFrame !== null) return;
-    if (agendaLayout) agendaLayout.restoring = true;
     graphResizeFrame = requestAnimationFrame(() => {
       graphResizeFrame = null;
       if (getView() !== "graphs") return;
@@ -372,8 +390,7 @@ export function createGraphsFeature({ store, api, banner, getView, navigateDay, 
       if (agendaLayout) {
         const layout = agendaLayout;
         for (const node of [layout.gutter, ...layout.tracks.values()]) node.style.height = `${height}px`;
-        if (agendaScroll.has(layout.scrollKey)) layout.scroll.scrollLeft = agendaScroll.get(layout.scrollKey);
-        requestAnimationFrame(() => { layout.restoring = false; });
+        if (agendaScroll.has(layout.scrollKey)) restoreAgendaPosition(layout);
         updateAgendaNow();
       } else chart.style.height = `${height}px`;
     });

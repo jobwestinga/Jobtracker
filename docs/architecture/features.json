@@ -350,6 +350,7 @@
         "tests/ui/test_graphs.py",
         "tests/mobile/agenda-now.test.mjs",
         "tests/mobile/fullscreen.test.mjs",
+        "tests/mobile/browser.cjs",
         "tests/mobile/accessibility.cjs"
       ],
       "related": [

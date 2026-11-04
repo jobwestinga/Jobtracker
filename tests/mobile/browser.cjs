@@ -11,6 +11,8 @@ const output = process.env.JOBTRACKER_BROWSER_ARTIFACTS || '/tmp/jobtracker-mobi
 fs.mkdirSync(output, { recursive: true });
 let head = 1, offline = false, active = null, ops = [], weights = [], delays = {}, holdWeight = null, holdOps = null,
   holdContext = null, failedContext = false, failedWeight = false;
+let agendaDayCount = 30;
+let browser;
 let getWeightCount = 0;
 let rejectProfileAuth = false, dropProfileAck = false;
 const hits = [];
@@ -1082,6 +1084,12 @@ async function phoneProfileChecks(browser, url) {
   await context.setOffline(false);
   await weight.locator('#refresh').click();
   await weight.waitForFunction(() => JSON.parse(localStorage.getItem('jobtracker.outbox') || '[]').length === 0);
+  assert.equal(await tracker.evaluate(() => localStorage.getItem('jobtracker.phone.jobtracker.outbox')), beforeReload.work,
+    'refreshing Weight never drains the JobTracker queue');
+  // Network emulation may change connectivity without delivering an online
+  // event to this second tab (notably with CDP CPU throttling). Exercise the
+  // app's reconnect handler explicitly instead of waiting for that side effect.
+  await tracker.evaluate(() => window.dispatchEvent(new Event('online')));
   await tracker.waitForSelector('#setup:not(.hidden)');
   await tracker.waitForLoadState('networkidle');
   assert.equal(await tracker.evaluate(() => localStorage.getItem('jobtracker.phone.jobtracker.outbox')), beforeReload.work,
@@ -1155,7 +1163,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/graphs/breakdown') return json(res, { grouping: 'daily', buckets: [{ date: currentDay, total_seconds: 4500, segments: [{ subject_uid: 'subject-a', subject_name: 'Work', color: '#3B82F6', seconds: 4500 }] }] });
     if (url.pathname === '/api/graphs/agenda') return json(res, { day_start_hour: 3,
-      days: Array.from({ length: 30 }, (_, index) => { const day = new Date(`${currentDay}T12:00:00`); day.setDate(day.getDate() - 29 + index); return day.toISOString().slice(0, 10); }),
+      days: Array.from({ length: agendaDayCount }, (_, index) => { const day = new Date(`${currentDay}T12:00:00`); day.setDate(day.getDate() - (agendaDayCount - 1) + index); return day.toISOString().slice(0, 10); }),
       sessions: [{ ...sessions[0], day: currentDay, subject_name: 'Work', color: '#3B82F6', start_h: 9, end_h: 10.25 }] });
     if (url.pathname === '/api/weight') {
       getWeightCount++;
@@ -1184,7 +1192,7 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
+  browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
   if (process.env.JOBTRACKER_BROWSER_SCOPE === 'phone-profiles') {
     await phoneProfileChecks(browser, url);
     console.log(JSON.stringify({ browserChecks: 'passed', scope: 'phone-profiles', screenshots: output }));
@@ -1299,8 +1307,12 @@ const server = http.createServer(async (req, res) => {
   await page.locator('[data-mode="agenda"]').click(); await page.waitForSelector('.agenda-block');
   await page.waitForFunction(() => { const scroll = document.querySelector('.agenda-scroll'); return Math.abs(scroll.scrollLeft - (scroll.scrollWidth - scroll.clientWidth)) <= 1; });
   await page.setViewportSize({ width: 844, height: 390 });
+  // Let resize/scroll delivery finish before rotating again. The browser can
+  // clamp scrollLeft synchronously, before the app has received its resize.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.waitForFunction(() => { const scroll = document.querySelector('.agenda-scroll'); return Math.abs(scroll.scrollLeft - (scroll.scrollWidth - scroll.clientWidth)) <= 1; });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.waitForFunction(() => { const scroll = document.querySelector('.agenda-scroll'); return Math.abs(scroll.scrollLeft - (scroll.scrollWidth - scroll.clientWidth)) <= 1; });
   await page.waitForSelector('.agenda-now[data-day="2026-10-10"]');
   assert.equal(await page.locator('.agenda-now').count(), 1);
@@ -1308,16 +1320,30 @@ const server = http.createServer(async (req, res) => {
   const markerTop = await page.locator('.agenda-now').evaluate((marker) => marker.style.top);
   await page.evaluate(() => {
     window.originalAgendaBlock = document.querySelector('.agenda-block');
+    // A user can scroll while a resize restoration is still queued. Their
+    // newer position must win, regardless of frame timing on the CI runner.
+    window.dispatchEvent(new Event('resize'));
     const scroll = document.querySelector('.agenda-scroll'); scroll.scrollLeft = 100; scroll.dispatchEvent(new Event('scroll'));
     setPickerClock('2026-10-10T09:31:00'); document.dispatchEvent(new Event('visibilitychange'));
   });
   await page.waitForFunction(() => document.querySelector('.agenda-now-label').textContent === '09:31');
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.notEqual(await page.locator('.agenda-now').evaluate((marker) => marker.style.top), markerTop);
   assert.equal(await page.evaluate(() => originalAgendaBlock === document.querySelector('.agenda-block')), true, 'no-head resume moves the marker without replacing session blocks');
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100);
+  agendaDayCount = 31; // Changed history forces a real agenda DOM replacement.
   await page.locator('#refresh').click(); await page.waitForFunction(() => !document.querySelector('#refresh').hasAttribute('aria-busy'));
+  await page.waitForFunction(() => document.querySelectorAll('.agenda-col').length === 31);
   await page.waitForFunction(() => document.querySelector('.agenda-scroll').scrollLeft === 100);
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100, 'actual data redraw restores horizontal day position');
+  // The left edge is an explicit saved position, including after another redraw.
+  await page.evaluate(() => { const scroll = document.querySelector('.agenda-scroll'); scroll.scrollLeft = 0; scroll.dispatchEvent(new Event('scroll')); });
+  agendaDayCount = 32;
+  await page.locator('#refresh').click(); await page.waitForFunction(() => !document.querySelector('#refresh').hasAttribute('aria-busy'));
+  await page.waitForFunction(() => document.querySelectorAll('.agenda-col').length === 32);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 0, 'a saved zero never falls back to the latest day');
+  await page.evaluate(() => { const scroll = document.querySelector('.agenda-scroll'); scroll.scrollLeft = 100; scroll.dispatchEvent(new Event('scroll')); });
   await page.evaluate(() => { document.documentElement.requestFullscreen = () => Promise.reject(new Error('native fullscreen unavailable')); });
   await page.locator('#graph-fullscreen').click(); await page.waitForSelector('#view-graphs.plot-fullscreen');
   assert.equal(await page.locator('.agenda-scroll').evaluate((scroll) => scroll.scrollLeft), 100);
@@ -1492,4 +1518,36 @@ const server = http.createServer(async (req, res) => {
   await phoneProfileChecks(browser, url);
   console.log(JSON.stringify({ browserChecks: 'passed', viewports: ['390x844', '844x390', '1280x900', '320x740'], tested: ['fractional day-start save once, failed disconnect, pending account-change guard', 'session90m preset,170m chunks, offline/ACK-storage durability and duplicate guard', 'shared session ±1day controls, exact UID/duration and fractional timestamps', 'real service-worker offline launch, CSS/modules, queued save and reconnect', 'cold Weight before slow/failed tracking requests', 'viewport-wide whole/decimal tiles', 'durable save resets online/offline', 'storage failure and removed-target retry', 'fullscreen fallback, rotation, draft and account cleanup', 'agenda live clock and day-scroll preservation', 'calendar session navigation and day response race', 'agenda exact session', 'offline timer reload/replay', 'weight load/save race and double submission', 'timestamp and original precision preservation', 'new draft during save and correct receipts', 'weight graphs all/historic/custom', 'offline weight edit/delete/reload', 'account reset', 'latest/backfill anchor', 'manual date collision and same-day coalescing', 'refresh-stable selection and keyboard navigation', 'persistent entry options', 'calendar midnight rollover', '1060-row tap performance'], pickerPerformance, screenshots: output, requests: hits.length }));
   await browser.close(); server.close();
-})().catch((err) => { console.error(err); server.close(); process.exit(1); });
+})().catch(async (err) => {
+  console.error(err);
+  // Only synthetic mock data is present. Keep the failure and its actual
+  // layout together instead of uploading only earlier, successful screenshots.
+  try {
+    const diagnostic = { error: err.stack || String(err), browser: browser?.version(), pages: [] };
+    for (const context of browser?.contexts() || []) {
+      for (const page of context.pages()) {
+        if (page.isClosed()) continue;
+        const screenshot = `failure-${diagnostic.pages.length + 1}.png`;
+        const detail = { viewport: page.viewportSize(), screenshot };
+        let captureTimer;
+        try {
+          detail.layout = await Promise.race([page.evaluate(() => {
+            const scroll = document.querySelector('.agenda-scroll');
+            return { path: location.pathname, agenda: scroll ? {
+              left: scroll.scrollLeft, width: scroll.scrollWidth, viewport: scroll.clientWidth,
+              days: document.querySelectorAll('.agenda-col').length,
+            } : null };
+          }), new Promise((_, reject) => {
+            captureTimer = setTimeout(() => reject(new Error('Layout capture timed out')), 5000);
+          })]);
+          await page.screenshot({ path: path.join(output, screenshot), fullPage: true, timeout: 5000 });
+        } catch (captureError) { detail.captureError = captureError.message; }
+        finally { clearTimeout(captureTimer); }
+        diagnostic.pages.push(detail);
+      }
+    }
+    fs.writeFileSync(path.join(output, 'failure.json'), JSON.stringify(diagnostic, null, 2));
+  } catch (captureError) { console.error('Could not capture browser failure:', captureError); }
+  await browser?.close().catch((closeError) => console.error('Could not close browser:', closeError));
+  server.close(); process.exit(1);
+});
